@@ -629,7 +629,13 @@ path). `harness/cold-store.py runs <runs dir>...` uploads whole run folders exce
 linked in both Grafana DBs (table `run_videos`, its own table so a re-import keeps it): the Runs table's `video` column
 and the Run dashboard's Recording panel. The links (`storage.googleapis.com`) play for everyone; every read is billed
 (Coldline retrieval + egress), so never put anything but PZ run data in this bucket. Log: `~/.cache/pzopt-cold-store/log.txt`. The desktop's uplink is ~6 MB/s
-(parallel uploads do not help): ~6 minutes a GB. Coldline: 90-day minimum storage, a retrieval fee per GB read.
+(parallel uploads do not help): ~6 minutes a GB. Standard class since 2026-09-27 (public reads: no retrieval fee).
+Hard cap: the bucket carries the label `app=pzopt-videos`; the budget "pzopt videos hard cap" (EUR 10 a month on that
+label) posts to Pub/Sub `pzopt-budget-cap`, and the function `pzopt-budget-cap` (europe-west1,
+`harness/grafana/cloud/budget-cap/`, service account `pzopt-budget-cap`: Project Billing Manager + Browser) disables
+billing on project diegov when the reported cost reaches the budget: everything in the project stops (the public
+dashboard too) until billing is re-linked by hand. Budget costs lag by hours. Test with a message carrying
+`"dryRun": true` (logs "DRY RUN: would disable billing").
 
 ## Pitfalls that already cost runs
 
