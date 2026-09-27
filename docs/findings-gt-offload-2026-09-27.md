@@ -102,6 +102,39 @@ the room / meta "square seen" hooks, all from the worker. `pzopt.LightingDefer`:
 under its lighting object's monitor and every side effect goes to the task's list, run by the game thread at the join in
 task order. With it the Mac run's player-LOS section went from +138 µs (on) to −94 µs.
 
+## PR #35 update (2026-09-28): physicsDefer, the combined dispatch, three machines
+
+The PR's commits after the part merged above (f3a0b4b, emitterDefer) were cherry-picked onto master with their author:
+the combined dispatch (`entityUpdatePipeline`: every bucket's batchable entities go up in one flight from the scheduler
+tail, the player / vehicles / animals run on the game thread while it is airborne), `physicsDefer` (a batched zombie's
+two Bullet calls, the ballistics target and the ragdoll-car contact, queue on its task and run at the join), the
+statistics lock, `initSurface` published once (replaces this pass's monitor + fences), the pathfind race traced to the
+class's static scratch objects (per-thread now, the clone and the catch gone) and build.sh ignoring `synchronized` in the
+member check. Two merge fixes: the combined flight runs its tasks under `LightingDefer` like the per-bucket one (it had
+none: the light-read race was open again with the pipeline on), and `initSurface` is the PR's version.
+
+Profile, same build on the three machines (`entityUpdateParallel` alternating every 2.3 s, `harness/gtab.py`; steady
+Louisville hold, 40 s; game-thread CPU a frame, on - off):
+
+| setup | desktop (8 workers) | flip | Mac (4 workers) |
+|---|---|---|---|
+| calm-state whitelist, 60 cows | -1.86 ms (-19 %), fps +22 % | -1.19 ms (-5 %), +3 % | -1.25 ms (-7 %), +4 % |
+| the PR's filter, 60 cows | -1.82 ms (-25 %), +29 % | -1.96 ms (-9 %), +6 % | -3.05 ms (-17 %), +15 % |
+| the PR's filter + pipeline, 60 cows | -0.36 ms (-5 %), +5 % | -2.11 ms (-10 %), +9 % | +0.40 ms, fps -5 % |
+| the PR's filter, no animals | -1.58 ms (-25 %), +29 % | -3.60 ms (-19 %), +18 % | -3.09 ms (-21 %), +15 % |
+| the PR's filter + pipeline, no animals | -1.44 ms (-23 %), +30 % | -4.10 ms (-21 %), +24 % | -3.49 ms (-23 %), +25 % |
+
+Every run: 0 exceptions on a batch task, no failure latch. Horde-shoot with the PR's filter + pipeline (the setup that
+crashed 3/3 on 2026-09-27): desktop 2/2 clean under fire (66 / 87 rounds, ~320 k ballistics and ~150 k ragdoll calls
+deferred, no ragdoll released off the game thread), Mac 3/3 clean (75-80 rounds), flip 2/2 no crash but the scripted
+shooter fired no round there (the horde reaches the player before the shooting phase on the slower machine).
+
+Read: the whitelist is no longer a safety need; it gives up 40-60 % of the gain on the laptops and nothing measurable
+on the desktop. The pipeline pays on the laptops with few animals and nothing on the desktop; with a herd it costs:
+animals run inline while the zombies are airborne and every zombie getter of their sight walk goes through the position
+snapshot (animal LOS +1.3 ms flip, +1.6 ms desktop, +4.9 ms Mac with 60 cows). Defaults unchanged: `entityUpdateParallel`
+off (the maintainer's call), `entityUpdateSafeStates` on, `entityUpdatePipeline` off.
+
 ## Desktop check (after the pass, 2026-09-27 evening)
 
 Every default key alternating together (`devGtAlternateKeys=all`), `--launcher direct`. **The alternation period must not divide

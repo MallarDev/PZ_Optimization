@@ -4701,7 +4701,9 @@ N ms inside one run (`pzopt.GtAb`, `harness/gtab.py`): the off half takes the ol
 - `initSurface`: the lazy surface / slope parse is read from frame workers too (`updateFalling -> hasSlopedSurface` on a
   batched zombie). Stock set the "parsed" bit before filling the fields, so a second thread could read half-parsed values;
   now the fill runs under the container's monitor into the same fields and the bit is set last behind a release fence,
-  readers take an acquire fence after seeing it. Serially the same values in the same fields.
+  readers take an acquire fence after seeing it. Serially the same values in the same fields. Superseded on 2026-09-28 by
+  PR #35's own fix (below, `SurfaceInitTest`): the walk accumulates into a per-thread scratch and the volatile flag byte is
+  published last in one store; the monitor and the fences were dropped in the merge.
 
 ### fmod.fmod.FMODSoundEmitter, zombie.characters.AttachedItems.AttachedItems, zombie.statistics.StatisticsManager (PR #35's locks)
 
