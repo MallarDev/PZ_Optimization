@@ -224,16 +224,6 @@ public final class PropertyContainer extends TShortShortHashMap {
    }
 
    private void initSurface() {
-      if ((this.surfaceFlags & 1) != 0) { // pzopt: entityUpdateParallel, the lazy init is read from frame workers too: the flag is
-         java.lang.invoke.VarHandle.acquireFence(); // pzopt: published last (release fence below), so a reader that sees it sees the fields
-         return; // pzopt
-      } // pzopt
-      synchronized (this) { // pzopt: one initializer at a time; the fields are filled before the initialized bit
-         this.pzoptInitSurfaceLocked(); // pzopt
-      } // pzopt
-   }
-
-   private void pzoptInitSurfaceLocked() { // pzopt: the stock body of initSurface, the initialized bit set last
       if ((this.surfaceFlags & 1) == 0) {
          pzopt.SurfaceInit s = pzopt.SurfaceInit.scratch(); // pzopt: the walk accumulates off the object, stock set the done flag here and filled the fields afterwards — a second thread saw "done" over the reset defaults
          if (pzopt.Config.PROPERTY_SURFACE_NOALLOC) { // pzopt: forEachEntry's own loop without the capturing lambda (C1 allocates one per call)
