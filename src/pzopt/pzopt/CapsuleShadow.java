@@ -54,9 +54,12 @@ public final class CapsuleShadow {
    private static final float[] RADIUS = {0.15F, 0.11F, 0.075F, 0.055F, 0.075F, 0.055F, 0.05F, 0.045F, 0.05F, 0.045F};
    static final int K = 10;
    /** Per caster: (unused), its bounding capsule (a xyz r, b xyz 0), its facts (floor z, kind, sun, alpha), then a (xyz, r) and b (xyz, 0) per capsule. */
-   private static final int TEXELS = 4 + 2 * K;
+   private static final int CENTRE = 4 + 2 * K; // the caster's atlas tile centre (sunShadowMeshes)
+   private static final int LAMP0 = CENTRE + 1; // two lamp views (sunShadowLampMeshes), 3 texels each: tile, half size; centre now; lamp from the centre at the draw
+   private static final int TEXELS = LAMP0 + 6;
    private static final int MAX = 1024;
    private static final int MAX_LIGHTS = 4;
+   private static final float[] LIGHT_SCORE = new float[MAX_LIGHTS];
    private static final int MAX_PAIRS = 2048;
    private static long lightPairs;
    private static final float METRIC_Z = 2.4494897F; // squares of height per level
@@ -83,8 +86,8 @@ public final class CapsuleShadow {
    }
 
    static String stats() {
-      return "capsule shadows: frames=" + frames + " (with lights " + lightFrames + ", caster x light quads " + lightPairs + ") characters=" + characters + " vehicles=" + vehicles + " atlas=" + atlas + " (end points on the game thread "
-         + computedHere + ") draws=" + drawn + (failed ? " FAILED" : "");
+      return "capsule shadows: frames=" + frames + " (with lights " + lightFrames + ", caster x light quads " + lightPairs + ") characters=" + characters + " vehicles=" + vehicles + " animals=" + animals + " atlas=" + atlas + " mesh draws=" + meshDraws + " lamp views drawn=" + lampDraws + " read=" + lampLooks + " (end points on the game thread "
+         + computedHere + ") draws=" + drawn + (failed ? " FAILED" : "") + " | " + ShadowAtlas.stats();
    }
 
    /** The end points of BONES (relative to the character, metric) into out; false when the skeleton lacks one. Any thread. */
@@ -111,6 +114,36 @@ public final class CapsuleShadow {
     */
    public static void queue(int playerIndex) {
       current = null;
+      stamp++;
+      castersLast = castersNow;
+      castersNow = 0;
+      drawsNow = 0;
+      lampDrawsNow = 0;
+      // sunShadowMeshHz: each caster's pose redrawn so many times a second whatever the frame rate (the draws a frame follow
+      // the casters and the last frame's time), at least one a frame, at most sunShadowMeshBudget
+      long nowNs = System.nanoTime();
+      double dt = lastQueueNs == 0L ? 1.0 / 240.0 : Math.min(0.1, (nowNs - lastQueueNs) / 1e9);
+      lastQueueNs = nowNs;
+      // the draws come in bursts of at least sunShadowMeshBurst (a flush has a fixed cost: the atlas bound, its tiles cleared,
+      // the state put back; ~44 us of the flip's render thread against ~26 us a draw): the frame's share of the redraws is
+      // credited, and a frame spends it once it covers a burst
+      meshCredit = Math.min(64.0, meshCredit + castersLast * Math.max(1, Config.SUN_SHADOW_MESH_HZ) * dt);
+      int burst = Math.max(1, Config.SUN_SHADOW_MESH_BURST);
+      if (meshCredit >= Math.min(burst, Math.max(1, castersLast))) {
+         meshBudget = Math.min(Math.max(1, Config.SUN_SHADOW_MESH_BUDGET), (int)meshCredit);
+         meshCredit -= meshBudget;
+      } else {
+         meshBudget = 0; // (a new caster still draws: its first pose)
+      }
+      meshStaleFrames = Math.max(1L, (long)(0.8 / (Math.max(1, Config.SUN_SHADOW_MESH_HZ) * Math.max(1e-4, dt)))); // a pose older than ~0.8 / Hz is due
+      // the draws scheduled last frame were drawn at its end: their content is the tiles' now
+      for (int t = 0; t < ShadowAtlas.MAX_TILES; t++) {
+         if (TILE_SCHED[t] == stamp - 1L && TILE_SCHED[t] != 0L) {
+            System.arraycopy(TILE_NEXT, t * 4, TILE_OFF, t * 4, 4);
+            System.arraycopy(TILE_LAMP_NEXT, t * 3, TILE_LAMP, t * 3, 3);
+            TILE_HAS[t] = true;
+         }
+      }
       if (!Overrides.enabled() || !Config.SUN_SHADOWS || !Config.SUN_SHADOW_CHARACTERS && !Config.SUN_SHADOW_VEHICLES || failed) {
          lightsActive = false;
          return;
@@ -159,8 +192,403 @@ public final class CapsuleShadow {
       if (f.nl > 0) {
          lightFrames++;
       }
-      SpriteRenderer.instance.drawGeneric(f);
+      f.silhouette = Config.SUN_SHADOW_SILHOUETTE;
+      f.meshes = f.silhouette && (f.sunOn || f.nl > 0 && Config.SUN_SHADOW_LAMP_MESHES) && ShadowAtlas.usable();
+      if (f.meshes) {
+         // the atlas starts here in the sprite stream: cleared, the frame's sun, before any model of the frame draws
+         SpriteRenderer.instance.drawGeneric(ShadowAtlas.begin(f.sun[0], f.sun[1], f.sun[2], true));
+      }
+      if (f.silhouette) {
+         deferred = f; // drawn after the moving objects (afterMoving): the march reads their depth
+      } else {
+         SpriteRenderer.instance.drawGeneric(f);
+      }
    }
+
+   /**
+    * Game thread, right after the moving objects (characters, animals, vehicles) were queued: sunShadowSilhouette draws this
+    * frame's pass here, reading their depth; the casters collected since queue() are complete.
+    */
+   public static void afterMoving(int playerIndex) {
+      current = null;
+      if (Config.SUN_SHADOW_PASS_LATE) {
+         return; // beforeFog draws it
+      }
+      Frame f = deferred;
+      deferred = null;
+      if (f != null && f.n > 0) {
+         SpriteRenderer.instance.drawGeneric(f);
+      }
+   }
+
+   /**
+    * Game thread, right before the god rays and the fog (FBORenderCell, the scene depth complete: water, translucent
+    * objects and the stock shadows drawn): sunShadowPassLate draws the frame's caster pass here. Its read of the scene
+    * depth sits beside the god rays' and the fog pass's (on AMD / Mesa the first read of a depth target after drawing
+    * decompresses it, ~70-85 us of the flip's GPU whatever the pass then does: sharing it is the saving); translucent objects
+    * are receivers too.
+    */
+   public static void beforeFog(int playerIndex) {
+      current = null;
+      Frame f = deferred;
+      deferred = null;
+      if (f != null && f.n > 0) {
+         SpriteRenderer.instance.drawGeneric(f);
+      }
+   }
+
+   /**
+    * Game thread, at the start of the screen composite (MultiTextureFBO2.render): the frame's sun draws of the casters
+    * are drawn there on the render thread, after the world pass (switching the render target to the atlas in the middle of
+    * the world cost the GPU more than the draws), before the frame's slots are released. The next frame's pass reads them.
+    */
+   public static void queueAtlasFlush() {
+      if (drawsNow > 0) {
+         SpriteRenderer.instance.drawGeneric(ShadowAtlas.FLUSH);
+      }
+   }
+
+   /** The stock blob shadow's alpha factor for the caster just added (1 unless it casts a real sun shadow); FBORenderShadows reads it. */
+   public static float stockShadowScale() {
+      return stockScale;
+   }
+
+   /** Game thread, after the caster's stock shadow was queued: later shadows (corpses, mannequins) keep their alpha. */
+   public static void stockShadowDone() {
+      stockScale = 1F;
+   }
+
+   private static Frame deferred;
+   private static long stamp; // game thread: CapsuleShadow.queue's call count (the characters' tile stamp)
+
+   /**
+    * Game thread, TextureDraw.drawModel: the atlas tile of the model's character when it joined this frame's pass
+    * (CapsuleShadow.add), else -1, into the draw's fields (its sun draw on the render thread reads them).
+    */
+   public static void tileFor(zombie.core.skinnedmodel.ModelManager.ModelSlot slot, TextureDraw texd) {
+      texd.pzoptShadowTile = -1;
+      texd.pzoptLampN = 0;
+      if (slot == null || drawsNow == 0) {
+         return;
+      }
+      IsoGameCharacter chr = slot.character;
+      if (chr == null && slot.model != null && slot.model.object instanceof IsoGameCharacter c) {
+         chr = c;
+      }
+      if (chr != null && lampDrawsNow > 0) {
+         LampViews lv = LAMPS.get(chr);
+         if (lv != null && lv.drawStamp == stamp && lv.n > 0) {
+            if (texd.pzoptLampDraw == null) {
+               texd.pzoptLampDraw = new float[16];
+            }
+            System.arraycopy(lv.draw, 0, texd.pzoptLampDraw, 0, lv.n * 8);
+            texd.pzoptLampN = lv.n;
+            lv.drawStamp = 0L; // one draw a frame
+         }
+      }
+      if (chr == null && slot.model != null && slot.model.object instanceof zombie.vehicles.BaseVehicle v) {
+         float[] vs = VEHICLE_TILES.get(v);
+         if (vs != null && vs[0] >= 0F && (long)vs[1] == stamp) {
+            texd.pzoptShadowTile = (int)vs[0];
+            texd.pzoptShadowX = vs[2];
+            texd.pzoptShadowY = vs[3];
+            texd.pzoptShadowZ = vs[4];
+            texd.pzoptShadowHalf = vs[5];
+            vs[1] = 0F;
+         }
+         return;
+      }
+      if (chr == null || chr.pzoptShadowStamp != stamp || chr.pzoptShadowTile < 0) {
+         return;
+      }
+      texd.pzoptShadowTile = chr.pzoptShadowTile;
+      texd.pzoptShadowX = chr.pzoptShadowX;
+      texd.pzoptShadowY = chr.pzoptShadowY;
+      texd.pzoptShadowZ = chr.pzoptShadowZ;
+      texd.pzoptShadowHalf = chr.pzoptShadowHalf;
+      chr.pzoptShadowStamp = 0L; // one sun draw a frame (a second view of the same slot draws none)
+   }
+
+   private static final Object[] TILE_OWNER = new Object[ShadowAtlas.MAX_TILES];
+   /** A vehicle's tile state (vehicles are no override: no fields): tile, stamp of a scheduled draw, centre x, y, z, half. */
+   private static final java.util.IdentityHashMap<Object, float[]> VEHICLE_TILES = new java.util.IdentityHashMap<>();
+   private static final long[] TILE_SEEN = new long[ShadowAtlas.MAX_TILES]; // the stamp its character last joined a pass
+   private static final long[] TILE_DRAWN = new long[ShadowAtlas.MAX_TILES]; // the stamp of its last sun draw (0: never)
+   private static final long[] TILE_SUN = new long[ShadowAtlas.MAX_TILES]; // the sun step it was drawn under
+   private static final float[] TILE_OFF = new float[ShadowAtlas.MAX_TILES * 4]; // the tile's content: its centre from its character (at the draw), half size
+   private static final float[] TILE_NEXT = new float[ShadowAtlas.MAX_TILES * 4]; // a draw scheduled this frame (drawn at the frame's end)
+   private static final long[] TILE_SCHED = new long[ShadowAtlas.MAX_TILES]; // the stamp of the frame that scheduled its last draw
+   private static final boolean[] TILE_HAS = new boolean[ShadowAtlas.MAX_TILES]; // its content was drawn
+   private static final byte[] TILE_KIND = new byte[ShadowAtlas.MAX_TILES]; // -1 its owner's sun view, 0 / 1 its owner's first / second lamp view
+   private static final float[] TILE_LAMP = new float[ShadowAtlas.MAX_TILES * 3]; // a lamp view's content: the lamp from its centre (z metric)
+   private static final float[] TILE_LAMP_NEXT = new float[ShadowAtlas.MAX_TILES * 3]; // a lamp draw scheduled (the last scheduled)
+   /** A character's lamp views: their tiles and this frame's draws (TextureDraw.pzoptLampDraw's layout). */
+   private static final class LampViews {
+      final int[] tile = {-1, -1};
+      long drawStamp;
+      int n;
+      final float[] draw = new float[16];
+   }
+   private static final java.util.IdentityHashMap<Object, LampViews> LAMPS = new java.util.IdentityHashMap<>();
+   private static int lampDrawsNow;
+   private static long lampDraws, lampLooks;
+   private static int castersNow, castersLast, drawsNow, meshBudget = 1;
+   private static long lastQueueNs;
+   private static double meshCredit;
+   private static long meshStaleFrames = 1L;
+   private static long meshDraws;
+   private static int tileScan;
+
+   /**
+    * The caster just appended (the frame's last, a model) keeps its atlas tile from frame to frame (a free one the first
+    * time). The tile is drawn again from the sun when it is new, drawn under another sun step, or its turn in the frame's
+    * budget has come (sunShadowMeshBudget draws a frame, the casters taking turns: each is redrawn every casters / budget
+    * frames); in between the pass reads the last pose, placed at the character's position now (only the pose lags, by a
+    * few frames). Its tile, half size and centre go into the caster's data; a draw's centre and half size on the character
+    * for tileFor.
+    */
+   private static void assignTile(Frame f, zombie.iso.IsoMovingObject chr, boolean sun) {
+      int base = (f.n - 1) * TEXELS * 4;
+      float[] d = f.data;
+      d[base] = -1F;
+      d[base + LAMP0 * 4] = -1F;
+      d[base + (LAMP0 + 3) * 4] = -1F;
+      if (!f.meshes) {
+         return;
+      }
+      if (sun && f.sunOn) {
+         sunTile(f, chr, base);
+      }
+      if (f.nl > 0 && Config.SUN_SHADOW_LAMP_MESHES && chr instanceof IsoGameCharacter) {
+         lampTiles(f, chr, base);
+      }
+   }
+
+   /**
+    * sunShadowLampMeshes: the character's views from the (at most two) strongest lamps it stands in (the frame's lights are
+    * sorted strongest first), each in a tile of its own, drawn again when new, when its lamp moved round the character by a
+    * fifth of a square or its pose is older than sunShadowMeshHz allows (sunShadowLampBudget draws a frame); the lamp at the
+    * draw goes with the tile's content, so the pass reads a consistent view in between.
+    */
+   private static void lampTiles(Frame f, zombie.iso.IsoMovingObject chr, int base) {
+      float[] d = f.data;
+      float ax = d[base + 4], ay = d[base + 5], az = d[base + 6], r = d[base + 7], bx = d[base + 8], by = d[base + 9], bz = d[base + 10];
+      float mx = 0.5F * (ax + bx), my = 0.5F * (ay + by), mz = 0.5F * (az + bz);
+      float len = (float)Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az));
+      float half = Math.max(0.4F, Math.min(3.5F, (0.5F * len + r) * 1.1F));
+      LampViews lv = null;
+      int j = 0;
+      float px = chr.getX(), py = chr.getY(), pz = chr.getZ() * METRIC_Z;
+      for (int l = 0; l < f.nl && j < 2; l++) {
+         float lx = f.lA[l * 4], ly = f.lA[l * 4 + 1], lz = f.lA[l * 4 + 2], reach = f.lA[l * 4 + 3];
+         float vx = mx - lx, vy = my - ly;
+         float dl = (float)Math.sqrt(vx * vx + vy * vy);
+         float d3 = (float)Math.sqrt(dl * dl + (mz - lz) * (mz - lz));
+         boolean car = f.lK[l] > 1.5F;
+         if (dl > reach + r || !car && dl < 0.7F || d3 < half * 1.25F) {
+            continue; // out of reach, its holder, or the lamp inside the caster's sphere (the capsules there)
+         }
+         float cone = f.lB[l * 4 + 2];
+         if (cone > -1.5F && dl > r + 0.5F) {
+            float cosToCaster = (vx * f.lB[l * 4] + vy * f.lB[l * 4 + 1]) / dl;
+            float c0 = car ? cone - 0.28F : cone + 0.025F;
+            double a = Math.acos(Math.max(-1F, Math.min(1F, cosToCaster))), sa = Math.asin(Math.min(1.0, (r + 0.5F) / dl));
+            if (Math.cos(Math.max(0.0, a - sa)) < c0) {
+               continue;
+            }
+         }
+         if (lv == null) {
+            lv = LAMPS.get(chr);
+            if (lv == null) {
+               if (LAMPS.size() > 1024) {
+                  LAMPS.clear();
+               }
+               lv = new LampViews();
+               LAMPS.put(chr, lv);
+            }
+            if (lv.drawStamp != stamp) {
+               lv.n = 0;
+            }
+         }
+         int t = lv.tile[j];
+         if (t < 0 || t >= ShadowAtlas.MAX_TILES || TILE_OWNER[t] != chr || TILE_KIND[t] != j) {
+            t = allocTile(chr, j);
+            if (t < 0) {
+               return;
+            }
+            lv.tile[j] = t;
+         }
+         TILE_SEEN[t] = stamp;
+         int o = t * 4, o3 = t * 3;
+         float lox = lx - mx, loy = ly - my, loz = lz - mz; // the lamp from the caster's centre now
+         float mdx = lox - TILE_LAMP_NEXT[o3], mdy = loy - TILE_LAMP_NEXT[o3 + 1], mdz = loz - TILE_LAMP_NEXT[o3 + 2];
+         boolean moved = mdx * mdx + mdy * mdy + mdz * mdz > 0.04F;
+         boolean due = TILE_DRAWN[t] == 0L
+            || lampDrawsNow < Math.max(1, Config.SUN_SHADOW_LAMP_BUDGET) && (moved || stamp - TILE_DRAWN[t] >= meshStaleFrames);
+         if (due) {
+            TILE_NEXT[o] = f.ox + mx - px;
+            TILE_NEXT[o + 1] = f.oy + my - py;
+            TILE_NEXT[o + 2] = mz - pz;
+            TILE_NEXT[o + 3] = half;
+            TILE_LAMP_NEXT[o3] = lox;
+            TILE_LAMP_NEXT[o3 + 1] = loy;
+            TILE_LAMP_NEXT[o3 + 2] = loz;
+            TILE_SCHED[t] = stamp;
+            TILE_DRAWN[t] = stamp;
+            drawsNow++;
+            lampDrawsNow++;
+            lampDraws++;
+            if (lv.n < 2) {
+               int q = lv.n * 8;
+               lv.draw[q] = t;
+               lv.draw[q + 1] = f.ox + mx;
+               lv.draw[q + 2] = f.oy + my;
+               lv.draw[q + 3] = mz;
+               lv.draw[q + 4] = half;
+               lv.draw[q + 5] = f.ox + lx;
+               lv.draw[q + 6] = f.oy + ly;
+               lv.draw[q + 7] = lz;
+               lv.n++;
+               lv.drawStamp = stamp;
+            }
+         }
+         if (TILE_HAS[t]) {
+            int c = base + (LAMP0 + 3 * j) * 4;
+            d[c] = t;
+            d[c + 1] = TILE_OFF[o + 3];
+            d[c + 4] = px - f.ox + TILE_OFF[o];
+            d[c + 5] = py - f.oy + TILE_OFF[o + 1];
+            d[c + 6] = pz + TILE_OFF[o + 2];
+            d[c + 8] = TILE_LAMP[o3];
+            d[c + 9] = TILE_LAMP[o3 + 1];
+            d[c + 10] = TILE_LAMP[o3 + 2];
+            lampLooks++;
+         }
+         j++;
+      }
+   }
+
+   private static void sunTile(Frame f, zombie.iso.IsoMovingObject chr, int base) {
+      float[] d = f.data;
+      IsoGameCharacter ch = chr instanceof IsoGameCharacter c ? c : null;
+      float[] vs = null;
+      if (ch == null) {
+         vs = VEHICLE_TILES.get(chr);
+         if (vs == null) {
+            if (VEHICLE_TILES.size() > 512) {
+               VEHICLE_TILES.clear();
+            }
+            vs = new float[] {-1F, 0F, 0F, 0F, 0F, 0F};
+            VEHICLE_TILES.put(chr, vs);
+         }
+      }
+      int tile = ch != null ? ch.pzoptShadowTile : (int)vs[0];
+      if (tile < 0 || tile >= ShadowAtlas.MAX_TILES || TILE_OWNER[tile] != chr || TILE_KIND[tile] != -1) {
+         tile = allocTile(chr, -1);
+         if (tile < 0) {
+            return;
+         }
+      }
+      TILE_SEEN[tile] = stamp;
+      castersNow++;
+      float px = chr.getX(), py = chr.getY(), pz = chr.getZ() * METRIC_Z;
+      int budget = meshBudget; // (0 between bursts: an earlier pose, at the character's position now)
+      long period = meshStaleFrames;
+      long sunStep = SunShadow.stepSerial();
+      boolean due = TILE_DRAWN[tile] == 0L
+         || drawsNow < budget && (stamp - TILE_DRAWN[tile] >= period || TILE_SUN[tile] != sunStep);
+      int o = tile * 4;
+      if (due) {
+         // the draw happens at the end of this frame's world pass (ShadowAtlas.flush): its parameters wait in TILE_NEXT and
+         // become the tile's (TILE_OFF) at the next frame's queue, when the pass reads the new content
+         float ax = d[base + 4], ay = d[base + 5], az = d[base + 6], r = d[base + 7], bx = d[base + 8], by = d[base + 9], bz = d[base + 10];
+         float len = (float)Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az));
+         float half = Math.max(0.4F, Math.min(3.5F, (0.5F * len + r) * 1.1F));
+         TILE_NEXT[o] = f.ox + 0.5F * (ax + bx) - px;
+         TILE_NEXT[o + 1] = f.oy + 0.5F * (ay + by) - py;
+         TILE_NEXT[o + 2] = 0.5F * (az + bz) - pz;
+         TILE_NEXT[o + 3] = half;
+         TILE_SCHED[tile] = stamp;
+         TILE_DRAWN[tile] = stamp;
+         TILE_SUN[tile] = sunStep;
+         drawsNow++;
+         meshDraws++;
+         if (ch != null) {
+            ch.pzoptShadowStamp = stamp; // tileFor: this frame's model draw also draws the tile
+            ch.pzoptShadowX = px + TILE_NEXT[o];
+            ch.pzoptShadowY = py + TILE_NEXT[o + 1];
+            ch.pzoptShadowZ = pz + TILE_NEXT[o + 2];
+            ch.pzoptShadowHalf = half;
+         } else {
+            vs[1] = stamp;
+            vs[2] = px + TILE_NEXT[o];
+            vs[3] = py + TILE_NEXT[o + 1];
+            vs[4] = pz + TILE_NEXT[o + 2];
+            vs[5] = half;
+         }
+      }
+      if (!TILE_HAS[tile]) {
+         return; // its first draw is this frame's: the capsules until the next
+      }
+      d[base] = tile;
+      d[base + 1] = TILE_OFF[o + 3];
+      int c = base + CENTRE * 4; // the tile's centre now: the character's position + the centre's offset at the draw
+      d[c] = px - f.ox + TILE_OFF[o];
+      d[c + 1] = py - f.oy + TILE_OFF[o + 1];
+      d[c + 2] = pz + TILE_OFF[o + 2];
+      d[c + 3] = 0F;
+   }
+
+   /** A tile nobody joined a pass with for 30 frames (its character left the screen), for chr; -1 when all are in use. */
+   private static int allocTile(zombie.iso.IsoMovingObject chr, int kind) {
+      for (int k = 0; k < ShadowAtlas.MAX_TILES; k++) {
+         int t = (tileScan + k) % ShadowAtlas.MAX_TILES;
+         if (TILE_OWNER[t] == null || stamp - TILE_SEEN[t] > 30L) {
+            tileScan = t + 1;
+            Object old = TILE_OWNER[t];
+            if (old != null && TILE_KIND[t] >= 0) { // a lamp view
+               LampViews ov = LAMPS.get(old);
+               if (ov != null && ov.tile[TILE_KIND[t]] == t) {
+                  ov.tile[TILE_KIND[t]] = -1;
+               }
+            } else if (old instanceof IsoGameCharacter oc) {
+               if (oc.pzoptShadowTile == t) {
+                  oc.pzoptShadowTile = -1;
+               }
+            } else if (old != null) {
+               float[] ovs = VEHICLE_TILES.get(old);
+               if (ovs != null && (int)ovs[0] == t) {
+                  VEHICLE_TILES.remove(old);
+               }
+            }
+            TILE_KIND[t] = (byte)kind;
+            TILE_LAMP_NEXT[t * 3] = TILE_LAMP_NEXT[t * 3 + 1] = TILE_LAMP_NEXT[t * 3 + 2] = 0F;
+            if (kind >= 0) {
+               TILE_OWNER[t] = chr;
+               TILE_DRAWN[t] = 0L;
+               TILE_HAS[t] = false;
+               TILE_SCHED[t] = 0L;
+               return t;
+            }
+            TILE_OWNER[t] = chr;
+            TILE_DRAWN[t] = 0L;
+            TILE_HAS[t] = false;
+            TILE_SCHED[t] = 0L;
+            if (chr instanceof IsoGameCharacter c) {
+               c.pzoptShadowTile = t;
+            } else {
+               float[] vs = VEHICLE_TILES.get(chr);
+               if (vs != null) {
+                  vs[0] = t;
+               }
+            }
+            return t;
+         }
+      }
+      return -1;
+   }
+
+   private static float stockScale = 1F;
 
    /** The torches and headlights near the camera (LightingJNI's list for the frame), strongest reach first, MAX_LIGHTS at most. */
    private static int gatherLights(Frame f) {
@@ -171,7 +599,8 @@ public final class CapsuleShadow {
       float cx = IsoCamera.frameState.camCharacterX, cy = IsoCamera.frameState.camCharacterY;
       float view = (f.screenW + 2.0F * f.screenH) * f.zoom / (64.0F * f.ts) + 4.0F;
       int n = 0;
-      for (int i = 0; i < torches.size() && n < MAX_LIGHTS; i++) {
+      float[] score = LIGHT_SCORE;
+      for (int i = 0; i < torches.size(); i++) { // the MAX_LIGHTS strongest (strength x reach): a car's tail lights listed first took the torch's slot
          IsoGameCharacter.TorchInfo t = torches.get(i);
          if (t.id == 0 || t.strength <= 0.05F || Math.abs(t.x - cx) > view + t.dist || Math.abs(t.y - cy) > view + t.dist) {
             continue;
@@ -181,17 +610,42 @@ public final class CapsuleShadow {
             continue;
          }
          boolean car = t.id >= 4096 || t.focusing > 0;
+         float sc = t.strength * Math.max(1.0F, t.dist);
          boolean dup = false;
-         for (int j = 0; j < n; j++) { // the game sends every lit item of a player at the same spot: one shadow
+         for (int j = 0; j < n; j++) { // the game sends every lit item of a player at the same spot: one shadow, the strongest
             if (Math.abs(f.lA[j * 4] - (t.x - f.ox)) < 0.05F && Math.abs(f.lA[j * 4 + 1] - (t.y - f.oy)) < 0.05F) {
-               dup = true;
+               dup = score[j] >= sc;
+               if (!dup) { // drop the weaker one, the new one goes in by its score
+                  for (int m = j; m < n - 1; m++) {
+                     System.arraycopy(f.lA, (m + 1) * 4, f.lA, m * 4, 4);
+                     System.arraycopy(f.lB, (m + 1) * 4, f.lB, m * 4, 4);
+                     f.lK[m] = f.lK[m + 1];
+                     score[m] = score[m + 1];
+                  }
+                  n--;
+               }
                break;
             }
          }
          if (dup) {
             continue;
          }
-         int k = n * 4;
+         int at = n;
+         while (at > 0 && score[at - 1] < sc) {
+            at--;
+         }
+         if (at >= MAX_LIGHTS) {
+            continue;
+         }
+         for (int j = Math.min(n, MAX_LIGHTS - 1); j > at; j--) { // shift the weaker ones down
+            System.arraycopy(f.lA, (j - 1) * 4, f.lA, j * 4, 4);
+            System.arraycopy(f.lB, (j - 1) * 4, f.lB, j * 4, 4);
+            f.lK[j] = f.lK[j - 1];
+            score[j] = score[j - 1];
+         }
+         n = Math.min(n + 1, MAX_LIGHTS);
+         score[at] = sc;
+         int k = at * 4;
          f.lA[k] = t.x - f.ox;
          f.lA[k + 1] = t.y - f.oy;
          f.lA[k + 2] = t.z * METRIC_Z + (car ? 0.75F : 1.35F); // the lamp's height: a headlight, a torch in the hand
@@ -200,8 +654,7 @@ public final class CapsuleShadow {
          f.lB[k + 1] = t.angleY / len;
          f.lB[k + 2] = t.cone ? t.dot : -2.0F;
          f.lB[k + 3] = t.strength;
-         f.lK[n] = car ? 2F : 1F;
-         n++;
+         f.lK[at] = car ? 2F : 1F;
       }
       return n;
    }
@@ -231,8 +684,13 @@ public final class CapsuleShadow {
 
    /** Game thread, where a character's stock shadow is drawn: its capsules join this frame's pass. */
    public static void add(IsoGameCharacter chr) {
+      stockScale = 1F;
       Frame f = current;
       if (f == null || f.n >= MAX || chr == null || !Config.SUN_SHADOW_CHARACTERS) {
+         return;
+      }
+      boolean animal = chr.isAnimal();
+      if (animal && !Config.SUN_SHADOW_ANIMALS) {
          return;
       }
       if (chr.isSeatedInVehicle()) {
@@ -257,15 +715,29 @@ public final class CapsuleShadow {
       if (ap == null || !ap.isReady()) {
          return;
       }
-      float[] pts = ap.pzoptCapsules();
+      float cx = chr.getX() - f.ox, cy = chr.getY() - f.oy, cz = chr.getZ() * METRIC_Z;
+      float[] pts = animal ? null : ap.pzoptCapsules();
       if (pts == null) {
-         if (!points(ap, SCRATCH)) {
+         if (animal || !points(ap, SCRATCH)) {
+            // an animal (or a skeleton without the human bones): one capsule along the longest extent of all its bones
+            float size = animal ? ((zombie.characters.animals.IsoAnimal)chr).getAnimalSize() : 1F;
+            if (!boneCapsule(ap, size, cx, cy, cz, CAPS)) {
+               return;
+            }
+            float boundR = CAPS[6];
+            int nc = skeletonCapsules(ap, size, cx, cy, cz, CAPS);
+            append(f, CAPS, nc, cz, alpha, 2F, sun ? sunVis : 0F);
+            f.data[(f.n - 1) * TEXELS * 4 + 7] = Math.max(f.data[(f.n - 1) * TEXELS * 4 + 7], boundR + 0.02F); // the bounding capsule round the whole animal
+            assignTile(f, chr, sun);
+            animals++;
+            if (sun) {
+               stockScale = 1F - Math.max(0, Math.min(100, Config.SUN_SHADOW_STOCK_FADE_PCT)) / 100F * Math.min(1F, sunVis);
+            }
             return;
          }
          pts = SCRATCH;
          computedHere++;
       }
-      float cx = chr.getX() - f.ox, cy = chr.getY() - f.oy, cz = chr.getZ() * METRIC_Z;
       float[] caps = CAPS;
       for (int s = 0; s < K; s++) {
          int ia = SEG_A[s] * 3, ib = SEG_B[s] * 3;
@@ -286,7 +758,119 @@ public final class CapsuleShadow {
          caps[o + 6] = RADIUS[s] * 1.5F;
       }
       append(f, caps, K, cz, alpha, 0F, sun ? sunVis : 0F);
+      assignTile(f, chr, sun);
       characters++;
+      if (sun) {
+         stockScale = 1F - Math.max(0, Math.min(100, Config.SUN_SHADOW_STOCK_FADE_PCT)) / 100F * Math.min(1F, sunVis);
+      }
+   }
+
+   private static long animals;
+   private static final float[] SEG_LEN = new float[K];
+   private static final int[] SEG_BONE = new int[K];
+
+   /**
+    * An animal's body as capsules from its own skeleton (boneCapsule's bones already in boneScratch, caps[0..6] the bounding
+    * capsule): the bounding capsule thinned to the trunk, then the longest bone-to-parent segments (the legs, the neck, the
+    * head, the tail), each as thick as a third of its length within limits. Returns the count (at most K).
+    */
+   private static int skeletonCapsules(AnimationPlayer ap, float size, float cx, float cy, float cz, float[] caps) {
+      caps[6] *= 0.55F; // the trunk
+      zombie.core.skinnedmodel.model.SkinningData sd = ap.getSkinningData();
+      java.util.List<Integer> parents = sd == null ? null : sd.skeletonHierarchy;
+      int count = Math.min(ap.getModelTransformsCount(), boneScratch.length / 3);
+      if (parents == null || parents.size() < count) {
+         return 1;
+      }
+      int kept = 0;
+      for (int b = 1; b < count; b++) {
+         int pb = parents.get(b);
+         if (pb < 0 || pb >= count) {
+            continue;
+         }
+         float dx = (boneScratch[b * 3] - boneScratch[pb * 3]) * size, dy = (boneScratch[b * 3 + 1] - boneScratch[pb * 3 + 1]) * size;
+         float dz = (boneScratch[b * 3 + 2] - boneScratch[pb * 3 + 2]) * size;
+         float len = (float)Math.sqrt(dx * dx + dy * dy + dz * dz);
+         if (len < 0.04F) {
+            continue;
+         }
+         int at = kept < K - 1 ? kept++ : -1;
+         if (at < 0) {
+            at = 0;
+            for (int q = 1; q < K - 1; q++) {
+               if (SEG_LEN[q] < SEG_LEN[at]) at = q;
+            }
+            if (len <= SEG_LEN[at]) {
+               continue;
+            }
+         }
+         SEG_LEN[at] = len;
+         SEG_BONE[at] = b;
+      }
+      for (int i = 0; i < kept; i++) {
+         int b = SEG_BONE[i], pb = parents.get(b);
+         int o = (i + 1) * 7;
+         caps[o] = cx + boneScratch[pb * 3] * size;
+         caps[o + 1] = cy + boneScratch[pb * 3 + 1] * size;
+         caps[o + 2] = cz + Math.max(0F, boneScratch[pb * 3 + 2] * size);
+         caps[o + 3] = cx + boneScratch[b * 3] * size;
+         caps[o + 4] = cy + boneScratch[b * 3 + 1] * size;
+         caps[o + 5] = cz + Math.max(0F, boneScratch[b * 3 + 2] * size);
+         caps[o + 6] = Math.max(0.03F, Math.min(0.16F * Math.max(0.4F, size), SEG_LEN[i] * 0.3F));
+      }
+      return kept + 1;
+   }
+   private static int[] allBones = new int[0];
+   private static float[] boneScratch = new float[0];
+
+   /**
+    * One capsule round every bone of the skeleton (an animal: its size applied as Model.boneToWorldCoords does), along the
+    * box's longest extent, fat enough to hold the body (the half of the other two extents plus a margin), into caps[0..6].
+    */
+   private static boolean boneCapsule(AnimationPlayer ap, float size, float cx, float cy, float cz, float[] caps) {
+      int count = ap.getModelTransformsCount();
+      if (count <= 0 || count > 512) {
+         return false;
+      }
+      if (allBones.length != count) {
+         allBones = new int[count];
+         for (int i = 0; i < count; i++) {
+            allBones[i] = i;
+         }
+         boneScratch = new float[count * 3];
+      }
+      if (!ShadowPrep.capsulePoints(ap, allBones, boneScratch)) {
+         return false;
+      }
+      float x0 = Float.MAX_VALUE, x1 = -Float.MAX_VALUE, y0 = Float.MAX_VALUE, y1 = -Float.MAX_VALUE, z0 = Float.MAX_VALUE, z1 = -Float.MAX_VALUE;
+      for (int i = 0; i < count; i++) {
+         float x = boneScratch[i * 3] * size, y = boneScratch[i * 3 + 1] * size, z = boneScratch[i * 3 + 2] * size;
+         x0 = Math.min(x0, x);
+         x1 = Math.max(x1, x);
+         y0 = Math.min(y0, y);
+         y1 = Math.max(y1, y);
+         z0 = Math.min(z0, z);
+         z1 = Math.max(z1, z);
+      }
+      z0 = Math.max(0F, z0);
+      float ex = x1 - x0, ey = y1 - y0, ez = z1 - z0;
+      float mx = (x0 + x1) * 0.5F, my = (y0 + y1) * 0.5F, mz = (z0 + z1) * 0.5F;
+      float r;
+      if (ez >= ex && ez >= ey) {
+         r = 0.5F * Math.max(ex, ey);
+         caps[0] = mx; caps[1] = my; caps[2] = z0 + r; caps[3] = mx; caps[4] = my; caps[5] = Math.max(z0 + r, z1 - r);
+      } else if (ex >= ey) {
+         r = 0.5F * Math.max(ey, ez);
+         caps[0] = x0 + r; caps[1] = my; caps[2] = mz; caps[3] = Math.max(x0 + r, x1 - r); caps[4] = my; caps[5] = mz;
+      } else {
+         r = 0.5F * Math.max(ex, ez);
+         caps[0] = mx; caps[1] = y0 + r; caps[2] = mz; caps[3] = mx; caps[4] = Math.max(y0 + r, y1 - r); caps[5] = mz;
+      }
+      r = r * 1.25F + 0.08F; // bones sit inside the flesh: the skin and fur reach past them
+      caps[0] += cx; caps[1] += cy; caps[2] += cz;
+      caps[3] += cx; caps[4] += cy; caps[5] += cz;
+      caps[6] = r;
+      return true;
    }
 
    /**
@@ -319,7 +903,7 @@ public final class CapsuleShadow {
       caps[4] = cy;
       caps[5] = cz + 2.35F;
       caps[6] = 0.24F;
-      append(f, caps, 1, cz, alpha, 0F, sunVis > 0.05F ? sunVis : 0F);
+      append(f, caps, 1, cz, alpha, -1F, sunVis > 0.05F ? sunVis : 0F);
       atlas++;
    }
 
@@ -327,6 +911,7 @@ public final class CapsuleShadow {
 
    /** Game thread, where a vehicle's stock shadow is drawn: its body (two capsules side by side and the cabin) joins the pass. */
    public static void addVehicle(zombie.vehicles.BaseVehicle v) {
+      stockScale = 1F;
       Frame f = current;
       if (f == null || f.n >= MAX || v == null || !Config.SUN_SHADOW_VEHICLES || v.getScript() == null) {
          return;
@@ -371,7 +956,13 @@ public final class CapsuleShadow {
          caps[s * 7 + 6] = c[6];
       }
       append(f, caps, 3, cz, alpha, 1F, sun ? sunVis : 0F);
+      if (Config.SUN_SHADOW_MESH_VEHICLES) {
+         assignTile(f, v, sun);
+      }
       vehicles++;
+      if (sun) {
+         stockScale = 1F - Math.max(0, Math.min(100, Config.SUN_SHADOW_STOCK_FADE_PCT)) / 100F * Math.min(1F, sunVis);
+      }
    }
 
    private static final float[] CAPS = new float[K * 7];
@@ -385,7 +976,14 @@ public final class CapsuleShadow {
    private static void append(Frame f, float[] caps, int count, float cz, float alpha, float kind, float sun) {
       float[] d = f.data;
       int base = f.n * TEXELS * 4;
-      d[base] = d[base + 1] = d[base + 2] = d[base + 3] = 0F; // (unused: the vertex shaders build each quad from the bounding capsule)
+      // texel 0: x the caster's sun shadow atlas tile (-1 none; assignTile), y the tile's half size (squares), z the depth
+      // shell a drawn surface occupies behind what the depth shows (sunShadowSilhouette without a tile; x + y + 2z units:
+      // 1.633 a square of view depth; 0.12 squares, a car 0.3), w 1 = its pixels are in the depth (models; an atlas zombie
+      // is a flat sprite)
+      d[base] = -1F;
+      d[base + 1] = 0F;
+      d[base + 2] = kind > 0.5F && kind < 1.5F ? 0.5F : 0.2F;
+      d[base + 3] = kind < -0.5F ? 0F : 1F;
       // the bounding capsule: along the longest axis of the end points' box, fat enough to hold every capsule (a pixel it
       // leaves in full light is in full light of all of them: the per-pixel test runs one capsule instead of ten there)
       float x0 = Float.MAX_VALUE, x1 = -Float.MAX_VALUE, y0 = Float.MAX_VALUE, y1 = -Float.MAX_VALUE, z0 = Float.MAX_VALUE, z1 = -Float.MAX_VALUE;
@@ -449,6 +1047,8 @@ public final class CapsuleShadow {
 
    private static final class Frame extends TextureDraw.GenericDrawer {
       int n;
+      boolean silhouette; // sunShadowSilhouette: drawn after the moving objects, the march through their depth
+      boolean meshes; // sunShadowMeshes: the casters' models drawn from the sun into the atlas
       final float[] data = new float[MAX * TEXELS * 4];
       final float[] sun = new float[4];
       boolean sunOn;
@@ -487,13 +1087,16 @@ public final class CapsuleShadow {
 
    private static final class Gl {
       private int program;
+      private int silProgram;
+      private final int[] us = new int[12];
+      private final FloatBuffer rsun = BufferUtils.createFloatBuffer(9);
       private int lightProgram;
       private int dataTex;
       private int vao;
       private final int[] u = new int[8];
-      private final int[] ul = new int[10];
+      private final int[] ul = new int[14];
       private int pairTex;
-      private final float[] pairData = new float[MAX_PAIRS * 2];
+      private final float[] pairData = new float[MAX_PAIRS * 4];
       private FloatBuffer pairUpload;
 
       /**
@@ -506,7 +1109,7 @@ public final class CapsuleShadow {
          for (int c = 0; c < f.n && n < MAX_PAIRS; c++) {
             int base = c * TEXELS * 4;
             float mx = (d[base + 4] + d[base + 8]) * 0.5F, my = (d[base + 5] + d[base + 9]) * 0.5F, r = d[base + 7];
-            boolean vehicle = d[base + 13] > 0.5F;
+            boolean vehicle = d[base + 13] > 0.5F && d[base + 13] < 1.5F;
             for (int l = 0; l < f.nl && n < MAX_PAIRS; l++) {
                float lx = f.lA[l * 4], ly = f.lA[l * 4 + 1], reach = f.lA[l * 4 + 3];
                float vx = mx - lx, vy = my - ly;
@@ -527,14 +1130,30 @@ public final class CapsuleShadow {
                      continue;
                   }
                }
-               this.pairData[n * 2] = c;
-               this.pairData[n * 2 + 1] = l;
+               // sunShadowLampMeshes: the caster's lamp view drawn from this lamp (its lamp within ~0.7 of a square of it), else -1
+               int view = -1;
+               for (int j = 0; j < 2; j++) {
+                  int q = base + (LAMP0 + 3 * j) * 4;
+                  if (d[q] >= 0F) {
+                     float ex = d[q + 4] + d[q + 8] - lx, ey = d[q + 5] + d[q + 9] - ly, ez = d[q + 6] + d[q + 10] - f.lA[l * 4 + 2];
+                     if (ex * ex + ey * ey + ez * ez < 0.5F) {
+                        view = j;
+                        break;
+                     }
+                  }
+               }
+               this.pairData[n * 4] = c;
+               this.pairData[n * 4 + 1] = l;
+               this.pairData[n * 4 + 2] = view;
+               this.pairData[n * 4 + 3] = 0F;
                n++;
             }
          }
          return n;
       }
       private int lastFbo = -1;
+      private int vpAge;
+      private int devFboLogs;
       private int lastDepth;
       private final int[] viewport = new int[4];
       private final float[] viewportF = new float[4];
@@ -554,14 +1173,38 @@ public final class CapsuleShadow {
             Log.warn("capsule shadows: shaders did not compile; off");
             return;
          }
-         int sceneFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
-         if (sceneFbo != this.lastFbo) { // the attachment query is a round trip: once per scene framebuffer
+         // the scene framebuffer from ShadowAtlas' cache (a glGet waits for NVIDIA's threaded driver to drain); its depth
+         // attachment and the viewport read back only when it changes or every 120 frames
+         int sceneFbo = Config.DEV_SHADOW_GL_GET ? GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING) : ShadowAtlas.worldFbo();
+         if (Config.DEV_SIL_COST >= 3 && drawn % 600 == 1) {
+            Log.info(String.format(java.util.Locale.ROOT, "capsule shadows: dev mapping zoom %.3f ts %.0f screen %.0fx%.0f off %.1f,%.1f origin %d,%d d0 %.6f viewport %.1f,%.1f,%.1f,%.1f (int %d,%d,%d,%d) fbo %d depth %d | first caster a %.2f,%.2f,%.2f r %.2f floor %.2f",
+               f.zoom, f.ts, f.screenW, f.screenH, f.offX, f.offY, f.ox, f.oy, f.d0, this.viewportF[0], this.viewportF[1], this.viewportF[2], this.viewportF[3],
+               this.viewport[0], this.viewport[1], this.viewport[2], this.viewport[3], this.lastFbo, this.lastDepth, f.data[4], f.data[5], f.data[6], f.data[7], f.data[12]));
+         }
+         if (Config.DEV_SIL_COST >= 5 && drawn % 600 == 2 && f.n > 0) {
+            // dev: the depth under the first caster's feet against the depth the mapping expects there (ground, its floor)
+            double ax = f.data[4], ay = f.data[5];
+            double A = ax - ay, B = ax + ay; // x - y and x + y - 6z (z = 0 at its floor level 0)
+            double kA0 = f.screenW / this.viewportF[2] * f.zoom / (32.0 * f.ts), cA0 = ((-this.viewportF[0] * f.screenW / this.viewportF[2]) * f.zoom + f.offX) / (32.0 * f.ts) - (f.ox - f.oy);
+            double kB0 = -f.screenH / this.viewportF[3] * f.zoom / (16.0 * f.ts), cB0 = (((this.viewportF[1] + this.viewportF[3]) * f.screenH / this.viewportF[3]) * f.zoom + f.offY) / (16.0 * f.ts) - (f.ox + f.oy);
+            int px = (int)((A - cA0) / kA0), py = (int)((B - cB0) / kB0);
+            java.nio.FloatBuffer b = org.lwjgl.BufferUtils.createFloatBuffer(9);
+            GL11.glReadPixels(Math.max(0, px - 1), Math.max(0, py - 1), 3, 3, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, b);
+            double expect = (B + 0.0 - (f.d0 / PixelLight.DEPTH_PER_XY)) * -PixelLight.DEPTH_PER_XY; // C = x + y + 2z = B at z 0: depth = (cC - C) * DEPTH_PER_XY
+            Log.info(String.format(java.util.Locale.ROOT, "capsule shadows: dev depth at the first caster's feet (window %d,%d): %.6f %.6f %.6f, the mapping expects %.6f (d0 %.6f)",
+               px, py, b.get(0), b.get(4), b.get(8), f.d0 - B * PixelLight.DEPTH_PER_XY, f.d0));
+         }
+         if (Config.DEV_SHADOW_GL_GET && sceneFbo != ShadowAtlas.worldFbo() && devFboLogs++ < 5) {
+            Log.info("capsule shadows: dev bound framebuffer " + sceneFbo + " but the cache says " + ShadowAtlas.worldFbo() + " (TextureFBO.lastID " + zombie.core.textures.TextureFBO.lastID + ")");
+         }
+         if (sceneFbo != this.lastFbo || ++this.vpAge > 120 || Config.DEV_SHADOW_GL_GET) { // the attachment query is a round trip: once per scene framebuffer
             this.lastFbo = sceneFbo;
             this.lastDepth = sceneDepthTexture(sceneFbo);
+            GL11.glGetIntegerv(GL11.GL_VIEWPORT, this.viewport);
+            GL11.glGetFloatv(GL11.GL_VIEWPORT, this.viewportF);
+            this.vpAge = 0;
          }
          int depthTex = this.lastDepth;
-         GL11.glGetIntegerv(GL11.GL_VIEWPORT, this.viewport);
-         GL11.glGetFloatv(GL11.GL_VIEWPORT, this.viewportF);
          if (depthTex == 0 || this.viewport[2] <= 0 || this.viewport[3] <= 0) {
             return;
          }
@@ -600,9 +1243,33 @@ public final class CapsuleShadow {
          GL11.glEnable(GL11.GL_BLEND);
          GL11.glBlendFunc(GL11.GL_ZERO, GL11.GL_SRC_COLOR);
          GL11.glColorMask(true, true, true, false);
-         int previousVao = GL11.glGetInteger(GL30.GL_VERTEX_ARRAY_BINDING);
          GL30.glBindVertexArray(this.vao);
-         if (f.sunOn) {
+         if (f.sunOn && f.silhouette) {
+            // sunShadowSilhouette: the same quads, each pixel's ray marched through the scene depth inside its caster's
+            // bounding capsule (the caster's own drawn surface), the capsule model where the penumbra is wider than a limb
+            GL20.glUseProgram(this.silProgram);
+            GL20.glUniform1i(this.us[0], 0);
+            GL20.glUniform1i(this.us[1], 1);
+            GL20.glUniform4f(this.us[2], kA, cA, kB, cB);
+            GL20.glUniform4f(this.us[3], kC, cC, Config.DEV_SUN_VIEW, f.strength);
+            float tanA = Math.max(0.002F, f.sun[3]);
+            GL20.glUniform4f(this.us[4], f.sun[0], f.sun[1], f.sun[2], 1.0F / tanA);
+            GL20.glUniform4f(this.us[5], this.viewportF[0], this.viewportF[1], this.viewportF[2], this.viewportF[3]);
+            GL20.glUniform4f(this.us[6], Math.max(0, Math.min(48, Config.SUN_SHADOW_SILHOUETTE_STEPS)), tanA, (float)(drawn & 63),
+               Config.SUN_SHADOW_SHELL_LIMBS ? 1.0F : 0.0F);
+            GL20.glUniform4f(this.us[7], Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH), Config.SUN_SHADOW_CHARACTER_LOD_PCT / 100.0F, Config.DEV_SIL_COST, 0.0F);
+            boolean atlasOn = f.meshes && ShadowAtlas.bind(3, 4);
+            GL20.glUniform1i(this.us[10], 3);
+            GL20.glUniform1i(this.us[11], 4);
+            GL20.glUniform4f(this.us[9], atlasOn ? 1.0F : 0.0F, ShadowAtlas.PER_ROW, ShadowAtlas.TILE, 1.0F / ShadowAtlas.SIZE);
+            this.rsun.clear();
+            this.rsun.put(ShadowAtlas.R).flip();
+            GL20.glUniformMatrix3fv(this.us[8], true, this.rsun); // (rows)
+            GL31.glDrawArraysInstanced(GL11.GL_TRIANGLE_FAN, 0, 4, f.n);
+            if (atlasOn) {
+               ShadowAtlas.unbind(3, 4);
+            }
+         } else if (f.sunOn) {
             GL20.glUseProgram(this.program);
             GL20.glUniform1i(this.u[0], 0);
             GL20.glUniform1i(this.u[1], 1);
@@ -616,19 +1283,32 @@ public final class CapsuleShadow {
             GL31.glDrawArraysInstanced(GL11.GL_TRIANGLE_FAN, 0, 4, f.n);
          }
          int pairs = f.nl > 0 ? this.pairs(f) : 0;
+         if (Config.DEV_SIL_COST == 8 && drawn % 600 == 3) {
+            StringBuilder sb = new StringBuilder("capsule shadows: dev lights (origin " + f.ox + "," + f.oy + ", pairs " + pairs + "):");
+            for (int l = 0; l < f.nl; l++) {
+               sb.append(String.format(java.util.Locale.ROOT, " [kind %.0f at %.2f,%.2f,%.2f reach %.1f dir %.2f,%.2f cone %.2f strength %.2f]", f.lK[l], f.lA[l * 4],
+                  f.lA[l * 4 + 1], f.lA[l * 4 + 2], f.lA[l * 4 + 3], f.lB[l * 4], f.lB[l * 4 + 1], f.lB[l * 4 + 2], f.lB[l * 4 + 3]));
+            }
+            sb.append(" casters:");
+            for (int c = 0; c < f.n; c++) {
+               int base = c * TEXELS * 4;
+               sb.append(String.format(java.util.Locale.ROOT, " %.1f,%.1f", (f.data[base + 4] + f.data[base + 8]) * 0.5F, (f.data[base + 5] + f.data[base + 9]) * 0.5F));
+            }
+            Log.info(sb.toString());
+         }
          if (pairs > 0) {
             GL13.glActiveTexture(GL13.GL_TEXTURE2);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.pairTex);
             this.pairUpload.clear();
-            this.pairUpload.put(this.pairData, 0, pairs * 2).flip();
-            GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, pairs, 1, GL30.GL_RG, GL11.GL_FLOAT, this.pairUpload);
+            this.pairUpload.put(this.pairData, 0, pairs * 4).flip();
+            GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, pairs, 1, GL11.GL_RGBA, GL11.GL_FLOAT, this.pairUpload);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
             GL20.glUseProgram(this.lightProgram);
             GL20.glUniform1i(this.ul[9], 2);
             GL20.glUniform1i(this.ul[0], 0);
             GL20.glUniform1i(this.ul[1], 1);
             GL20.glUniform4f(this.ul[2], kA, cA, kB, cB);
-            GL20.glUniform4f(this.ul[3], kC, cC, Config.DEV_SUN_VIEW, f.lightStrength);
+            GL20.glUniform4f(this.ul[3], kC, cC, Config.DEV_SIL_COST == 8 ? 8.0F : Config.DEV_SUN_VIEW, f.lightStrength);
             GL20.glUniform4f(this.ul[4], this.viewportF[0], this.viewportF[1], this.viewportF[2], this.viewportF[3]);
             this.lightA.clear();
             this.lightA.put(f.lA, 0, MAX_LIGHTS * 4).flip();
@@ -640,9 +1320,17 @@ public final class CapsuleShadow {
             GL20.glUniform4fv(this.ul[6], this.lightB);
             GL20.glUniform1fv(this.ul[7], this.lightK);
             GL20.glUniform1i(this.ul[8], f.nl);
+            GL20.glUniform1f(this.ul[13], Math.max(1.0F, Config.SUN_SHADOW_LAMP_SPREAD_PCT / 100.0F));
+            boolean lampAtlas = f.meshes && ShadowAtlas.bind(3, 4);
+            GL20.glUniform1i(this.ul[11], 3);
+            GL20.glUniform1i(this.ul[12], 4);
+            GL20.glUniform4f(this.ul[10], lampAtlas ? 1.0F : 0.0F, ShadowAtlas.PER_ROW, ShadowAtlas.TILE, 1.0F / ShadowAtlas.SIZE);
             GL31.glDrawArraysInstanced(GL11.GL_TRIANGLE_FAN, 0, 4, pairs);
+            if (lampAtlas) {
+               ShadowAtlas.unbind(3, 4);
+            }
          }
-         GL30.glBindVertexArray(previousVao);
+         GL30.glBindVertexArray(0); // the game draws with VAO 0 (GodRays does the same)
          lightPairs += pairs;
          drawn++;
          if (Config.DEV_AO_TIMING) {
@@ -678,14 +1366,19 @@ public final class CapsuleShadow {
       private boolean init() {
          this.program = AmbientOcclusion.link(VERT, withCapsule(FRAG));
          this.lightProgram = AmbientOcclusion.link(LIGHT_VERT, withCapsule(LIGHT_FRAG));
-         if (this.program == 0 || this.lightProgram == 0) {
+         this.silProgram = AmbientOcclusion.link(VERT, withCapsule(SIL_FRAG));
+         if (this.program == 0 || this.lightProgram == 0 || this.silProgram == 0) {
             return false;
+         }
+         String[] snames = {"SceneDepth", "Data", "mapA", "mapC", "sun", "vp", "sil", "reach", "Rsun", "atlas", "Atlas", "AtlasCmp"};
+         for (int i = 0; i < snames.length; i++) {
+            this.us[i] = GL20.glGetUniformLocation(this.silProgram, snames[i]);
          }
          String[] names = {"SceneDepth", "Data", "mapA", "mapC", "sun", "vp", "march", "reach"};
          for (int i = 0; i < names.length; i++) {
             this.u[i] = GL20.glGetUniformLocation(this.program, names[i]);
          }
-         String[] lnames = {"SceneDepth", "Data", "mapA", "mapC", "vp", "lA", "lB", "lK", "nl", "Pairs"};
+         String[] lnames = {"SceneDepth", "Data", "mapA", "mapC", "vp", "lA", "lB", "lK", "nl", "Pairs", "atlas", "Atlas", "AtlasCmp", "spread"};
          for (int i = 0; i < lnames.length; i++) {
             this.ul[i] = GL20.glGetUniformLocation(this.lightProgram, lnames[i]);
          }
@@ -697,11 +1390,11 @@ public final class CapsuleShadow {
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
          this.pairTex = GL11.glGenTextures();
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.pairTex);
-         GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RG32F, MAX_PAIRS, 1, 0, GL30.GL_RG, GL11.GL_FLOAT, (ByteBuffer)null);
+         GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA32F, MAX_PAIRS, 1, 0, GL11.GL_RGBA, GL11.GL_FLOAT, (ByteBuffer)null);
          GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
          GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
-         this.pairUpload = BufferUtils.createFloatBuffer(MAX_PAIRS * 2);
+         this.pairUpload = BufferUtils.createFloatBuffer(MAX_PAIRS * 4);
          this.vao = GL30.glGenVertexArrays(); // no attributes: the vertex shader builds the quad from gl_VertexID
          this.upload = BufferUtils.createFloatBuffer(MAX * TEXELS * 4);
          Log.info("capsule shadows: pass ready");
@@ -746,8 +1439,11 @@ public final class CapsuleShadow {
       "   float lz = max(L.z, 0.05);",
       // a low sun: the shadow's quad ends at the reach (sun.w's companion, reach.x squares along the ground), faded in the fragment
       "   float lxy = max(length(L.xy), 1e-3);",
-      "   float ta = min(max(0.0, a.z - facts.x) / lz, reach.x / lxy), tb = min(max(0.0, b.z - facts.x) / lz, reach.x / lxy);",
-      "   vec3 a2 = vec3(a.xy - L.xy * ta, facts.x), b2 = vec3(b.xy - L.xy * tb, facts.x);",
+      // a caster above the ground (a porch, a balcony, an upper floor): its shadow may fall past its floor's edge onto the
+      // level below, so the quad reaches that level's plane too (it ended on the caster's own floor: the shadow was cut)
+      "   float fz = facts.x > 0.1 ? facts.x - 2.4494897 : facts.x;",
+      "   float ta = min(max(0.0, a.z - fz) / lz, reach.x / lxy), tb = min(max(0.0, b.z - fz) / lz, reach.x / lxy);",
+      "   vec3 a2 = vec3(a.xy - L.xy * ta, fz), b2 = vec3(b.xy - L.xy * tb, fz);",
       "   vec2 s0 = toPx(a.xyz), s1 = toPx(b.xyz), s2 = toPx(a2), s3 = toPx(b2);",
       "   vec2 du = toPx(-L) - toPx(vec3(0.0));", // the shadow's direction on screen
       "   vec2 u = dot(du, du) > 1e-6 ? normalize(du) : vec2(1.0, 0.0);",
@@ -760,7 +1456,7 @@ public final class CapsuleShadow {
       "   int v = gl_VertexID;",
       "   vec2 c = vec2((v == 1 || v == 2) ? hi.x : lo.x, (v >= 2) ? hi.y : lo.y);",
       "   vec2 px = u * c.x + w * c.y;",
-      "   if (facts.z <= 0.0) px = vec2(-1e4);",
+      "   if (facts.z <= 0.0 || reach.z > 1.5 && reach.z < 2.5) px = vec2(-1e4);", // (reach.z: dev devSilCost 2 = no fragments)
       "   gl_Position = vec4((px - vp.xy) / vp.zw * 2.0 - 1.0, 0.0, 1.0);",
       "}");
 
@@ -853,6 +1549,170 @@ public final class CapsuleShadow {
       "}");
 
    /**
+    * sunShadowSilhouette: the caster's shadow from its drawn shape. Drawn after the moving objects, so the scene depth holds
+    * the caster's own surface (models; an atlas zombie is a flat sprite and keeps the capsules). Per pixel of the caster's
+    * quad: the receiver from the depth; a pixel of the caster itself (inside its bounding capsule, above its floor) takes none;
+    * the sun ray's stretch inside the bounding capsule is marched, each sample projected to the screen: where the depth there
+    * belongs to the caster (inside its bounding capsule, above its floor) and lies in front of the sample by less than the
+    * caster's depth (texel 0: a body's, an animal's, a car's), the ray is blocked. The ray leans across the sun's disk per
+    * pixel (interleaved gradient noise): the penumbra grows with the distance from the caster. Where that penumbra is wider
+    * than a limb (far from the caster) the capsule model's soft shadow takes over.
+    */
+   private static final String SIL_FRAG = String.join("\n",
+      "#version 140",
+      "#extension GL_ARB_texture_gather : enable",
+      "uniform sampler2D SceneDepth;",
+      "uniform sampler2D Data;",
+      "uniform sampler2D Atlas;", // sunShadowMeshes: the casters' sun depth (raw, nearest)
+      "uniform sampler2DShadow AtlasCmp;", // the same, compared (bilinear PCF)
+      "uniform mat3 Rsun;", // the model's world frame (x west, y up, z north) to the sun's view
+      "uniform vec4 atlas;", // x 1 = the atlas this frame, y tiles a row, z tile texels, w 1 / atlas texels
+      "uniform vec4 mapA;",
+      "uniform vec4 mapC;", // x + y + 2z = mapC.x * depth + mapC.y; dev view; strength
+      "uniform vec4 sun;", // direction to the sun (world, metric), 1 / tan of the penumbra angle
+      "uniform vec4 sil;", // x the shell's steps (0: no shell), y tan of the sun's angular radius, z the frame, w 1 = the limbs from the shell alone
+      "uniform vec4 reach;", // x the longest shadow along the ground (squares), y where the bounding capsule alone takes over (squares)
+      "flat in int inst;",
+      "out vec4 fragColor;",
+      "#include capsule",
+      "const float ATLAS_DEPTH = " + ShadowAtlas.DEPTH + ";",
+      "const vec2 POISSON[12] = vec2[12](vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621),",
+      "   vec2(0.962, -0.195), vec2(0.473, -0.480), vec2(0.519, 0.767), vec2(0.185, -0.893), vec2(0.507, 0.064), vec2(0.896, 0.412),",
+      "   vec2(-0.322, -0.933), vec2(-0.792, -0.598));",
+      "float segDist(vec3 p, vec3 a, vec3 b) {",
+      "   vec3 ba = b - a;",
+      "   float h = clamp(dot(p - a, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);",
+      "   return length(p - a - ba * h);",
+      "}",
+      // the caster's own sun shadow map (its atlas tile): a percentage-closer soft shadow. The receiver in the tile's view,
+      // a blocker search over the widest penumbra it could have, the blockers' mean distance gives the penumbra's width,
+      // then 12 compared taps (each a 2 x 2 bilinear PCF) over it
+      "float atlasVis(vec3 P, vec3 C, float tile, float halfSize) {",
+      "   vec3 w = vec3(-(P.x - C.x), P.z - C.z, -(P.y - C.y));",
+      "   vec3 v = Rsun * w;",
+      "   vec2 tuv = v.xy / (2.0 * halfSize) + 0.5;",
+      "   float dr = 0.5 - v.z / (2.0 * ATLAS_DEPTH);",
+      "   if (any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0))) || dr >= 1.0) return 1.0;",
+      "   float tileUv = atlas.z * atlas.w;",
+      "   vec2 org = vec2(mod(tile, atlas.y), floor(tile / atlas.y)) * tileUv;",
+      "   float texSq = 2.0 * halfSize / atlas.z;", // squares a texel
+      "   vec2 lo = org + 1.5 * atlas.w, hi = org + tileUv - 1.5 * atlas.w;",
+      "   vec2 uv = org + tuv * tileUv;",
+      "   float bias = 0.03 / (2.0 * ATLAS_DEPTH);",
+      "   float behind = max(0.0, (dr - 0.5) * 2.0 * ATLAS_DEPTH + halfSize);", // at most this far behind a blocker along the sun
+      "   float rs = clamp(behind * sil.y / texSq, 1.0, 6.0);", // the blocker search's radius (texels)
+      // (four gathers of 2 x 2 depths each: 16 samples in 4 fetches)
+      "   float bsum = 0.0, bn = 0.0;",
+      "   for (int k = 0; k < 4; k++) {",
+      "      vec2 o = vec2(k == 0 || k == 2 ? -0.5 : 0.5, k < 2 ? -0.5 : 0.5) * rs;",
+      "      vec4 db = textureGather(Atlas, clamp(uv + o * atlas.w, lo, hi));",
+      "      vec4 in4 = vec4(lessThan(db, vec4(dr - bias)));",
+      "      bsum += dot(db, in4);",
+      "      bn += dot(in4, vec4(1.0));",
+      "   }",
+      "   if (bn < 0.5) return 1.0;",
+      "   float dist = (dr - bsum / bn) * 2.0 * ATLAS_DEPTH;", // squares from the blockers along the sun
+      "   float rad = clamp(dist * sil.y / texSq, 0.6, 8.0);", // the penumbra's half width (texels)
+      "   float lit = 0.0;",
+      "   for (int k = 0; k < 12; k++) {",
+      "      lit += texture(AtlasCmp, vec3(clamp(uv + POISSON[k] * rad * atlas.w, lo, hi), dr - bias));",
+      "   }",
+      "   return lit / 12.0;",
+      "}",
+      "void main() {",
+      "   if (reach.z > 2.5 && reach.z < 3.5) { fragColor = vec4(1.0, 0.3, 0.3, 1.0); return; }", // dev (devSilCost 3): the quads
+      "   if (reach.z > 0.5 && reach.z < 1.5) discard;", // dev (devSilCost 1): every fragment out at once
+      "   vec2 f = gl_FragCoord.xy;",
+      "   float d = texelFetch(SceneDepth, ivec2(f), 0).r;",
+      "   if (d >= 0.99999 || reach.z > 6.5) discard;", // (dev devSilCost 7: the depth read, then out)
+      "   vec3 P = worldAt(f, d, mapA, mapC);",
+      "   vec4 ba0 = texelFetch(Data, ivec2(1, inst), 0);",
+      "   vec4 bb0 = texelFetch(Data, ivec2(2, inst), 0);",
+      "   vec4 facts = texelFetch(Data, ivec2(3, inst), 0);", // floor z, kind, the caster's own sun share, alpha
+      "   vec4 own = texelFetch(Data, ivec2(0, inst), 0);", // tile (-1), its half size, the depth shell, 1 = its pixels are in the depth
+      // dev (devSilCost 5): the receiver's reconstructed height over its caster's floor (red 1 square, green 0) and its
+      // distance from the caster (blue 4 squares)
+      "   if (reach.z > 4.5) { fragColor = vec4(clamp(P.z - facts.x, 0.0, 1.0), 1.0 - clamp(abs(P.z - facts.x), 0.0, 1.0), clamp(length(P.xy - ba0.xy) / 4.0, 0.0, 1.0), 1.0); return; }",
+      "   float rb = ba0.w;",
+      "   if (own.w > 0.5 && P.z > facts.x + 0.1 && segDist(P, ba0.xyz, bb0.xyz) < rb) discard;", // the caster's own pixel
+      "   vec3 L0 = sun.xyz;",
+      "   vec3 L = L0;",
+      "   vec3 ro = P + L0 * 0.03;",
+      "   if (capShadow(ro, L0, ba0.xyz, bb0.xyz, rb, sun.w, 1e4) > 0.999) discard;", // outside the bounding capsule's shadow: full sun
+      "   if (reach.z > 3.5) { fragColor = vec4(0.3, 1.0, 0.3, 1.0); return; }", // dev (devSilCost 4): past the bounding test
+      "   float hd = length(P.xy - 0.5 * (ba0.xy + bb0.xy));",
+      "   float fade = 1.0 - smoothstep(0.7 * reach.x, reach.x, hd);",
+      "   if (fade <= 0.0) discard;",
+      "   float alpha = facts.w * facts.z * fade;",
+      "   float vis;",
+      "   if (atlas.x > 0.5 && own.x > -0.5) {",
+      "      vis = atlasVis(P, texelFetch(Data, ivec2(" + CENTRE + ", inst), 0).xyz, own.x, own.y);",
+      "   } else {",
+      // the capsule model (soft): the ten capsules while the penumbra is narrower than a limb, the bounding capsule thinned to
+      // the body where it is wider (with a sharp sun a low sun's long shadow keeps its arms and head for squares)
+      "      float lod = smoothstep(0.15, 0.3, 2.0 * hd / max(length(L0.xy), 0.05) * sil.y);",
+      // with the depth shell (sil.w = 1) a person keeps only the torso and head capsules and an animal its trunk: a limb is
+      // thinner than the shell, so the shell alone draws its shadow; a car keeps its three
+      "      float vcap = 1.0;",
+      "      int nCap = own.w > 0.5 && sil.w > 0.5 && sil.x > 0.5 ? (facts.y > 1.5 ? 1 : facts.y > 0.5 ? 10 : 2) : 10;",
+      "      if (lod < 1.0) {",
+      "         for (int i = 0; i < 10; i++) {",
+      "            if (i >= nCap) break;",
+      "            vec4 a = texelFetch(Data, ivec2(4 + 2 * i, inst), 0);",
+      "            vec4 b = texelFetch(Data, ivec2(5 + 2 * i, inst), 0);",
+      "            if (a.w > 0.0) vcap *= capShadow(ro, L0, a.xyz, b.xyz, a.w, sun.w, 1e4);",
+      "         }",
+      "      }",
+      "      if (lod > 0.0) vcap = mix(vcap, capShadow(ro, L0, ba0.xyz, bb0.xyz, rb * 0.55, sun.w, 1e4), lod);",
+      // the ray's stretch inside the bounding capsule: the segment's closest approach to the ray, the chord round it
+      "      vec3 ba = bb0.xyz - ba0.xyz;",
+      "      float bl = length(ba);",
+      "      vec3 bd = bl > 1e-4 ? ba / bl : vec3(0.0, 0.0, 1.0);",
+      "      vec3 w0 = ro - ba0.xyz;",
+      "      float bdl = dot(bd, L);",
+      "      float den = max(1.0 - bdl * bdl, 1e-4);",
+      "      float tc = clamp((bdl * dot(w0, bd) - dot(w0, L)) / den, 0.0, 1e4);",
+      "      float sinA = sqrt(den);",
+      "      float hc = min(rb / max(sinA, 0.05), 0.5 * bl + rb);",
+      "      float t0 = max(0.0, tc - hc - rb), t1 = tc + hc + rb;",
+      "      float vss = 1.0;",
+      "      float tHit = tc;",
+      // the drawn surface as a thin shell (own.z deep) behind the depth: hair, clothes, bags, weapons, a car's mirrors, what
+      // the capsules miss; only where the capsules leave light to take, the steps following the stretch's length
+      "      if (own.w > 0.5 && vcap > 0.03 && sil.x > 0.5) {",
+      "         int steps = int(clamp(ceil((t1 - t0) / 0.08), 3.0, sil.x));",
+      "         float dt = (t1 - t0) / float(steps);",
+      "         ivec2 size = textureSize(SceneDepth, 0);",
+      "         for (int i = 0; i < 48; i++) {",
+      "            if (i >= steps) break;",
+      "            float t = t0 + dt * (float(i) + 0.5);",
+      "            vec3 R = ro + L * t;",
+      "            float zl = R.z / 2.4494897;",
+      "            vec2 fq = vec2((R.x - R.y - mapA.y) / mapA.x, (R.x + R.y - 6.0 * zl - mapA.w) / mapA.z);",
+      "            ivec2 iq = ivec2(fq);",
+      "            if (any(lessThan(iq, ivec2(0))) || any(greaterThanEqual(iq, size))) continue;",
+      "            float ds = texelFetch(SceneDepth, iq, 0).r;",
+      "            if (ds >= 0.99999) continue;",
+      "            float gap = (mapC.x * ds + mapC.y) - (R.x + R.y + 2.0 * zl);", // > 0: the surface there is nearer the camera than the ray point
+      "            if (gap <= -0.02 || gap > own.z) continue;",
+      "            vec3 Q = worldAt(vec2(iq) + 0.5, ds, mapA, mapC);",
+      "            if (Q.z <= facts.x + 0.05 || segDist(Q, ba0.xyz, bb0.xyz) >= rb + 0.05) continue;",
+      "            float occ = 1.0 - smoothstep(0.6 * own.z, own.z, gap);",
+      "            if (1.0 - occ < vss) { vss = 1.0 - occ; tHit = t; }",
+      "            if (vss < 0.01) break;",
+      "         }",
+      // far from the caster the penumbra is wider than these details: they blur out (the capsules keep the body)
+      "         vss = mix(vss, 1.0, smoothstep(0.06, 0.3, 2.0 * tHit * sil.y));",
+      "      }",
+      "      vis = min(vcap, vss);",
+      "   }",
+      "   float m = 1.0 - mapC.w * alpha * (1.0 - vis);",
+      "   if (mapC.z > 0.5) m = mix(0.5, 1.0, vis);", // dev: the term alone over grey
+      "   if (m > 0.996) discard;",
+      "   fragColor = vec4(vec3(m), 1.0);",
+      "}");
+
+   /**
     * Casters x lights: instance = caster * nl + light. The quad: the screen box of the bounding capsule and its projection
     * away from the light onto the caster's floor (at most the light's reach from it); none for a caster out of the light's
     * reach, for the torch's holder, or for a vehicle and its own headlights.
@@ -866,48 +1726,58 @@ public final class CapsuleShadow {
       "uniform vec4 lB[4];", // direction x, y, cone cosine (-2: none), strength
       "uniform float lK[4];", // 1 a handheld torch, 2 a vehicle light
       "uniform int nl;",
-      "uniform sampler2D Pairs;", // instance -> (caster, light)
+      "uniform float spread;",
+      "uniform sampler2D Pairs;", // instance -> (caster, light, its lamp view or -1)
       "flat out int inst;",
       "flat out int light;",
+      "flat out int view;",
+      "out vec2 qc;", // the quad's own coordinates (0..1: from the lamp side on, across)
       "vec2 toPx(vec3 p) {",
       "   float A = p.x - p.y, B = p.x + p.y - 6.0 * p.z / 2.4494897;",
       "   return vec2((A - mapA.y) / mapA.x, (B - mapA.w) / mapA.z);",
       "}",
       "void main() {",
-      "   vec2 pair = texelFetch(Pairs, ivec2(gl_InstanceID, 0), 0).xy;",
+      "   vec3 pair = texelFetch(Pairs, ivec2(gl_InstanceID, 0), 0).xyz;",
       "   int c = int(pair.x + 0.5);",
       "   int l = int(pair.y + 0.5);",
       "   inst = c;",
       "   light = l;",
+      "   view = pair.z < -0.5 ? -1 : int(pair.z + 0.5);",
       "   vec4 a = texelFetch(Data, ivec2(1, c), 0);",
       "   vec4 b = texelFetch(Data, ivec2(2, c), 0);",
       "   vec4 facts = texelFetch(Data, ivec2(3, c), 0);", // floor z, kind, sun, alpha
       "   vec3 L = lA[l].xyz;",
       "   vec3 mid = 0.5 * (a.xyz + b.xyz);",
       "   float dl = length(mid.xy - L.xy);",
-      "   bool skip = dl > lA[l].w + a.w || (lK[l] < 1.5 && dl < 0.7) || (lK[l] > 1.5 && facts.y > 0.5 && dl < 3.5);",
+      "   bool skip = dl > lA[l].w + a.w || (lK[l] < 1.5 && dl < 0.7) || (lK[l] > 1.5 && facts.y > 0.5 && facts.y < 1.5 && dl < 3.5);",
       "   vec2 sp[4];",
+      "   float pd[4];", // each corner's pad (squares): the far ones widen with the shadow's cone
       "   float reach = lA[l].w;",
+      "   float rr = a.w + (view >= 0 ? 0.15 : 0.0);", // (a lamp view: the model's clothes and hair round the capsules)
       "   for (int e = 0; e < 2; e++) {",
       "      vec3 p = e == 0 ? a.xyz : b.xyz;",
       "      vec2 dir = p.xy - L.xy;",
       "      float dh = length(dir);",
       "      dir = dh > 1e-3 ? dir / dh : vec2(1.0, 0.0);",
       "      float t = p.z < L.z - 0.05 ? (L.z - facts.x) / (L.z - p.z) : 1e3;", // the ray from the lamp through p hits the floor at L + (p - L) t
-      "      float far = min(dh * t, reach) + a.w + 0.3;",
+      "      float far = min(dh * t, reach) + rr + 0.3;",
       "      sp[e * 2] = toPx(p);",
       "      sp[e * 2 + 1] = toPx(vec3(L.xy + dir * far, facts.x));",
+      "      pd[e * 2] = rr + 0.3;",
+      "      pd[e * 2 + 1] = rr * clamp(far / max(dh, 0.3), 1.0, spread) + 0.3;", // (sunShadowLampSpreadPct; past it the sides fade: qc)
       "   }",
       "   vec2 du = toPx(vec3(mid.xy, facts.x)) - toPx(vec3(L.xy, facts.x));", // away from the lamp, on screen
       "   vec2 u = dot(du, du) > 1e-6 ? normalize(du) : vec2(1.0, 0.0);",
       "   vec2 w = vec2(-u.y, u.x);",
       "   vec4 pu = vec4(dot(sp[0], u), dot(sp[1], u), dot(sp[2], u), dot(sp[3], u));",
       "   vec4 pw = vec4(dot(sp[0], w), dot(sp[1], w), dot(sp[2], w), dot(sp[3], w));",
-      "   float pad = (a.w + 0.3) * 1.12 / abs(mapA.x);",
-      "   vec2 lo = vec2(min(min(pu.x, pu.y), min(pu.z, pu.w)), min(min(pw.x, pw.y), min(pw.z, pw.w))) - pad;",
-      "   vec2 hi = vec2(max(max(pu.x, pu.y), max(pu.z, pu.w)), max(max(pw.x, pw.y), max(pw.z, pw.w))) + pad;",
+      "   vec4 pad = vec4(pd[0], pd[1], pd[2], pd[3]) * 1.12 / abs(mapA.x);",
+      "   vec4 ulo = pu - pad, uhi = pu + pad, wlo = pw - pad, whi = pw + pad;",
+      "   vec2 lo = vec2(min(min(ulo.x, ulo.y), min(ulo.z, ulo.w)), min(min(wlo.x, wlo.y), min(wlo.z, wlo.w)));",
+      "   vec2 hi = vec2(max(max(uhi.x, uhi.y), max(uhi.z, uhi.w)), max(max(whi.x, whi.y), max(whi.z, whi.w)));",
       "   int v = gl_VertexID;",
       "   vec2 cc = vec2((v == 1 || v == 2) ? hi.x : lo.x, (v >= 2) ? hi.y : lo.y);",
+      "   qc = vec2((v == 1 || v == 2) ? 1.0 : 0.0, (v >= 2) ? 1.0 : 0.0);",
       "   vec2 px = u * cc.x + w * cc.y;",
       "   if (skip) px = vec2(-1e4);",
       "   gl_Position = vec4((px - vp.xy) / vp.zw * 2.0 - 1.0, 0.0, 1.0);",
@@ -922,10 +1792,63 @@ public final class CapsuleShadow {
       "uniform vec4 lA[4];",
       "uniform vec4 lB[4];",
       "uniform float lK[4];",
+      "uniform vec4 atlas;", // on, tiles a row, tile size, 1 / atlas size
+      "uniform sampler2D Atlas;",
+      "uniform sampler2DShadow AtlasCmp;",
       "flat in int inst;",
       "flat in int light;",
+      "flat in int view;",
+      "in vec2 qc;",
       "out vec4 fragColor;",
       "#include capsule",
+      "const vec2 LPOISSON[8] = vec2[](vec2(-0.613, 0.617), vec2(0.170, -0.040), vec2(-0.299, -0.792), vec2(0.645, 0.493),",
+      "   vec2(-0.651, -0.109), vec2(0.421, -0.664), vec2(-0.094, 0.927), vec2(0.905, -0.100));",
+      // sunShadowLampMeshes: the receiver in the caster's view from the lamp (ShadowAtlas.SunCamera's lamp branch: a look-at
+      // from the lamp at the tile's centre, the frustum round the bounding sphere), a percentage-closer lookup whose radius
+      // grows with the receiver's distance behind the blockers (the lamp's size)
+      "float lampVis(vec3 P, int c, int j, float lampSize) {",
+      "   vec4 t0 = texelFetch(Data, ivec2(" + LAMP0 + " + 3 * j, c), 0);",
+      "   vec3 C = texelFetch(Data, ivec2(" + (LAMP0 + 1) + " + 3 * j, c), 0).xyz;",
+      "   vec3 Lo = texelFetch(Data, ivec2(" + (LAMP0 + 2) + " + 3 * j, c), 0).xyz;",
+      "   vec3 q = P - C;",
+      "   vec3 mq = vec3(-q.x, q.z, -q.y);", // the model's world frame: x west, y up, z north
+      "   vec3 mL = vec3(-Lo.x, Lo.z, -Lo.y);",
+      "   float dist = length(mL), R = t0.y;",
+      "   vec3 zA = mL / dist;",
+      "   vec3 up = abs(zA.y) > 0.99 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);",
+      "   vec3 xA = normalize(cross(up, zA));",
+      "   vec3 yA = cross(zA, xA);",
+      "   vec3 v = mq - mL;",
+      "   float dz = -dot(zA, v);", // distance from the lamp along the view
+      "   float tanH = R / sqrt(max(dist * dist - R * R, 1e-4));",
+      "   vec2 tuv = vec2(dot(xA, v), dot(yA, v)) / (dz * tanH) * 0.5 + 0.5;",
+      "   float n = max(0.02, dist - R), fa = dist + R;",
+      "   if (dz <= n || any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0)))) return 1.0;",
+      "   float zb = min(dz - 0.04, fa);", // (a receiver past the far plane compares with the cleared depth: behind every blocker)
+      // (below the cleared 1.0: at the far plane the formula rounds to a hair over 1 and every empty texel would block)
+      "   float ref = min(((fa + n) / (fa - n) - 2.0 * fa * n / ((fa - n) * zb)) * 0.5 + 0.5, 0.99999);",
+      "   float tile = t0.x;",
+      "   float tileUv = atlas.z * atlas.w;",
+      "   vec2 org = vec2(mod(tile, atlas.y), floor(tile / atlas.y)) * tileUv;",
+      "   vec2 lo = org + 1.5 * atlas.w, hi = org + tileUv - 1.5 * atlas.w;",
+      "   vec2 uv = org + tuv * tileUv;",
+      "   float texSq = 2.0 * tanH * dz / atlas.z;", // squares a texel at the receiver
+      // blockers: four taps a texel and a half out, their distance from the lamp
+      "   float bsum = 0.0, bn = 0.0;",
+      "   for (int k = 0; k < 4; k++) {",
+      "      vec2 o = vec2(k == 0 || k == 2 ? -1.5 : 1.5, k < 2 ? -1.5 : 1.5);",
+      "      float db = texture(Atlas, clamp(uv + o * atlas.w, lo, hi)).r;",
+      "      if (db < ref) { bsum += 2.0 * fa * n / ((fa + n) - (2.0 * db - 1.0) * (fa - n)); bn += 1.0; }",
+      "   }",
+      "   if (bn < 0.5) return 1.0;",
+      "   float blk = bsum / bn;",
+      "   float rad = clamp(lampSize * (dz - blk) / max(blk, 0.05) / texSq, 1.5, 6.0);", // the penumbra's half width (texels)
+      "   float lit = 0.0;",
+      "   for (int k = 0; k < 8; k++) {",
+      "      lit += texture(AtlasCmp, vec3(clamp(uv + LPOISSON[k] * rad * atlas.w, lo, hi), ref));",
+      "   }",
+      "   return lit / 8.0;",
+      "}",
       // PixelLight's fitted torch intensity (the share of the pixel's light the lamp gives in the dark)
       "float torch(vec2 p, vec4 a, vec4 b, float kind) {",
       "   vec2 v = p - a.xy;",
@@ -947,6 +1870,8 @@ public final class CapsuleShadow {
       "   vec3 P = worldAt(f, d, mapA, mapC);",
       "   vec4 la = lA[light];",
       "   float share = torch(P.xy, la, lB[light], lK[light]);",
+      // dev (devSilCost 8): the light quads, blue outside the lamp's light, red by the lamp's share inside
+      "   if (mapC.z > 7.5) { fragColor = share < 0.02 ? vec4(0.6, 0.6, 1.0, 1.0) : vec4(1.0, 1.0 - 0.7 * share, 1.0 - 0.7 * share, 1.0); return; }",
       "   if (share < 0.02) discard;",
       "   vec3 tl = la.xyz - P;",
       "   float tmax = length(tl);",
@@ -955,14 +1880,21 @@ public final class CapsuleShadow {
       "   float k = tmax / (lK[light] > 1.5 ? 0.25 : 0.12);", // the lamp's size: penumbra grows with the caster's distance from the receiver
       "   vec4 ba0 = texelFetch(Data, ivec2(1, inst), 0);",
       "   vec4 bb0 = texelFetch(Data, ivec2(2, inst), 0);",
-      "   if (capShadow(ro, rd, ba0.xyz, bb0.xyz, ba0.w, k, tmax) > 0.999) discard;",
+      "   if (capShadow(ro, rd, ba0.xyz, bb0.xyz, ba0.w + (view >= 0 ? 0.15 : 0.0), k, tmax) > 0.999) discard;",
       "   float alpha = texelFetch(Data, ivec2(3, inst), 0).w;",
       "   float vis = 1.0;",
-      "   for (int i = 0; i < 10; i++) {", // K
-      "      vec4 a = texelFetch(Data, ivec2(4 + 2 * i, inst), 0);",
-      "      vec4 b = texelFetch(Data, ivec2(5 + 2 * i, inst), 0);",
-      "      if (a.w > 0.0) vis *= capShadow(ro, rd, a.xyz, b.xyz, a.w, k, tmax);",
+      "   if (view >= 0 && atlas.x > 0.5) {",
+      "      vis = lampVis(P, inst, view, lK[light] > 1.5 ? 0.25 : 0.12);",
+      "   } else {",
+      "      for (int i = 0; i < 10; i++) {", // K
+      "         vec4 a = texelFetch(Data, ivec2(4 + 2 * i, inst), 0);",
+      "         vec4 b = texelFetch(Data, ivec2(5 + 2 * i, inst), 0);",
+      "         if (a.w > 0.0) vis *= capShadow(ro, rd, a.xyz, b.xyz, a.w, k, tmax);",
+      "      }",
       "   }",
+      // the quad's far end and sides fade out (a shadow wider than the quad ends softly, not on a straight edge)
+      "   float edge = smoothstep(0.0, 0.1, qc.y) * smoothstep(1.0, 0.9, qc.y) * smoothstep(1.0, 0.85, qc.x);",
+      "   vis = mix(1.0, vis, edge);",
       "   float m = 1.0 - mapC.w * share * alpha * (1.0 - vis);",
       "   if (mapC.z > 0.5) m = mix(0.5, 1.0, vis);",
       "   if (m > 0.996) discard;",

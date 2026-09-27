@@ -41,13 +41,14 @@ final class Enhancements {
          case "upscaler", "upscalerQuality", "upscalerScalePct", "dlssPreset", "dlssOutputPct", "dlssOutputFilter", "dlssSharpen" ->
             RenderScale.reconfigure();
          case "ambientOcclusion", "aoScalePct", "aoRadiusPct", "aoStrengthFloorPct", "aoStrengthWallPct", "aoStrengthObjectPct",
-               "aoStrengthVegetationPct", "sunShadows" -> ChunkAo.reconfigure();
+               "aoStrengthVegetationPct", "sunShadows", "sunShadowTreeCards" -> ChunkAo.reconfigure();
          case "darknessFloorPct", "darknessFloorBasements", "memoryTint", "memoryLightPct" -> Darkness.reconfigure();
          case "memoryTintPct" -> {
             // read every frame by the remembered-places pass
          }
          case "colorGrading", "colorGradingPct", "colorGradingNightPct" -> Grade.reconfigure();
          case "sunShadowStrengthPct", "sunShadowSoftnessPct", "sunShadowCharacters", "sunShadowVehicles", "sunShadowTorches",
+               "sunShadowMeshes", "sunShadowAnimals", "sunShadowStockFadePct",
                "moonShadows", "moonShadowPct", "cloudShadows", "cloudOpacityPct", "cloudSpeedPct", "cloudScalePct" -> {
             // SunShadow.update sees the new strength / penumbra next frame and recomputes the kept shadows (no re-bake);
             // the capsule pass reads its three switches every frame; the moon and the clouds are read every frame too

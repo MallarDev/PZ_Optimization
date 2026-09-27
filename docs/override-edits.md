@@ -4764,3 +4764,39 @@ N ms inside one run (`pzopt.GtAb`, `harness/gtab.py`): the off half takes the ol
 
 - `removeFromSquare` reports the object to `pzopt.RagdollLedger` first (a dev key: the stack where a dead character left its
   square and its ragdoll state at that moment; nothing without the key).
+
+## Detailed shadows (2026-09-27)
+
+Write-up: `docs/findings-detailed-shadows-2026-09-27.md`. Classes: `pzopt.TreeSilhouette` (the trees' silhouettes),
+`pzopt.ChunkAo` (the kernel's tree cards), `pzopt.CapsuleShadow` (the silhouette pass of characters, animals and vehicles).
+
+### zombie.iso.fboRenderChunk.FBORenderCell
+- Right after `renderMovingObjects`: `CapsuleShadow.afterMoving` (with `sunShadowSilhouette` the frame's caster pass is
+  queued there instead of right after the chunk composite: it reads the casters' own depth).
+- After each `renderShadow` call of the player, a moving character and a vehicle: `CapsuleShadow.stockShadowDone` (the
+  stock blob's fade set by the caster's `add` applies to that one shadow only).
+
+- Right before `GodRays.queue` (the scene depth complete): `CapsuleShadow.beforeFog` (with `sunShadowPassLate`, the
+  default, the caster pass is drawn there, its scene depth read beside the god rays' and the fog's).
+
+### zombie.core.textures.TextureDraw
+- Fields `pzoptShadowTile` / `pzoptShadowX,Y,Z,Half`: a DrawModel's atlas tile for its sun draw (`sunShadowMeshes`).
+- `drawModel` (game thread): `CapsuleShadow.tileFor(modelSlot, texd)` fills them (-1: no sun draw this frame).
+- The DrawModel case (render thread), after the model's own draw: `ShadowAtlas.renderCaster(...)` queues the sun draw
+  (drawn at the frame's `ShadowAtlas.flush`).
+- Fields `pzoptLampN` / `pzoptLampDraw` (`sunShadowLampMeshes`): the caster's lamp views to draw this frame (tile, centre,
+  half size, lamp position each; filled by `tileFor`); after the sun draw `ShadowAtlas.renderLamps(this)` queues them (a
+  perspective view of the model from the torch or headlight into its own atlas tile).
+
+### zombie.characters.IsoGameCharacter
+- Fields `pzoptShadowStamp`, `pzoptShadowTile`, `pzoptShadowX,Y,Z,Half`: the character's atlas tile and a scheduled
+  sun draw (`CapsuleShadow.assignTile` / `tileFor`).
+
+### zombie.core.textures.MultiTextureFBO2
+- `render`, first: `CapsuleShadow.queueAtlasFlush()`: the frame's sun draws after the world pass, before the screen
+  composite (a render target switch in the middle of the world cost the GPU more than the draws).
+
+### zombie.iso.fboRenderChunk.FBORenderShadows (new override)
+- The texture overload of `addShadow` (every stock blob and vehicle shadow goes through it) multiplies its alpha by
+  `CapsuleShadow.stockShadowScale()`: 1, except between a caster's `add` and its `stockShadowDone` when it casts a real sun
+  shadow (then `1 - sunShadowStockFadePct x its sun share`: the blob under the feet was a second shadow beside the sun's).

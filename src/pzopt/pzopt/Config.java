@@ -854,6 +854,20 @@ public final class Config {
    public static volatile boolean SUN_SHADOW_TORCHES; // sunShadows: characters and vehicles also cast soft shadows from the torches and headlights in reach, at any hour (pzopt.CapsuleShadow)
    public static final int SUN_SHADOW_TORCH_PCT = integer("sunShadowTorchPct", 85); // how much of a torch's light a character's shadow takes away in the dark, %
    public static final boolean SUN_SHADOW_ATLAS = bool("sunShadowAtlas", true); // sunShadows, characters: zombies drawn as atlas sprites (no model) cast one upright capsule's shadow
+   public static final boolean SUN_SHADOW_SILHOUETTE = bool("sunShadowSilhouette", true); // sunShadows, characters / animals / vehicles: the shadow takes the caster's drawn shape (limbs, hair, weapons, bags, an animal's legs, a car's body): after the moving objects are drawn, each caster's sun ray is marched through the scene depth inside its bounding capsule (pzopt.CapsuleShadow); where the penumbra grows wider than a limb the capsule model takes over; off: the capsules alone, drawn before the characters (2026-09-25)
+   public static final boolean SUN_SHADOW_PASS_LATE = bool("sunShadowPassLate", true); // sunShadowSilhouette: the caster pass right before the god rays and the fog (its scene depth read beside theirs; translucent objects receive too); off: right after the moving objects
+   public static final int SUN_SHADOW_SILHOUETTE_STEPS = integer("sunShadowSilhouetteSteps", 24); // sunShadowSilhouette: depth samples per pixel along the ray's stretch inside the caster's bounding capsule (at most)
+   public static volatile boolean SUN_SHADOW_MESHES; // sunShadows: characters and animals cast the shadow of their own model: right after its draw the model is drawn again from the sun into its tile of a depth atlas (pzopt.ShadowAtlas, 128 x 128 a caster), the shadow pass reads it with a percentage-closer soft shadow (every limb, hair, clothes, bags, weapons, an animal's legs and tail); off: capsules (+ the depth shell of sunShadowSilhouette) (live)
+   public static final boolean SUN_SHADOW_MESH_VEHICLES = bool("sunShadowMeshVehicles", true); // sunShadowMeshes: vehicles too (their body, wheels, doors, bars as drawn); off: their three capsules
+   public static final int SUN_SHADOW_MESH_BURST = integer("sunShadowMeshBurst", 6); // sunShadowMeshes: redraws come in bursts of at least this many (the atlas flush's fixed cost shared), sunShadowMeshHz on average
+   public static final int SUN_SHADOW_MESH_BUDGET = integer("sunShadowMeshBudget", 12); // sunShadowMeshes: at most this many casters drawn again from the sun a frame (new ones always); the rest keep an earlier pose at their position now
+   public static final int SUN_SHADOW_MESH_HZ = integer("sunShadowMeshHz", 15); // sunShadowMeshes: how many times a second each caster's pose is drawn again (the draws a frame follow the casters and the frame time, within 1..sunShadowMeshBudget)
+   public static final boolean SUN_SHADOW_LAMP_MESHES = bool("sunShadowLampMeshes", true); // sunShadowMeshes + sunShadowTorches: a character's shadow from a torch or a headlight is its own model too, drawn from the lamp (a perspective view into its atlas tile, the two strongest lamps a character); off: capsules
+   public static final int SUN_SHADOW_LAMP_SPREAD_PCT = integer("sunShadowLampSpreadPct", 100); // sunShadowTorches: a torch / headlight shadow's quad widens with its cone up to this % of the caster's width near it; the rest fades out at the quad's sides (flip, 8 zombies in a torch beam: 100 ~260 us, 200 ~420-700, 400 ~500-830: the quads are long)
+   public static final int SUN_SHADOW_LAMP_BUDGET = integer("sunShadowLampBudget", 8); // sunShadowLampMeshes: at most this many lamp views drawn again a frame (new ones and a lamp that moved round its caster first); the rest keep an earlier pose at their position now
+   public static final boolean SUN_SHADOW_SHELL_LIMBS = bool("sunShadowShellLimbs", true); // sunShadowSilhouette: a person's limbs and an animal's legs come from the depth shell alone (the capsules keep the torso and head, an animal's trunk): 2 capsule tests a pixel instead of 10; off: all ten capsules as well
+   public static volatile int SUN_SHADOW_STOCK_FADE_PCT; // sunShadows: how much of the stock blob shadow under a character or vehicle fades where it casts a real sun shadow (x its sun share; overcast, at night and indoors the stock blob stays), % (live)
+   public static volatile boolean SUN_SHADOW_ANIMALS; // sunShadows: animals cast sun shadows too (their bounding capsule from every bone of their skeleton; with sunShadowSilhouette their drawn shape) (live)
    public static final boolean SUN_SHADOW_MARCH = bool("sunShadowMarch", false); // sunShadows, characters: per pixel, a receiver the static world hides from the sun takes no second shadow (8 depth taps); off: per caster (its own sun share)
    public static final int SUN_SHADOW_CHARACTER_REACH = integer("sunShadowCharacterReach", 12); // how far a character's shadow may reach along the ground, squares (a low sun; the last 30 % fades)
    public static final int SUN_SHADOW_CHARACTER_LOD_PCT = integer("sunShadowCharacterLodPct", 150); // past this far from a character's feet (% of a square) its shadow is the bounding capsule's alone (the penumbra is wider than a limb there); 10000 = always the ten body capsules
@@ -863,6 +877,10 @@ public final class Config {
    public static final boolean SUN_SHADOW_TREES = bool("sunShadowTrees", true); // sunShadows: trees take part as crown proxies (an ellipsoid per tree from its sprite, pzopt.ChunkAo): a crown shades what the sun ray crosses it to (the ground, walls, its own trunk and lower crown, its far side); the flat tree card no longer casts (a line or nothing, depending on the sun) nor takes striped shade; off: trees neither cast nor take sun shadows (before 2026-09-25)
    public static final int AO_TREE_CANOPY_PCT = integer("aoTreeCanopyPct", 25); // chunk AO: the sky the crowns hide, optical depth % per square of crown straight above (times the vegetation AO strength, wherever it lands): a tree's trunk and lower crown, the ground under a tree; 0 = none (before 2026-09-25)
    public static final int SUN_SHADOW_CANOPY_PCT = integer("sunShadowCanopyPct", 35); // sunShadowTrees: foliage optical depth of a crown for the sun, % per square of crown the ray crosses (a big crown is ~6 squares through)
+   public static final boolean SUN_SHADOW_BARE_FAR = bool("sunShadowBareFar", true); // sunShadows: a texture with only floor in its 3 x 3 chunks still takes the sun term when a wall, solid object, upper floor, roof or tree stands within the far field's reach (4 chunks): a low sun's long shadow across open ground no longer stops on a bare chunk's edge; off: bare by the 3 x 3 chunks alone (before 2026-09-27)
+   public static volatile boolean SUN_SHADOW_TREE_CARDS; // sunShadowTrees: a tree casts the shadow of its own sprite (trunk, branches and leaves as drawn, one continuous shadow from the foot) on a card turned to face the sun (pzopt.TreeSilhouette), softened by distance through the silhouette's mipmaps; the crown proxy stays for the tree's own shading and the sky under it; off: the crown proxies cast (2026-09-25) (live)
+   public static final int SUN_SHADOW_TREE_OPACITY_PCT = integer("sunShadowTreeOpacityPct", 90); // sunShadowTreeCards: how much sun a covered texel of a tree's silhouette holds back (leaves let some through), %
+   public static final int SUN_SHADOW_TREE_REACH = integer("sunShadowTreeReach", 3); // sunShadowTreeCards: trees this many chunks around a texture whose shadow reaches it take part (a low sun's long tree shadows)
    public static final int SUN_SHADOW_STEPS = integer("sunShadowSteps", 24); // samples along each texel's march towards the sun
    public static final int SUN_AZIMUTH_DEG = integer("sunAzimuthDeg", 0); // turns the sun's path (east at 6 h, south at noon, west at 18 h) clockwise seen from above
    public static final int SUN_MAX_ELEVATION_DEG = integer("sunMaxElevationDeg", 55); // the sun's height at noon (Kentucky in autumn: ~50)
@@ -872,8 +890,13 @@ public final class Config {
    public static final int SUN_COMPUTE_BUDGET = integer("sunComputeBudget", 1); // textures recomputed per frame because the sun moved a step (on screen first; none after a frame that missed the cap)
    public static final int SUN_STEP_DEG10 = integer("sunStepDeg10", 15); // tenths of a degree the sun moves before the shadows are computed again (the textures on screen first, a few a frame)
    public static final float DEV_SUN_HOUR = Float.parseFloat(string("devSunHour", "-1")); // dev: the sun stands at this hour whatever the game time (-1: the game's clock)
+   public static final boolean DEV_SHADOW_ATLAS_DROP = bool("devShadowAtlasDrop", false); // dev: the sun draw keeps Core.DoPushIsoStuff's -0.48 model offset (the bones say the feet stand at the character's position without it)
+   public static final boolean DEV_SHADOW_GL_GET = bool("devShadowGlGet", false); // dev: the caster pass reads the bound framebuffer back every frame (a glGet) instead of the TextureFBO.lastID cache, and logs where they differ
+   public static final int DEV_SIL_COST = integer("devSilCost", 0); // dev: the caster pass (sunShadowSilhouette) with every fragment discarded at once (1) or no fragments at all (2): its fixed cost; 8 = the torch / headlight quads tinted (blue outside the lamp's light, red by its share)
+   public static final int DEV_SHADOW_ATLAS_DUMP = integer("devShadowAtlasDump", 0); // dev: the Nth frame of the characters' sun shadow atlas into Zomboid/pzopt-shadow-atlas.pgm
    public static final int DEV_SUN_ALTERNATE = integer("devSunAlternate", 0); // dev: ms; the capsule shadow pass switches on and off every period (harness/contact/alt.py splits the frames' GPU time by it)
    public static final float DEV_SUN_HOUR_SPEED = Float.parseFloat(string("devSunHourSpeed", "0")); // dev: with devSunHour, the sun moves on at this many hours per real second (a sweep to watch the recompute waves)
+   public static final int DEV_DETAIL_TOGGLE_PERIOD = integer("devDetailTogglePeriod", 0); // dev: ms; the detailed shadows (sunShadowMeshes, sunShadowTreeCards, the stock blob's fade, softness 25) and the 09-26 release's (capsules, crown ovals, the blob, softness 100) take turns every period, logged with the epoch (the Workshop card's clip)
    public static final int DEV_SUN_TOGGLE_PERIOD = integer("devSunTogglePeriod", 0); // dev: ms; sun shadows flip on / off every period (each switch bakes the chunk pictures again), logged with the epoch (the Workshop card's clip)
    // The real sky (pzopt.Sky, pzopt.CloudShadow; docs/findings-sky-2026-09-26.md), 2026-09-26
    public static final String SKY_PATH = string("skyPath", "astro").trim().toLowerCase(java.util.Locale.ROOT); // astro = the sun and moon where they really stand for the game's date, hour and latitude; arc = the fixed path of before (east 6 h, south noon at sunMaxElevationDeg, west 18 h), no moon
@@ -1137,10 +1160,14 @@ public final class Config {
       SSR_PUDDLES = bool("reflectionPuddles", true);
       SUN_SHADOWS = bool("sunShadows", false);
       SUN_SHADOW_STRENGTH_PCT = integer("sunShadowStrengthPct", 45);
-      SUN_SHADOW_SOFTNESS_PCT = integer("sunShadowSoftnessPct", 100);
+      SUN_SHADOW_SOFTNESS_PCT = integer("sunShadowSoftnessPct", 25); // 25 since 2026-09-27 (detailed shadows: a tree's leaves and a body's limbs stay readable; 100 blurred every shadow past a square from its caster into a blob)
       SUN_SHADOW_CHARACTERS = bool("sunShadowCharacters", true);
       SUN_SHADOW_VEHICLES = bool("sunShadowVehicles", true);
       SUN_SHADOW_TORCHES = bool("sunShadowTorches", true);
+      SUN_SHADOW_TREE_CARDS = bool("sunShadowTreeCards", true);
+      SUN_SHADOW_MESHES = bool("sunShadowMeshes", true);
+      SUN_SHADOW_ANIMALS = bool("sunShadowAnimals", true);
+      SUN_SHADOW_STOCK_FADE_PCT = Math.max(0, Math.min(100, integer("sunShadowStockFadePct", 85)));
       MOON_SHADOWS = bool("moonShadows", true);
       MOON_SHADOW_PCT = integer("moonShadowPct", 100);
       CLOUD_SHADOWS = bool("cloudShadows", true);

@@ -256,7 +256,9 @@ public final class Scene {
 
    /**
     * crowd=N (2026-09-25, the sun shadow rig): N zombies spawned once, 3 s after the first tick, on dry outdoor squares
-    * 4-14 squares around the player (who is a ghost in bench runs: they stand and wander, a steady crowd on screen).
+    * 4-14 squares around the player (who is a ghost in bench runs: they stand and wander, a steady crowd on screen);
+    * crowd_min= / crowd_max= change the ring, crowd_ahead=D keeps it within D degrees of the player's facing (2026-09-27:
+    * zombies right in front of a torch, crowd_min=2 crowd_max=5 crowd_ahead=30).
     */
    private static void crowdTick(IsoPlayer p, long nowNs) {
       if (crowd < 0) {
@@ -275,11 +277,15 @@ public final class Scene {
       zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
       java.util.ArrayList<zombie.iso.IsoGridSquare> ground = new java.util.ArrayList<>();
       int px = (int)Math.floor(p.getX()), py = (int)Math.floor(p.getY());
-      for (int y = py - 14; y <= py + 14; y++) {
-         for (int x = px - 14; x <= px + 14; x++) {
+      int rMin = Integer.parseInt(HarnessFlags.get("crowd_min", "4").trim()), rMax = Integer.parseInt(HarnessFlags.get("crowd_max", "14").trim());
+      double ahead = Math.cos(Math.toRadians(Double.parseDouble(HarnessFlags.get("crowd_ahead", "180").trim())));
+      zombie.iso.Vector2 fwd = p.getForwardDirection();
+      for (int y = py - rMax; y <= py + rMax; y++) {
+         for (int x = px - rMax; x <= px + rMax; x++) {
             int d2 = (x - px) * (x - px) + (y - py) * (y - py);
             zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, 0);
-            if (d2 >= 16 && d2 <= 196 && sq != null && sq.isOutside() && sq.isFree(false) && !sq.isWaterSquare()) {
+            double cosA = d2 == 0 ? 1.0 : ((x + 0.5 - p.getX()) * fwd.x + (y + 0.5 - p.getY()) * fwd.y) / Math.sqrt(d2) / Math.max(1e-4, fwd.getLength());
+            if (d2 >= rMin * rMin && d2 <= rMax * rMax && cosA >= ahead && sq != null && sq.isOutside() && sq.isFree(false) && !sq.isWaterSquare()) {
                ground.add(sq);
             }
          }
@@ -299,13 +305,70 @@ public final class Scene {
       Log.info("harness: crowd: " + spawned + " zombies spawned around " + px + "," + py + " (" + ground.size() + " outdoor squares)");
    }
 
-   private static int animals = -1;
-   private static String animalType = "cow";
-   private static long animalsAtNs;
+   private static final String[][] PLANT = {{"e_riverbirchJUMBOXL_1_0", "e_riverbirchJUMBOXL_1_4"}, {"e_dogwoodJUMBO_1_0", "e_dogwoodJUMBO_1_8"}};
 
    /**
-    * animals=N[:type] (2026-09-27, the animal line-of-sight rig of the game-thread offload pass): N animals (default cows,
-    * a random breed each) spawned once, 3 s after the first tick, on free outdoor squares 4-20 squares around the player.
+    * plant_trees=N (2026-09-27, the detailed shadow rig): N trees (river birch XL and dogwood JUMBO with their summer
+    * foliage) planted at the route start on bare outdoor squares (a floor and nothing else) 5-14 squares from the player,
+    * at least 4 squares apart: trees on open pavement, where their sun shadows can be judged.
+    */
+   private static void plantTrees(IsoPlayer p, int want) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = (int)Math.floor(p.getX()), py = (int)Math.floor(p.getY());
+      java.util.ArrayList<int[]> planted = new java.util.ArrayList<>();
+      StringBuilder where = new StringBuilder();
+      for (int r = 5; r <= 14 && planted.size() < want; r++) {
+         for (int y = py - r; y <= py + r && planted.size() < want; y++) {
+            for (int x = px - r; x <= px + r && planted.size() < want; x++) {
+               if (Math.max(Math.abs(x - px), Math.abs(y - py)) != r) {
+                  continue;
+               }
+               zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, 0);
+               if (sq == null || !sq.isOutside() || sq.getObjects().size() > 1 || sq.getFloor() == null || sq.isWaterSquare() || !sq.isFree(false)) {
+                  continue;
+               }
+               boolean spaced = true;
+               for (int[] q : planted) {
+                  if (Math.abs(q[0] - x) < 4 && Math.abs(q[1] - y) < 4) {
+                     spaced = false;
+                  }
+               }
+               if (!spaced) {
+                  continue;
+               }
+               String[] kind = PLANT[planted.size() % PLANT.length];
+               try {
+                  zombie.iso.objects.IsoTree tree = new zombie.iso.objects.IsoTree(sq, kind[0]);
+                  zombie.iso.sprite.IsoSprite leaves = zombie.iso.sprite.IsoSpriteManager.instance.getSprite(kind[1]);
+                  if (leaves != null) {
+                     if (tree.attachedAnimSprite == null) {
+                        tree.attachedAnimSprite = new java.util.ArrayList<>();
+                     }
+                     tree.attachedAnimSprite.add(zombie.iso.sprite.IsoSpriteInstance.get(leaves));
+                  }
+                  sq.AddTileObject(tree);
+                  planted.add(new int[] {x, y});
+                  where.append(' ').append(kind[0]).append('@').append(x).append(',').append(y);
+               } catch (Throwable t) {
+                  Log.warn("harness: plant_trees: " + t);
+                  return;
+               }
+            }
+         }
+      }
+      Log.info("harness: plant_trees: " + planted.size() + " planted:" + where);
+   }
+
+   private static int animals = -1;
+   private static String animalType; // null: mixed kinds (ANIMAL_TYPES)
+   private static long animalsAtNs;
+   private static final String[] ANIMAL_TYPES = {"cow", "ewe", "sow", "hen", "doe", "bull", "ram", "boar", "cockerel", "buck", "turkeyhen", "rabdoe"};
+
+   /**
+    * animals=N[:type] (2026-09-27): N animals spawned once, 3 s after the first tick, on free outdoor squares around the
+    * player. With a type (the animal line-of-sight rig of the game-thread offload pass): that type (default breed random),
+    * 4-20 squares out; without (the detailed shadow rig): farm and wild animals of mixed kinds (cows, sheep, pigs, chickens,
+    * deer, turkeys, rabbits: every skeleton the shadow passes meet), 3-12 squares out.
     */
    private static void animalsTick(IsoPlayer p, long nowNs) {
       if (animals < 0) {
@@ -323,32 +386,51 @@ public final class Scene {
       }
       int want = animals;
       animals = 0;
-      zombie.characters.animals.AnimalDefinitions def = zombie.characters.animals.AnimalDefinitions.getDef(animalType);
-      if (def == null) {
+      zombie.characters.animals.AnimalDefinitions def = animalType == null ? null : zombie.characters.animals.AnimalDefinitions.getDef(animalType);
+      if (animalType != null && def == null) {
          Log.warn("harness: animals: no animal type " + animalType);
          return;
       }
+      int rMin = animalType == null ? 3 : 4, rMax = animalType == null ? 12 : 20;
       zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
       java.util.ArrayList<zombie.iso.IsoGridSquare> ground = new java.util.ArrayList<>();
       int px = (int)Math.floor(p.getX()), py = (int)Math.floor(p.getY());
-      for (int y = py - 20; y <= py + 20; y++) {
-         for (int x = px - 20; x <= px + 20; x++) {
+      for (int y = py - rMax; y <= py + rMax; y++) {
+         for (int x = px - rMax; x <= px + rMax; x++) {
             int d2 = (x - px) * (x - px) + (y - py) * (y - py);
             zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, 0);
-            if (d2 >= 16 && d2 <= 400 && sq != null && sq.isOutside() && sq.isFree(false) && !sq.isWaterSquare()) {
+            if (d2 >= rMin * rMin && d2 <= rMax * rMax && sq != null && sq.isOutside() && sq.isFree(false) && !sq.isWaterSquare()) {
                ground.add(sq);
             }
          }
       }
       java.util.Collections.shuffle(ground, new java.util.Random(7));
       int spawned = 0;
+      StringBuilder kinds = new StringBuilder();
       for (int i = 0; i < ground.size() && spawned < want; i++) {
          zombie.iso.IsoGridSquare sq = ground.get(i);
-         zombie.characters.animals.IsoAnimal a = new zombie.characters.animals.IsoAnimal(cell, sq.x, sq.y, 0, animalType, def.getRandomBreed());
-         a.addToWorld();
-         spawned++;
+         if (def != null) {
+            zombie.characters.animals.IsoAnimal a = new zombie.characters.animals.IsoAnimal(cell, sq.x, sq.y, 0, animalType, def.getRandomBreed());
+            a.addToWorld();
+            spawned++;
+            continue;
+         }
+         String type = ANIMAL_TYPES[spawned % ANIMAL_TYPES.length];
+         try {
+            zombie.characters.animals.AnimalDefinitions d = zombie.characters.animals.AnimalDefinitions.getDef(type);
+            if (d == null || d.getBreeds() == null || d.getBreeds().isEmpty()) {
+               continue;
+            }
+            zombie.characters.animals.IsoAnimal a = new zombie.characters.animals.IsoAnimal(cell, sq.x, sq.y, 0, type, d.getBreeds().get(0));
+            a.addToWorld();
+            spawned++;
+            kinds.append(' ').append(type);
+         } catch (Throwable t) {
+            Log.warn("harness: animals: " + type + " failed: " + t);
+            want--;
+         }
       }
-      Log.info("harness: animals: " + spawned + " " + animalType + " spawned around " + px + "," + py + " (" + ground.size() + " outdoor squares)");
+      Log.info("harness: animals: " + spawned + " " + (animalType == null ? "mixed:" + kinds : animalType) + " spawned around " + px + "," + py + " (" + ground.size() + " outdoor squares)");
    }
 
    /** Per-frame upkeep while the run is live: keep the overrides pinned and fire the scheduled lightning. */
@@ -366,7 +448,7 @@ public final class Scene {
       RoomLightRig.tick(p, nowNs); // room_light=auto: the room light off / on timeline
       ThumpRig.tick(p, nowNs); // thump=N: zombies thumping a door off-screen (the thump-burst repro)
       crowdTick(p, nowNs); // crowd=N: a crowd around the player (the capsule shadow rig)
-      animalsTick(p, nowNs); // animals=N[:type]: animals around the player (the animal line-of-sight rig)
+      animalsTick(p, nowNs); // animals=N[:type]: animals around the player (the animal line-of-sight rig; mixed kinds: the detailed shadow rig)
       if (zombiesOff) {
          removeZombies();
       }
@@ -510,6 +592,14 @@ public final class Scene {
       if ("on".equals(lights)) {
          lightsOn();
       }
+      int plant = Integer.parseInt(HarnessFlags.get("plant_trees", "0").trim());
+      if (plant > 0) {
+         plantTrees(IsoPlayer.getInstance(), plant);
+      }
+      int treeMap = Integer.parseInt(HarnessFlags.get("tree_map", "0").trim());
+      if (treeMap > 0) {
+         logTreeMap(IsoPlayer.getInstance(), treeMap);
+      }
       SoundProbe.routeStart(IsoPlayer.getInstance(), nowNs);
    }
 
@@ -536,6 +626,48 @@ public final class Scene {
    private static void lightsOn() {
       IsoPlayer p = IsoPlayer.getInstance();
       lightsOnAround((int)p.getX(), (int)p.getY());
+   }
+
+   /**
+    * tree_map=N (2026-09-27, the detailed shadow rig): every object within N squares of the player at the route start whose
+    * sprite or texture looks like a tree or a bush (names with tree / vegetation / JUMBO), one line each: square, class,
+    * sprite, texture, attached overlays, and whether IsoGridSquare.getTree() finds it (the tree shadows' source).
+    */
+   private static void logTreeMap(IsoPlayer p, int n) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = (int)Math.floor(p.getX()), py = (int)Math.floor(p.getY());
+      int found = 0;
+      for (int z = 0; z < 2; z++) {
+         for (int y = py - n; y <= py + n; y++) {
+            for (int x = px - n; x <= px + n; x++) {
+               zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, z);
+               if (sq == null) {
+                  continue;
+               }
+               for (int i = 0; i < sq.getObjects().size(); i++) {
+                  zombie.iso.IsoObject o = sq.getObjects().get(i);
+                  zombie.iso.sprite.IsoSprite s = o.getSprite();
+                  String sn = s == null ? "" : String.valueOf(s.name);
+                  zombie.core.textures.Texture t = s == null ? null : s.getTextureForCurrentFrame(o.getDir(), o);
+                  String tn = t == null ? "" : String.valueOf(t.getName());
+                  String l = (sn + " " + tn).toLowerCase(java.util.Locale.ROOT);
+                  if (!l.contains("tree") && !l.contains("vegetation") && !l.contains("jumbo") || l.contains("street")) {
+                     continue;
+                  }
+                  StringBuilder att = new StringBuilder();
+                  if (o.attachedAnimSprite != null) {
+                     for (zombie.iso.sprite.IsoSpriteInstance a : o.attachedAnimSprite) {
+                        att.append(' ').append(a == null || a.parentSprite == null ? "-" : a.parentSprite.name);
+                     }
+                  }
+                  Log.info("harness: tree map " + x + "," + y + "," + z + " " + o.getClass().getSimpleName() + " sprite=" + sn + " tex=" + tn
+                     + (t == null ? "" : " " + t.getWidthOrig() + "x" + t.getHeightOrig()) + " attached=[" + att.toString().trim() + "] getTree=" + (sq.getTree() == o));
+                  found++;
+               }
+            }
+         }
+      }
+      Log.info("harness: tree map: " + found + " tree / vegetation objects within " + n + " squares of " + px + "," + py);
    }
 
    static boolean lightsFlag() {

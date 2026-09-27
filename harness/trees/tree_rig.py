@@ -49,6 +49,7 @@ def main():
     ap.add_argument("--canopy", type=float, default=0.35, help="sunTree.x: the crowns' optical depth per square for the sun (sunShadowCanopyPct / 100)")
     ap.add_argument("--sky", type=float, default=0.25, help="sunTree.y: the crowns' optical depth per square for the sky (aoTreeCanopyPct / 100)")
     ap.add_argument("--no-trees", action="store_true", help="the kernel without the crown proxies (sunTree = 0)")
+    ap.add_argument("--no-cards", action="store_true", help="the kernel without the tree silhouettes (crown proxies cast)")
     ap.add_argument("--radius-pct", type=float, default=100.0)
     ap.add_argument("--thickness-pct", type=float, default=60.0)
     a = ap.parse_args()
@@ -67,6 +68,20 @@ def main():
         t = ctx.texture((w, h), 1, np.ascontiguousarray(d).tobytes(), dtype="f4")
         t.filter = (moderngl.NEAREST, moderngl.NEAREST)
         texs.append(t)
+    # sunShadowTreeCards: the silhouettes (TreeSilhouette.dump: every layer's level 0, R8, rows bottom-up) on unit 10
+    sil = None
+    silp = os.path.join(a.dump, "pzopt-chunkao-treesil.bin")
+    if kv.get("cards") == "1" and os.path.exists(silp):
+        n, L = int(kv["silSize"]), int(kv["silLayers"])
+        data = np.fromfile(silp, np.uint8)
+        sil = ctx.texture_array((n, n, L), 1, data.tobytes(), dtype="f1")
+        sil.build_mipmaps()
+        sil.filter = (moderngl.LINEAR_MIPMAP_LINEAR, moderngl.LINEAR)
+        sil.repeat_x = sil.repeat_y = False
+        used = sorted({int(float(v)) for v in kv["treeC"].split(",")[3::4] if float(v) >= 0})
+        for l in used[:6]:
+            Image.fromarray(data.reshape(L, n, n)[l][::-1]).save(a.out + "-sil%d.png" % l)
+        print("silhouette layers used:", used)
     quad = ctx.buffer(np.array([-1, -1, 1, -1, 1, 1, -1, 1], "f4").tobytes())
     vert = glsl(os.path.join(SRC, "AmbientOcclusion.java"), "QUAD_VERT")
     kernel = glsl(os.path.join(SRC, "ChunkAo.java"), "AO_FRAG")
@@ -100,11 +115,17 @@ def main():
         s(p, "iso1", tuple(map(float, kv["iso1"].split(","))))
         nt = 0 if a.no_trees else int(kv.get("nTrees", "0"))
         if nt:
-            fl = lambda k: [tuple(map(float, kv[k].split(",")[q * 4:q * 4 + 4])) for q in range(16)]  # noqa: E731
+            mt = len(kv["treeA"].split(",")) // 4
+            fl = lambda k: [tuple(map(float, kv[k].split(",")[q * 4:q * 4 + 4])) for q in range(mt)]  # noqa: E731
             s(p, "treeA", fl("treeA"))
             s(p, "treeB", fl("treeB"))
+            if "treeC" in kv:
+                s(p, "treeC", fl("treeC"))
+                s(p, "treeD", fl("treeD"))
             s(p, "sunWorld", tuple(map(float, kv["sunWorld"].split(","))) + (0.0,))
-        s(p, "sunTree", (a.canopy if nt else 0.0, a.sky if nt else 0.0, float(nt), 0.0))
+        cards = sil is not None and not a.no_cards
+        s(p, "sunTree", (a.canopy if nt else 0.0, a.sky if nt else 0.0, float(nt), float(kv.get("treeOpacity", "0.9")) if cards else 0.0))
+        s(p, "treeSil", 10)
         if "veg" in p:
             p["veg"].value = ints(kv["veg"])
         if "ext" in p:
@@ -131,6 +152,8 @@ def main():
     def run(uniforms=True):
         for i, t in enumerate(texs):
             t.use(i)
+        if sil is not None:
+            sil.use(10)
         rawf.use()
         ctx.viewport = (0, 0, aw, ah)
         if uniforms:

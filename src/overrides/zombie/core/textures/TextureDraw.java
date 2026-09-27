@@ -51,6 +51,10 @@ public final class TextureDraw {
    }
 
    public static float nextZ;
+   public int pzoptShadowTile = -1; // pzopt: sunShadowMeshes, DrawModel: the caster's tile of the sun shadow atlas (-1: none)
+   public float pzoptShadowX, pzoptShadowY, pzoptShadowZ, pzoptShadowHalf; // pzopt: its centre (world, z metric) and half size
+   public int pzoptLampN; // pzopt: sunShadowLampMeshes, DrawModel: the caster's lamp views to draw (ShadowAtlas.renderLamps)
+   public float[] pzoptLampDraw; // pzopt: per view tile, centre x, y, z, half size, lamp x, y, z
    public static float nextChunkDepth;
    public TextureDraw.Type type = TextureDraw.Type.glDraw;
    public boolean flipped;
@@ -292,6 +296,7 @@ public final class TextureDraw {
       texd.type = TextureDraw.Type.DrawModel;
       texd.a = modelSlot.id;
       texd.b = pzopt.ObjectMotion.record(modelSlot); // pzopt: upscaler, the stencil id of the model's object motion (0 = none)
+      pzopt.CapsuleShadow.tileFor(modelSlot, texd); // pzopt: sunShadowMeshes, the caster's atlas tile for its sun draw (-1 none)
       // pzopt: charDrawPrep. The draw data of a zombie the workers already built and initialised this frame
       // (pzopt.CharDraw, from FBORenderCell.renderMovingObjects) goes straight into the slot; nothing to init, no
       // future for the render thread to wait on. Everyone else takes the stock path below.
@@ -604,6 +609,12 @@ public final class TextureDraw {
                if (pzoptMotionId > 0) {
                   pzopt.ObjectMotion.endStencil();
                }
+               if (this.pzoptShadowTile >= 0) { // pzopt: sunShadowMeshes, the same model from the sun into its atlas tile
+                  pzopt.ShadowAtlas.renderCaster(this, this.pzoptShadowTile, this.pzoptShadowX, this.pzoptShadowY, this.pzoptShadowZ, this.pzoptShadowHalf); // pzopt
+               } // pzopt
+               if (this.pzoptLampN > 0) { // pzopt: sunShadowLampMeshes, the same model from its lamps
+                  pzopt.ShadowAtlas.renderLamps(this); // pzopt
+               } // pzopt
                pzopt.RenderScale.afterModelDraw(); // pzopt: upscaler, an imposter card render restores an integer viewport: put the jittered one back
             }
             break;

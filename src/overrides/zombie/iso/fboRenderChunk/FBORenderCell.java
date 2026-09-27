@@ -1677,6 +1677,7 @@ public final class FBORenderCell {
       if (!pzopt.ResumeShot.noMoving) { // pzopt: resumeShot's exit capture (below "full"): no vehicles or characters
       long pzoptMoving = pzopt.GtAb.begin(); pzopt.GpuSections.begin("moving"); /* pzopt: GPU section */ this.renderMovingObjects(); pzopt.GpuSections.end("moving"); pzopt.GtAb.end(pzopt.GtAb.S_MOVING, pzoptMoving); // pzopt: devGtAlternate section timer
       }
+      pzopt.CapsuleShadow.afterMoving(playerIndex); // pzopt: sunShadowSilhouette, the casters' shadows from their drawn shapes (after they are drawn)
       SpriteRenderer.instance.endProfile(movingObjectsProbe);
       AbstractPerformanceProfileProbe var30 = water.profile();
 
@@ -1840,6 +1841,7 @@ public final class FBORenderCell {
       AbstractPerformanceProfileProbe var33 = fog.profile();
 
       try {
+         pzopt.CapsuleShadow.beforeFog(playerIndex); // pzopt: sunShadowPassLate, the casters' shadows, their depth read beside the god rays' and the fog's
          pzopt.GodRays.queue(playerIndex); // pzopt: god rays, this frame's light, volume updates and screen mapping (the scene depth is complete here)
          this.renderFog(playerIndex);
       } catch (Throwable var21) {
@@ -6418,6 +6420,7 @@ public final class FBORenderCell {
                         pzopt.CapsuleShadow.add(player); // pzopt: sunShadows, the player's body in this frame's capsule shadow pass
                         pzopt.Ssr.addMoving(player); // pzopt: reflections, the player near water in the frame's moving scatter
                         player.renderShadow(player.getX(), player.getY(), player.getZ());
+                        pzopt.CapsuleShadow.stockShadowDone(); // pzopt: sunShadows, the stock blob's fade was for this caster only
                      }
 
                      player.render(
@@ -6510,6 +6513,7 @@ public final class FBORenderCell {
                } else if (chr != null && !pzoptShadowIsNoOp(chr)) { // pzopt: charDrawPrep, the culled atlas zombies' call returns before drawing
                   pzopt.CapsuleShadow.add(chr); // pzopt: sunShadows, this character's body in the frame's capsule shadow pass
                   chr.renderShadow(isoMovingObject.getX(), isoMovingObject.getY(), isoMovingObject.getZ());
+                  pzopt.CapsuleShadow.stockShadowDone(); // pzopt: sunShadows, the stock blob's fade was for this caster only
                } else if (chr != null) { // pzopt: sunShadows, an atlas zombie (no model, no stock shadow): one upright capsule
                   pzopt.CapsuleShadow.addAtlas(chr); // pzopt
                }
@@ -6517,6 +6521,7 @@ public final class FBORenderCell {
                if (isoMovingObject instanceof BaseVehicle vehicle) {
                   pzopt.CapsuleShadow.addVehicle(vehicle); // pzopt: sunShadows, the vehicle's body in the frame's capsule shadow pass
                   vehicle.renderShadow();
+                  pzopt.CapsuleShadow.stockShadowDone(); // pzopt: sunShadows, the stock shadow's fade was for this vehicle only
                }
             }
 

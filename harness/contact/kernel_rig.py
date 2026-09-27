@@ -17,8 +17,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "..", "src", "pzopt", "pzopt")
 
 
+def java_constants(src_dir):
+    """int constants of the pzopt sources (NAME and Class.NAME), for GLSL lines that concatenate them."""
+    consts = {}
+    for fn in os.listdir(src_dir):
+        if not fn.endswith(".java"):
+            continue
+        cls = fn[:-5]
+        for m in re.finditer(r'static final int ([A-Z_0-9]+)\s*=\s*(\d+)\s*[;,]', open(os.path.join(src_dir, fn)).read()):
+            consts.setdefault(m.group(1), m.group(2))
+            consts[cls + "." + m.group(1)] = m.group(2)
+        for m in re.finditer(r'static final int [A-Z_0-9]+\s*=\s*\d+\s*,\s*([A-Z_0-9]+)\s*=\s*8\s*\+\s*2\s*\*\s*([A-Z_0-9]+)', open(os.path.join(src_dir, fn)).read()):
+            consts[m.group(1)] = str(8 + 2 * int(consts.get(m.group(2), 0)))
+    return consts
+
+
 def glsl(path, name):
     src = open(path).read()
+    consts = java_constants(os.path.dirname(path))
     m = re.search(r'String ' + name + r' = String\.join\("\\n",\n(.*?)\);\n', src, re.S)
     parts = []
     for line in m.group(1).split("\n"):
@@ -28,6 +44,12 @@ def glsl(path, name):
         lit = re.match(r'"((?:[^"\\]|\\.)*)"\s*,?\s*(//.*)?$', line)
         if lit:
             parts.append(lit.group(1).encode().decode("unicode_escape"))
+            continue
+        # "a" + CONST + "b", (string literals joined with int constants)
+        body = re.sub(r'\s*,?\s*(//.*)?$', '', line)
+        toks = re.findall(r'"(?:[^"\\]|\\.)*"|[A-Za-z_][A-Za-z_0-9.]*', body)
+        if toks and toks[0].startswith('"') and all(t.startswith('"') or t in consts for t in toks):
+            parts.append("".join(t[1:-1].encode().decode("unicode_escape") if t.startswith('"') else consts[t] for t in toks))
     return "\n".join(parts) + "\n"
 
 

@@ -34,6 +34,8 @@ public final class SunShadow {
    private static long lastStrengthStep;
    private static long sweepT0;
    private static long toggleT0;
+   private static long detailT0;
+   private static int detailSoftness, detailFade, detailLogged;
    /** The unquantised strength of this frame's key light (cloud shadows follow it every frame). */
    static volatile float liveStrength;
    /** 0 = the sun is the key light, 1 = the moon. */
@@ -43,6 +45,11 @@ public final class SunShadow {
    private static long stepSerial;
 
    private SunShadow() {
+   }
+
+   /** The key light's step (direction or body) counter: a sun shadow drawn under another step is stale. */
+   static long stepSerial() {
+      return stepSerial * 2L + stepBody + (long)(dir[3] * 1000F) * 131L;
    }
 
    static boolean enabled() {
@@ -70,6 +77,25 @@ public final class SunShadow {
             Config.SUN_SHADOWS = on;
             ChunkAo.reconfigure();
             Log.info("sun shadows: dev toggle " + (on ? "on" : "off") + " at epoch_ms " + now);
+         }
+      }
+      if (Config.DEV_DETAIL_TOGGLE_PERIOD > 0) {
+         // dev (the "Pixel perfect shadows" card's clip): the detailed shadows and the previous release's take turns
+         long now = System.currentTimeMillis();
+         if (detailT0 == 0L) {
+            detailT0 = now;
+            detailSoftness = Config.SUN_SHADOW_SOFTNESS_PCT;
+            detailFade = Config.SUN_SHADOW_STOCK_FADE_PCT;
+         }
+         boolean on = (now - detailT0) / Config.DEV_DETAIL_TOGGLE_PERIOD % 2L == 0L;
+         if (on != Config.SUN_SHADOW_MESHES || detailLogged == 0) {
+            Config.SUN_SHADOW_MESHES = on;
+            Config.SUN_SHADOW_TREE_CARDS = on;
+            Config.SUN_SHADOW_STOCK_FADE_PCT = on ? detailFade : 0;
+            Config.SUN_SHADOW_SOFTNESS_PCT = on ? detailSoftness : 100;
+            ChunkAo.reconfigure();
+            detailLogged++;
+            Log.info("detailed shadows: dev toggle " + (on ? "on" : "off") + " at epoch_ms " + now);
          }
       }
       if (!enabled()) {

@@ -301,6 +301,7 @@ public final class MultiTextureFBO2 {
          }
 
          max = Math.max(max, IsoPlayer.numPlayers - 1);
+         pzopt.CapsuleShadow.queueAtlasFlush(); // pzopt: sunShadowMeshes, the frame's sun draws of the casters into their atlas tiles, after the world pass
          pzopt.Upscaler.queueResolve(); // pzopt: upscaler, the low-res world image is resolved to the screen size on the render thread before the quads below
          pzopt.Hdr.queueWorldStats(); // pzopt: HDR output, the world's average luminance for the composite's expansion
          pzopt.GpuSections.begin(pzopt.Darkness.section("screen")); // pzopt: GPU section (the full-size screen-shader composite; devDarkAlternate splits it by the grade's state)

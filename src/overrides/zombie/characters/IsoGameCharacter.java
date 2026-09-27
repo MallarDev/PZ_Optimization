@@ -374,6 +374,12 @@ public abstract class IsoGameCharacter
    ILuaGameCharacter,
    IStateCharacter,
    CharacterInputComponentEntity {
+   // pzopt: sunShadowMeshes, this frame's tile of the characters' sun shadow atlas (set where the caster joins the frame's
+   // shadow pass, read when its model draw is queued): the frame stamp, the tile, its centre (world, z metric), half size
+   public long pzoptShadowStamp; // pzopt
+   public int pzoptShadowTile; // pzopt
+   public float pzoptShadowX, pzoptShadowY, pzoptShadowZ, pzoptShadowHalf; // pzopt
+
    // pzopt: marker so the game log shows the loose class was loaded, not the jar's copy
    static {
       pzopt.Overrides.onClassLoaded("zombie.characters.IsoGameCharacter");
