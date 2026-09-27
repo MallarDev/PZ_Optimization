@@ -190,6 +190,17 @@ noise; 16-40 casters):
 - streaming (the static changes, tree cards + bare textures within the far field): 120 km/h drive ABAB, 16 h, on 69.4 /
   68.5 fps, p99 38.5 / 39.3, p99.9 48.7 / 46.7 ms; off 68.6 / 67.0, p99 41.0 / 41.0, p99.9 50.8 / 55.5: parity.
 
+## macOS abort (2026-09-28)
+
+The release aborted the JVM on the Mac on world entry with `sunShadows` on (found by the PR #35 profile, run
+`mac-pr35-hs-pr1`): `ShadowAtlas.init` -> `GL33.glGenSamplers`, `FATAL ERROR in native method: ... a function that is not
+available in the current context`. macOS gives the game a GL 2.1 context (Metal): framebuffers exist through
+`ARB_framebuffer_object`, sampler objects do not, and LWJGL aborts on a missing entry point instead of throwing, so the
+`catch (Throwable)` around the setup never ran. `ShadowAtlas`, `TreeSilhouette` and `CapsuleShadow` now check the
+context's capabilities on the render thread before their first GL call and switch themselves off with a log line
+(`needs OpenGL 3.x or its extensions ..., this context is <GL_VERSION>`), as ChunkAo already did through its GLSL 1.40
+compile.
+
 ## Open
 
 - Zombies drawn as atlas sprites (far, culled; no model) keep one upright capsule.

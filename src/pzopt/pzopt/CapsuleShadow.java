@@ -1167,7 +1167,18 @@ public final class CapsuleShadow {
       private long ns;
       private long timed;
 
+      private static boolean glSupported() {
+         org.lwjgl.opengl.GLCapabilities c = org.lwjgl.opengl.GL.getCapabilities();
+         return (c.OpenGL31 || c.GL_ARB_draw_instanced) && (c.OpenGL30 || c.GL_ARB_vertex_array_object);
+      }
+
       void draw(Frame f) {
+         if (this.program == 0 && !glSupported()) {
+            failed = true; // LWJGL aborts the JVM on a GL function the context lacks, so check before init() (macOS: GL 2.1)
+            Log.warn("capsule shadows: needs OpenGL 3.1 or its extensions (vertex arrays, instanced draws), this context is "
+               + GL11.glGetString(GL11.GL_VERSION) + "; off");
+            return;
+         }
          if (this.program == 0 && !this.init()) {
             failed = true;
             Log.warn("capsule shadows: shaders did not compile; off");

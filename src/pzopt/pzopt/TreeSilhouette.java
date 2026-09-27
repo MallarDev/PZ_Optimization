@@ -190,6 +190,12 @@ public final class TreeSilhouette {
    private static int uRect;
    private static int uUv;
 
+   /** Render thread: every GL entry point init() and draw() use exists in this context. */
+   private static boolean glSupported() {
+      org.lwjgl.opengl.GLCapabilities c = org.lwjgl.opengl.GL.getCapabilities();
+      return c.OpenGL30 || c.GL_ARB_vertex_array_object && c.GL_ARB_framebuffer_object && c.GL_EXT_texture_array;
+   }
+
    /**
     * Render thread, before a compute that reads the silhouettes: draws the looks asked for since the last call, then binds
     * the array on the unit (the active unit is left at 0). False when the array could not be made (the kernel then gets
@@ -200,6 +206,12 @@ public final class TreeSilhouette {
          return false;
       }
       try {
+         if (array == 0 && !glSupported()) {
+            failed = true; // LWJGL aborts the JVM on a GL function the context lacks, so check before init() (macOS: GL 2.1)
+            Log.warn("tree silhouettes: needs OpenGL 3.0 or its extensions (vertex arrays, framebuffers, texture arrays), this context is "
+               + GL11.glGetString(GL11.GL_VERSION) + "; tree shadows fall back to the crown proxies");
+            return false;
+         }
          if (array == 0 && !init()) {
             failed = true;
             Log.warn("tree silhouettes: setup failed; tree shadows fall back to the crown proxies");

@@ -70,6 +70,14 @@ public final class ShadowAtlas {
       return !failed && Config.SUN_SHADOW_MESHES;
    }
 
+   /** Render thread: every GL entry point init() and the pass use exists in this context. */
+   private static boolean glSupported() {
+      org.lwjgl.opengl.GLCapabilities c = org.lwjgl.opengl.GL.getCapabilities();
+      return (c.OpenGL33 || c.GL_ARB_sampler_objects)
+         && (c.OpenGL31 || c.GL_ARB_draw_instanced)
+         && (c.OpenGL30 || c.GL_ARB_vertex_array_object && c.GL_ARB_framebuffer_object && c.GL_ARB_depth_buffer_float);
+   }
+
    /** The rotation taking the model's world frame (x west, y up, z north; squares) to the sun's view, for the sun (world: x east, y south, z up). */
    static void rotation(float sx, float sy, float sz, float[] r) {
       // the sun in the model's world frame: x = -east, y = up, z = -south
@@ -116,6 +124,14 @@ public final class ShadowAtlas {
             return;
          }
          try {
+            if (fbo == 0 && !glSupported()) {
+               // LWJGL aborts the JVM on a GL function the context lacks (no exception to catch): macOS's GL 2.1 context
+               // has no sampler objects, so glGenSamplers in init() ended the game on world entry with sun shadows on
+               failed = true;
+               Log.warn("shadow atlas: needs OpenGL 3.3 or its extensions (sampler objects, instanced draws), this context is "
+                  + GL11.glGetString(GL11.GL_VERSION) + "; off");
+               return;
+            }
             if (fbo == 0 && !init()) {
                failed = true;
                Log.warn("shadow atlas: setup failed; the characters' shadows stay capsules");
