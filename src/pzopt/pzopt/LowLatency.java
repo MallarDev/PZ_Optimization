@@ -1,6 +1,7 @@
 package pzopt;
 
 import org.lwjgl.opengl.GL;
+import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL32;
 import org.lwjgl.opengl.GL33;
@@ -38,7 +39,11 @@ public final class LowLatency {
    private static volatile long sleepNs;
    private static volatile long drainNs;
    private static long lastSampleNs, capNs = -1L;
-
+   // the game thread's idle per frame (limiter wait before the step + hand-off wait), what a sleep may take for free
+   private static final long IDLE_MARGIN_NS = 250_000L;
+   private static final long[] idles = new long[64];
+   private static long idleN, lastPushEndNs, lastPushWaitNs; // game thread
+   private static volatile long idleP10Ns; // 0 until a window is full: the sleep starts at 0 and may not grow before
    private static long capIntervalNs() {
       if (capNs < 0L) {
          int fps = Config.REFLEX_CAP_FPS;
@@ -167,6 +172,7 @@ public final class LowLatency {
          return;
       }
       long now = System.nanoTime();
+      sampleIdle();
       long until = now + sleepNs + drainNs;
       drainNs = 0L;
       // reflexCapFps: never start frames faster than the cap (Reflex's auto cap with vsync: refresh - refresh^2/3600, so
@@ -192,8 +198,9 @@ public final class LowLatency {
       frames++;
       if (t - lastLogNs > 10_000_000_000L) {
          if (lastLogNs != 0L && frames > 0) {
-            Log.info(String.format("reflex: %d frames, slept %.3f ms/frame, slack %.3f ms/frame of which driver queue %.3f (p10 target %.2f), %d drains",
-                  frames, sleptSum / 1e6 / frames, queueN > 0 ? queueSum / 1e6 / queueN : 0.0, queueN > 0 ? gpuQueueSum / 1e6 / queueN : 0.0, TARGET_NS / 1e6, drains));
+            Log.info(String.format("reflex: %d frames, slept %.3f ms/frame, slack %.3f ms/frame of which driver queue %.3f (p10 target %.2f), game idle p10 %.3f, %d drains",
+                  frames, sleptSum / 1e6 / frames, queueN > 0 ? queueSum / 1e6 / queueN : 0.0, queueN > 0 ? gpuQueueSum / 1e6 / queueN : 0.0, TARGET_NS / 1e6,
+                  idleP10Ns / 1e6, drains));
          }
          lastLogNs = t;
          frames = sleptSum = 0;
@@ -212,6 +219,26 @@ public final class LowLatency {
       int slot = (int)(++pushes % RING);
       pushWaitNs[slot] = now - startNs;
       pushEndNs[slot] = now;
+      lastPushWaitNs = now - startNs;
+      lastPushEndNs = now;
+   }
+
+   /**
+    * Game thread, before the sleep: how long this thread waited since the last frame's hand-off (the limiter's wait
+    * before this step, 0 uncapped) plus that hand-off's own wait. The time a sleep takes out of these is free; beyond
+    * them it lengthens every frame. Every 16 frames the 10th percentile of the last 64 is published for addSlack.
+    */
+   private static void sampleIdle() {
+      if (lastPushEndNs == 0L) {
+         return;
+      }
+      long idle = Math.max(0L, Pacing.stepStartNs() - lastPushEndNs) + lastPushWaitNs;
+      idles[(int)(idleN++ % idles.length)] = Math.min(idle, 200_000_000L);
+      if (idleN >= idles.length && idleN % 16 == 0) {
+         long[] w = idles.clone();
+         java.util.Arrays.sort(w);
+         idleP10Ns = w[w.length / 10];
+      }
    }
 
    /** Render thread, right after a state was acquired: how long this frame queued, fed to the sleep controller. */
@@ -265,6 +292,9 @@ public final class LowLatency {
          resolveGpu(slot, true);
       }
       GL33.glQueryCounter(queries[slot], GL33.GL_TIMESTAMP);
+      // submit it now: a driver that holds the frame's commands until the swap (persistentVboFrameSync leaves no sync
+      // point before it) would otherwise count the render thread's own recording time as GPU queue (2026-09-27)
+      GL11.glFlush();
       queryIssueNs[slot] = System.nanoTime();
       pendingSlackNs[slot] = -1L;
    }
@@ -340,7 +370,16 @@ public final class LowLatency {
          java.util.Arrays.sort(w);
          long p10 = w[w.length / 10];
          long s = sleepNs + (p10 - TARGET_NS) / 2;
-         // throughput guard: a sleep near a whole frame interval would cost frames, never allow it
+         // throughput guard: the sleep grows only out of the game thread's own idle and gives back when that idle is
+         // gone. A slack the sleep cannot reduce (a driver queue it does not drain) once grew it to MAX_SLEEP_NS: the
+         // interval cap below scales with the frame the sleep itself lengthens (Workshop report 2026-09-26, 165 -> 24-45
+         // fps with persistentVboFrameSync on). A GPU-bound game whose driver absorbs the queue (no game-thread wait)
+         // keeps its queue: a 3 % interval check instead (runs reflexfix2-*) held the sleep at 0.2 ms and cost 4 %
+         long room = idleP10Ns - IDLE_MARGIN_NS;
+         if (s > sleepNs || room < 0L) {
+            s = Math.min(s, sleepNs + room);
+         }
+         // and a sleep near a whole frame interval would cost frames, never allow it
          long cap = Math.min(MAX_SLEEP_NS, (long)(intervalNs * 0.8));
          sleepNs = Math.max(0L, Math.min(cap, s));
          // a stuffed pipeline (vsync: one extra frame queued, the swap blocking a whole refresh) keeps its extra frame
