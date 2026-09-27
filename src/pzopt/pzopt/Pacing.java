@@ -114,6 +114,7 @@ public final class Pacing {
 
    /** Game thread, at the start of a frame step (the time the frame's game state is built for). */
    public static void stepStart(long nowNs, long intervalNs) {
+      GtAb.frame(); // devGtAlternate: this frame's A/B phase
       stepStartNs = nowNs;
       capIntervalNs = intervalNs;
    }

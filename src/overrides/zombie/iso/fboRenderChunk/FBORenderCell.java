@@ -618,12 +618,15 @@ public final class FBORenderCell {
             pzopt.CharDraw.start(IsoWorld.instance.getCell().getObjectList(), this);
          }
 
+         pzopt.VisPolyAsync.start(playerIndex); // pzopt: visPolyAsync, the vision cone's polygon on its own thread during the tile render
          FBORenderLevels.clearCachedSquares = false;
          AbstractPerformanceProfileProbe var44 = renderTiles.performRenderTiles.profile();
 
          try {
             pzopt.GpuSections.begin("tiles"); // pzopt: GPU section
+            long pzoptTiles = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
             this.performRenderTiles(perPlayerRender, playerIndex, this.currentTimeMillis);
+            pzopt.GtAb.end(pzopt.GtAb.S_TILES, pzoptTiles); // pzopt
             pzopt.GpuSections.end("tiles"); // pzopt: GPU section
          } catch (Throwable var24) {
             if (var44 != null) {
@@ -1523,6 +1526,7 @@ public final class FBORenderCell {
    }
 
    private void performRenderTiles(PerPlayerRender perPlayerRender, int playerIndex, long currentTimeMillis) {
+      pzopt.ChunkAo.tilesBegin(); // pzopt: aoContextParallel, this frame's bakes defer their AO masks to ChunkAo.flush's batch
       Shader floorRenderShader = null;
       Shader wallRenderShader = null;
       this.renderAnimatedAttachments = false;
@@ -1601,12 +1605,17 @@ public final class FBORenderCell {
       FBORenderItems.getInstance().update();
       this.pzoptFlushTreeAppends(playerIndex, Core.getInstance().getZoom(playerIndex)); // pzopt: treeAppend, before the textures are composited
       pzopt.PixelLight.bakeEnd(); pzopt.SpriteFilter.bakeEnd(); // pzopt: pixelLight; sprite filter, the finished texture gets its sharp level 1, no square stays white past the bakes
+      long pzoptAoT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
       pzopt.ChunkAo.flush(playerIndex); // pzopt: ambient occlusion, this frame's budget of AO computes, before the textures are composited
+      pzopt.GtAb.end(pzopt.GtAb.S_AO_FLUSH, pzoptAoT); // pzopt
       pzopt.Ssr.beforeComposite(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: reflections, the water square map and the scatter's frame, ahead of the chunk composite
+      long pzoptPpl = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
       pzopt.PixelLight.beforeComposite(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: pixelLight, the lattice uploads and the camera, ahead of the chunk composite that lights each pixel
+      pzopt.GtAb.end(pzopt.GtAb.S_PPL, pzoptPpl); // pzopt
       pzopt.SpriteFilter.beforeComposite(playerIndex); // pzopt: sprite filter, this frame's composite program for the zoom
       pzopt.CloudShadow.beforeComposite(playerIndex); // pzopt: cloudShadows, the drift and the camera of this frame, ahead of the chunk composite
       pzopt.GodRays.beforeComposite(playerIndex); // pzopt: god rays, the camera of this frame for the haze in the chunk composite
+      pzopt.RenderPrep.start(); // pzopt: renderPrepParallel, the characters' sun share and water search on the frame workers while the composite and the players go
       pzopt.GpuSections.begin(pzopt.SpriteFilter.section("composite")); /* pzopt: GPU section: chunk textures into the combined FBO and onto the screen */
       if (pzopt.Config.COMPOSITE_SHADER_RUN && pzopt.Overrides.enabled() && !DebugOptions.instance.fboRenderChunk.combinedFbo.getValue()
             && DebugOptions.instance.fboRenderChunk.renderChunkTextures.getValue()) { // pzopt: compositeShaderRun
@@ -1666,7 +1675,7 @@ public final class FBORenderCell {
       this.renderOpaqueObjectsEvent(playerIndex);
       SpriteRenderer.instance.beginProfile(movingObjectsProbe);
       if (!pzopt.ResumeShot.noMoving) { // pzopt: resumeShot's exit capture (below "full"): no vehicles or characters
-      pzopt.GpuSections.begin("moving"); /* pzopt: GPU section */ this.renderMovingObjects(); pzopt.GpuSections.end("moving");
+      long pzoptMoving = pzopt.GtAb.begin(); pzopt.GpuSections.begin("moving"); /* pzopt: GPU section */ this.renderMovingObjects(); pzopt.GpuSections.end("moving"); pzopt.GtAb.end(pzopt.GtAb.S_MOVING, pzoptMoving); // pzopt: devGtAlternate section timer
       }
       SpriteRenderer.instance.endProfile(movingObjectsProbe);
       AbstractPerformanceProfileProbe var30 = water.profile();
@@ -1769,7 +1778,9 @@ public final class FBORenderCell {
 
             try {
                pzopt.GpuSections.begin(pzopt.Darkness.section("vispoly")); // pzopt: GPU section (the vision cone: polygon + blur + screen pass; devDarkAlternate splits it by the remembered-places state)
+               long pzoptVp = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
                VisibilityPolygon2.getInstance().renderMain(playerIndex);
+               pzopt.GtAb.end(pzopt.GtAb.S_VISPOLY, pzoptVp); // pzopt
                pzopt.GpuSections.end(pzopt.Darkness.section("vispoly")); // pzopt: GPU section
             } catch (Throwable var23) {
                if (var36 != null) {
@@ -6232,6 +6243,8 @@ public final class FBORenderCell {
          List<IsoGridSquare> squaresItems = renderLevels.getCachedSquares_Items(level);
          if (squaresObjects.size() + squaresItems.size() + squaresCutawayOutlines.size() != 0) {
             PZArrayList<IsoGridSquare> sorted = this.tempSquares;
+            boolean pzoptOrder = pzopt.TranslucentOrder.enabled(); // pzopt: translucentOrderCache
+            if (!pzoptOrder || !pzopt.TranslucentOrder.reuse(c, playerIndex, level, squaresItems, squaresCutawayOutlines, squaresObjects, sorted)) { // pzopt: the kept order when the three lists are unchanged
             sorted.clear();
             ProfileArea i = GameProfiler.getInstance().profile("Sort");
 
@@ -6273,6 +6286,10 @@ public final class FBORenderCell {
                int i2 = o2.x + o2.y * worldRight;
                return i1 - i2;
             }, 0, sorted.size());
+            if (pzoptOrder) { // pzopt: translucentOrderCache
+               pzopt.TranslucentOrder.store(c, playerIndex, level, squaresItems, squaresCutawayOutlines, squaresObjects, sorted); // pzopt
+            } // pzopt
+            } // pzopt: translucentOrderCache
 
             for (int ix = 0; ix < sorted.size(); ix++) {
                IsoGridSquare square = (IsoGridSquare)sorted.get(ix);
@@ -6423,13 +6440,18 @@ public final class FBORenderCell {
          // order and handed the zombies about to be drawn to the executor; join waited for the tail of that, and the loop
          // below is the stock per-object chain over the on-screen list, finding the data ready in TextureDraw.drawModel.
          int pzoptPlayerIndex = IsoCamera.frameState.playerIndex;
+         pzopt.RenderPrep.join(); // pzopt: renderPrepParallel, the tail of the workers' per-character reads
 
          for (int i = 0; i < pzoptOnScreen.size(); i++) {
+            pzopt.RenderPrep.at(i); // pzopt: renderPrepParallel, the slot the passes read for this object
             this.pzoptRenderOnScreenObject(pzoptOnScreen.get(i), pzoptPlayerIndex); // the list already passed the three leading tests
          }
 
+         pzopt.RenderPrep.finish(); // pzopt: renderPrepParallel
          pzopt.CharDraw.finish();
       } else {
+         pzopt.RenderPrep.join(); // pzopt: renderPrepParallel, a batch started for a list this frame does not use: nothing is served
+         pzopt.RenderPrep.finish(); // pzopt: renderPrepParallel
          for (IsoMovingObject isoMovingObject : IsoWorld.instance.getCell().getObjectList()) {
             this.renderMovingObject(isoMovingObject);
          }

@@ -4058,3 +4058,709 @@ volumes, local lights, the haze's taps); `pzopt.FogPass` carries the fog shade.
 ### zombie.core.textures.MultiTextureFBO2
 - Around the screen composite `GodRays.screenBegin` / `screenEnd`: dev timing (`devGodRaysTiming`), and with
   `godRaysLateDraw` (off) the light volumes and local lights drawn there over the finished world.
+
+## zombie.MovingObjectUpdateSchedulerUpdateBucket: the bucket's update loop on the workers (`entityUpdateParallel`, new override)
+
+The three batches that already ride the scheduler all sit *around* the simulation: `SeparateBatch` computes the
+separations before the update loop, `ActionEval` and `AnimBatch` take the transition evaluation and the bone math out of
+the postupdate loop. The loop in the middle — the entities' own `update()` — was still one after another on the game
+thread, and it is the only part of the frame that scales with the whole moving-object population rather than with the
+zombies alone: animals, vehicles and the players go through the same bucket.
+
+The bucket is a new override (it is a top-level class, so shadowing `MovingObjectUpdateScheduler` never covered it). In
+`update(int)` the loop now walks the bucket's sub-list in stock's order and, with the key on, hands each eligible entity
+to `pzopt.UpdateBatch` instead of updating it inline; after the loop the batch runs the same four calls per entity —
+`setCurrentSimulationLevel`, `preupdate`, `frameStep`, `update`, in that order — on the `FrameBatch` workers. Four calls,
+not one: stock does all four per entity and losing any of them is silent, so the batch reproduces the sequence rather
+than just the `update()`.
+
+Two cases stay on the game thread, collected inline exactly where stock had them: an `IsoDeadBody`, which goes into the
+cell's shared remove set, and the reused-zombie debug branch. Anything the batch did not take runs inline as before.
+
+The batch is per bucket and never spans two of them. `GameTime.perObjectMultiplier` is set to the bucket's frame mod at
+the top of `update(int)` and back to 1 at the bottom; it is one field on the `GameTime` singleton, so it is only constant
+— and the entities' timing only correct — while a single bucket's entities are in flight. Running the batch inside that
+window is what makes the multiplier the right one for every entity in it; batching two buckets at once would let each
+publish its own multiplier and every entity would read whichever landed last.
+
+An entity that throws on a worker is reported once and turns the batching off for the rest of the session, so the bucket
+walks the stock loop from the next frame on; a failed entity is not retried, because the entities before it in the batch
+have already updated this frame and `ECSEntity` refuses a second update in the same frame.
+
+Default off. Unlike the postupdate batches, this one moves the simulation itself: the entities' writes still all happen,
+but their order within the frame is no longer the bucket's list order, so it is opt-in until the checksum rig has run
+over a route. `tests/pzopt/UpdateBatchTest` drives the batch with real `IsoMovingObject`s and pins the four-call
+sequence, once per entity, across threads, plus the failure latch.
+
+## The ItemVisuals scratch buffers a worker reaches, one per thread (`entityUpdateParallel`)
+
+`entityUpdateParallel` runs a simulation bucket's entities through their four update calls on the `FrameBatch` workers,
+so every static scratch object those calls reach stops being scratch and becomes shared mutable state. A live
+4,220-zombie batch proved it at frame 53: a `NullPointerException` out of the ShoeType sound parameter, on a worker,
+because the buffer it was walking by index had been cleared and refilled shorter by another worker part way through.
+The whole jar holds seven classes with a static `ItemVisuals` field; this pass fixes the two that a batched entity's
+`update()` can actually reach, and the reasoning for the other five is below so the next reader does not have to redo
+it.
+
+The shape of the bug is the same everywhere: `IsoGameCharacter.getItemVisuals(buffer)` **clears** the buffer and refills
+it from the caller's worn items, and the caller then reads it back by index. One buffer for every character is fine
+while one thread walks the entity list; two workers turn it into a torn read, and because the list only shrinks
+silently the symptom is either a null element (the crash above) or blood, dirt, holes and patches applied to the wrong
+character's clothing with no error at all.
+
+### zombie.characters.IsoGameCharacter
+
+A new `pzoptTempItemVisuals`, one `ItemVisuals` per thread, replaces the shared `tempItemVisuals` every character
+used, and each of the fourteen methods that filled that field takes its own thread's buffer into a local of the same
+name at the point where stock did the fill, so the rest of every method body is unchanged:
+`playWeaponHitArmourSound`, `addBasicPatch`, `addHole`, `addDirt`, `addLotsOfDirt`, `addBlood`, `bodyPartHasTag`,
+`getBodyPartClothingDefense`, `addHoleFromZombieAttacks`, `updateWornItemsVisionModifier`,
+`updateWornItemsHearingModifier`, `hasDirtyClothing`, `hasBloodyClothing` and `updateDisguisedState`. This is the class
+that matters: it is the base of every entity the bucket updates, and the path into it is plain single-player code — a
+zombie's `update()` runs `updateInternal`, that runs the state machine, the eat-body state splatters blood on the zombie
+itself, and `addBlood` hands the shared buffer on to the clothing-blood helper inside a loop of up to twenty-eight
+splats, the widest window of any of the fourteen. `getBodyPartClothingDefense` is reached from the same `update()` by a
+second, independent route (the falling / landing / fell-on-knees chain).
+
+The jar's field itself stays declared, with its name, type and `protected static final` access, because
+`scripts/build.sh` requires every non-private member of a shadowed class to survive so anything compiled against the
+shipped class still links; nothing reads it any more. Since the locals shadow it, a method that missed its local would
+compile and quietly go back to sharing, so the test below checks the built class files: no method of either class may
+touch that field, the initializer that creates it aside.
+
+Every one of the fourteen is pure per-call scratch — filled, read inside the one call, nothing carried between calls —
+so one buffer per thread is exactly what the game thread already had: a single buffer, reused. There is therefore no
+behaviour to protect and the change is unconditional rather than gated on the key. A guard would have had to be
+repeated at all fourteen sites, would have kept the shared buffer in live use on one branch of each of them, and would
+have given the bytecode check above nothing to assert: more surface for no gain.
+
+### zombie.characters.IsoZombie
+
+`helmetFallFromVisuals` was the only user of that field outside `IsoGameCharacter` anywhere in the jar, so it reads its
+own thread's buffer now. Its own behaviour is unchanged (it still removes a fallen entry from the buffer and copies the
+rest into the zombie's visuals); it is reached from combat rather than from `update()`, and it follows only because the
+field it read has moved.
+
+### zombie.audio.parameters.ParameterShoeType (new override)
+
+The class that produced the crash. It keeps its own static `ItemVisuals`, filled by `getShoeType` from the character's
+worn items and then walked by index looking for the SHOES body location; that walk re-reads the size each iteration, so
+a refill by another worker between the size check and the element read hands back a null and the parameter update dies.
+Same treatment, same reasoning: per-thread buffer, fetched into a local in `getShoeType`, unconditional. The path is the
+sound upkeep every zombie does on every update — `updateInternal`, `updateEmitter`, the FMOD parameter list, this
+parameter's `calculateCurrentValue` — which is why it was the one that showed up first, and within a minute of the first
+parallel run.
+
+### Checked and deliberately left alone
+
+`zombie.characters.ClothingWetness` (a static `ItemVisuals` plus a static covered-parts list) and
+`zombie.characters.BodyDamage.Thermoregulator` (two static `ItemVisuals` plus a static covered-parts list) carry the
+same hazard in principle but cannot be reached from a worker as the batch stands: a `ClothingWetness` is only ever
+constructed by `IsoPlayer`, a `Thermoregulator` only when the body damage's owner is an `IsoPlayer`, and the body damage
+object itself is only created for players and animals — so the whole `BodyDamage.Update` subtree is dead for anything
+else, and `UpdateBatch.batchableType` keeps players and animals on the game thread anyway. Shadowing two more game
+classes for a path nothing can take would add two permanent decompile-and-audit liabilities against the top requirement
+of this repo, and the thermoregulator is dense float physics — the worst candidate there is for a hand-fixed decompile.
+Worth noting for whoever lets animals into the batch: that is the moment these two become live, and one of the
+thermoregulator's two buffers is **not** per-call scratch. It is a cache of the previous call's visuals, compared
+against the fresh list to decide whether to rebuild the per-node clothing lists, so a thread-local there is not
+behaviour-identical — it turns cache hits into misses. Harmless in effect (a miss only redoes a deterministic rebuild)
+and close to academic, since one static cache shared by every character already misses nearly always in a world with
+more than one of them, but it has to be a deliberate decision rather than a mechanical one.
+
+`zombie.PersistentOutfits`'s buffer is used only by the fallen-hat removal, which the outfit-dressing path reaches: from
+multiplayer packet handling, from zombie spawning, and from the render-side random-outfit dressing. The one route from
+`update()` is behind `Core.debug` and goes through the model manager's dressing, which is far more than a buffer's worth
+of not-worker-safe work; the key is off in multiplayer in any case.
+`zombie.network.packets.ZombieHelmetFallingPacket` is multiplayer only, and `UpdateBatch.enabled()` is false there.
+`zombie.characters.BodyDamage.Thermoregulator_tryouts` is dead code — nothing in the jar references it but its own
+nested classes.
+
+Not in this pass, and a bigger job: `IsoGameCharacter` holds a dozen more static scratch objects of other types
+(`tempo`, `tempo2`, `tempo3`, `tempVector2`, `tempVector2_1`, `tempVector2_2`, `tempVector3f00`, `tempVector3f01`,
+`tempVectorBonePos`, `inf`, `movingStatic`, the bandages singleton). Those are the same class of hazard for
+`entityUpdateParallel` and want the same audit before the key is turned on by default.
+
+`tests/pzopt/ItemVisualsScratchTest` drives both fixed paths for real — `hasDirtyClothing` on a real
+`IsoGameCharacter`, and the ShoeType parameter's `calculateCurrentValue` — from eight threads held on a barrier inside
+`getItemVisuals` so every thread has filled its buffer before any of them reads it back, and asserts each thread had a
+buffer of its own still holding what it wrote, and that two calls on one thread reuse that thread's buffer instead of
+allocating per call. Two pins come with it, both read straight out of class files: that the jar still declares both
+fields as `static ItemVisuals`, so a change at The Indie Stone's end fails the build instead of quietly making the
+override pointless, and that the built overrides no longer reach the retained shared field. Against the stock classes
+the concurrency check reports "1 of 8 were distinct" for each path.
+
+## The worker guards ported from PZMulticore (`entityUpdateParallel`)
+
+The live 4,220-zombie runs of the entity batch showed the next two races past the ItemVisuals scratch pass: an
+`IllegalStateException: Forward Direction cannot be zero length vector` out of `WalkTowardState.execute` on a
+`pzopt-frame-` worker, and an `ArrayIndexOutOfBoundsException: Index -1 out of bounds for length 2` at frame 10 that
+arrived with no stack at all, because the batch logged only the throwable's `toString()`. This pass ports PZMulticore's
+proven guard set for exactly these races (its ASM patchers ForwardDirection, LuaEventManager, AttachedItems and
+PathFindBehavior2, months in live use) into pzopt's idiom — source edits in the overrides, logic in `pzopt.UpdateBatch`
+— with one deliberate difference throughout: where PZMulticore patched unconditionally, every pzopt guard keys on
+`UpdateBatch.onWorkerNow()`, so the game-thread path stays byte-identical to vanilla with the key off *and* on.
+
+`onWorkerNow()` is the one predicate all of them share: true only while the entity batch is actually in flight (a
+volatile set and cleared around the batch's `FrameBatch.run` inside `UpdateBatch.run`) AND the current thread is a
+`FrameBatch.Worker` (an instanceof check — the worker class is public, so no name-prefix matching). Both conditions
+carry weight. The in-flight flag keeps the scheduler's other batches, which share the same workers but never call Lua
+or the guarded paths by design (AnimBatch, ActionEval, LightingBatch, SeparateBatch), entirely unaffected; FrameBatch
+runs one batch at a time, so while the flag is up the only tasks on the workers are this batch's entities. The thread
+check keeps the game thread — which works the batch alongside the workers — on vanilla behaviour for every entity it
+updates itself. `UpdateBatch.run` also logs the FIRST failure's full stack trace now (one-shot; repeats keep the
+one-line summary), so the next unknown race arrives with a call site instead of a bare `toString()`.
+
+`tests/pzopt/WorkerNowTest` pins the predicate from all three sides (game thread, entity-batch worker, plain
+FrameBatch worker) plus the first-failure stack trace and the one-line repeat.
+
+### zombie.characters.IsoGameCharacter (existing override)
+
+- `setForwardDirection(float, float)`: vanilla writes the direction, normalizes, sets the iso direction and THEN
+  throws `IllegalStateException` when the length is zero. On a worker mid-batch the zero length is a torn position
+  read (two threads read/write positions during the parallel update and a walk delta collapses), not a programming
+  error, so the method now returns silently there — the character keeps its previous direction and the next frame
+  recomputes. Vanilla's mutation order is untouched (PZMulticore's patch replaced the ATHROW with a POP+RETURN, i.e.
+  kept the same writes); the game thread still throws, key on or off, which is where pzopt deliberately narrows
+  PZMulticore's unconditional patch. Key: `entityUpdateParallel`. `tests/pzopt/ForwardDirectionGuardTest` pins both
+  sides on real characters driven through a real batch.
+
+### zombie.Lua.LuaEventManager (new override)
+
+- every `triggerEvent` overload (nine of them): at entry, if `UpdateBatch.onWorkerNow()`, count via
+  `UpdateBatch.onLuaSuppressed()` and return. Vanilla's main-thread path writes the shared static argument slots
+  `a1..a8`/`a1index..a8index`; its off-thread path takes the `EventMap` monitor and queues into a shared pool — a
+  worker mid-batch must enter neither, and a mod's event handler running against a half-updated entity is wrong even
+  where it would not crash. `onLuaSuppressed()` is an AtomicLong with a one-shot stack dump on the first occurrence
+  (so the log says which event from where), `getLuaSuppressedCount()` reads it and `UpdateBatch.describe()` folds it
+  into the console summary line. The game thread dispatches exactly as vanilla, so nothing a player does with the key
+  off changes. KahluaThread (`pcall`) is deliberately NOT guarded in this pass: `LuaEventManager.triggerEvent` is the
+  single funnel for event dispatch out of entity code, and the pcall-level belt goes in only if evidence shows a path
+  that bypasses it. Key: `entityUpdateParallel`. `tests/pzopt/LuaEventGuardTest` exercises worker suppression for all
+  nine overloads and game-thread dispatch through a real batch, and pins in bytecode that the override carries
+  exactly the jar's overload set with the guard as each one's first call; runtime dispatch into a real Lua state is
+  not exercised (no Kahlua environment in a bare JVM).
+
+### zombie.characters.AttachedItems.AttachedItems (new override)
+
+- all thirteen public methods are `synchronized` — the patcher's exact set: constructors and the two private
+  `indexOf` helpers skipped (the privates only run from the synchronized publics, so they already hold the lock).
+  The class is a plain `ArrayList<AttachedItem>` behind get/setItem/remove/forEach; every read re-checks `size()`
+  against a list another thread may be shrinking, and PZMulticore traced the resulting `IndexOutOfBoundsException`
+  out of `ArrayList` to exactly this class under its parallel updates. This is also the most plausible culprit for
+  our own frame-10 `Index -1 out of bounds for length 2`. One lock per character's instance, so contention needs two
+  threads on the SAME character, which the bucket scheduler prevents — on the game thread the cost is an
+  uncontended lock. This edit is intentionally not keyed on `onWorkerNow()`: ACC_SYNCHRONIZED on an uncontended
+  monitor does not change what any method computes, and a conditional lock cannot be expressed with the flag while
+  the unconditional one is exactly what months of PZMulticore live use ran. Key (reached only via):
+  `entityUpdateParallel`. `tests/pzopt/AttachedItemsSyncTest` shows the stock class tearing within two seconds
+  (ArrayList's IOOBE out of `forEach` against `copyFrom`/`clear`) and the override clean, and pins ACC_SYNCHRONIZED
+  on exactly the jar's public method set in the built class.
+
+### zombie.pathfind.PathFindBehavior2 (new override)
+
+- `update()`, both layers of PZMulticore's patcher at source level. Layer 1: `this.path.nodes` is read once at
+  entry into a local; on a batch task the local is a frozen `clone()` of the list, and every read in the
+  method body goes through the local — PZ's async pathfinding writes the live list from its own thread while the
+  method iterates. Outside a batch the local IS the live list (no clone), so serial behaviour is bit-identical;
+  the writes (`path.clear()`/`addNode` in the vehicle-target branch, `setPath2`, `closestPointOnPath`) stay against
+  the live path exactly as the patcher left them. Layer 2: the body is wrapped in a catch of
+  `IndexOutOfBoundsException | IllegalStateException`; a batch task counts it (`UpdateBatch.onPathfindRaceSkipped()`,
+  AtomicLong, folded into `describe()`) and returns `BehaviorResult.Working` so the character retries next frame,
+  outside a batch it rethrows — vanilla parity where PZMulticore again caught unconditionally. Layer 2 stays necessary
+  behind layer 1 because the position race (layer 1 fixes only the list race) can still surface as a zero-length
+  vector in a callee, and `pathIndex` is derived from the live path but indexes the snapshot. Key:
+  `entityUpdateParallel`. Both layers originally guarded on `onWorkerNow()` (workers only), keeping the game-thread
+  participant on vanilla's live-list read; the live runs disagreed — every PathFindState escape of lou-replay-clean
+  (4) and lou-fwd-scratch (1) bottomed out in `FrameBatch.run`, the game thread working the batch, racing the same
+  writers a worker does (the pathfind thread's delivery, a group leader's member `pathToLocation` on another
+  worker). The predicate is now `UpdateBatch.onBatchTaskNow()` (the batch in flight AND this thread inside one of
+  its entity tasks — the condition `deferMovingSquare` used from the start), so vanilla behaviour outside a batch
+  is untouched, key on or off. Also in this file, marked `pzopt: decompiler fix`: CFR's `(Object)` casts into
+  `ObjectPool.release` and `set(Param<T>, T)`, and two locals whose declarations CFR dropped in
+  `checkDoorHoppableWindow` — all verified against the jar by the bytecode audit (0 mismatches over the class's
+  unedited methods). `tests/pzopt/PathfindRaceGuardTest` pins in bytecode that `update()` reads `Path.nodes` at most
+  once (the jar's copy reads it many times), and drives the real `update()` on real characters through a real batch:
+  every probe — worker or game-thread participant — gets Working plus the counter, and outside a batch the throw
+  still escapes exactly like vanilla. The clone-under-race
+  semantics themselves (a list mutated mid-iteration surviving because the iteration holds a frozen copy) are not
+  separately exercised at runtime — a bare JVM has no async pathfinder to race against; the bytecode pin plus the
+  serial-aliasing argument above are the evidence.
+
+## zombie.iso.IsoMovingObject: the position snapshot and the tile-update deferral (`entityUpdateParallel`, new override)
+
+The first live A/B of `entityUpdateParallel` (Louisville, ~4,000 zombies, 25 s, 11.9 → 22.0 fps) left a measured
+residue: 27 caught StateMachine exceptions against 0 in the baseline, 20 of them the zero-length ForwardDirection
+throw on the GAME thread — a worker read another entity's `x`/`y`/`z` while a second worker was writing them, and
+the torn value surfaced a frame later, past every worker-side guard. This override is PZMulticore's v1.4 answer
+(its `IsoMovingObjectPatcher`) rebuilt as a pzopt override; it exists to take that residue to zero.
+
+- Four new public fields, all marked `pzopt: entityUpdateParallel`: `pzoptSnapshotIndex` + `pzoptSnapshotFrame`
+  (the entity's slot in `UpdateBatch`'s frozen position arrays, valid only while the frame stamp matches the
+  batch), and `pzoptDeferredSquare` + `pzoptDeferredSquareFrame` (the latched `setMovingSquare` argument, below).
+  Deliberately no initializers: a fresh entity's stamp of 0 never matches a batch (the counter starts at 1), so
+  every constructor stays byte-identical to stock.
+- `getX()`, `getY()`, `getZ()`: one guard line at entry. While a batch is in flight (`UpdateBatch.frozen(this)`:
+  volatile read, false costs nothing with the key off), an entity whose stamp matches the batch answers with the
+  position frozen on the game thread just before dispatch — unless the caller is the task updating that very
+  entity (`ThreadLocal` in UpdateBatch), which must see its own writes live. Only the queued entities are
+  snapshotted: players, animals and grappled zombies ran inline before `run()` and cannot move mid-window. The
+  happens-before is the array-and-stamp population on the game thread before the volatile `inFlight` write,
+  volatile-read first in `frozen()`. Staleness is the stamp — no clear pass after the join.
+- `setMovingSquare()`: one guard line at entry. The stock body mutates the target square's shared
+  `MovingObjects` ArrayList — two workers landing entities on one square is a plain list race. A call made from
+  inside a batched entity's update (any thread; the game thread works the batch too) is latched on the entity
+  (last call wins) and the game thread replays it through the real method right after the join, also after a
+  failed batch. This goes one step past the PZMulticore reference, which skips the call outright: the only other
+  writer for a zombie is `postupdate()`'s `setMovingSquare(this.current)` on the game thread, so a pure skip
+  merely delays the square hand-off by half a frame there — but the replay makes the per-frame end state exactly
+  stock's serial outcome, latched callees do not even need to be in the queue, and nothing is left to chance.
+- `removeFromSquare()`, marked `pzopt: decompiler fix`: the jar chains the two null stores
+  (`this.current = this.last = null`, one `aconst_null` + `dup_x1`); CFR split them into two statements. Verified
+  by the bytecode audit — 0 mismatches over the class's unedited methods.
+
+Key: `entityUpdateParallel` (the layer is part of the feature, not separately switchable — turning it off alone
+would reintroduce the torn reads the feature cannot ship with). The UpdateBatch side: snapshot arrays grown
+never-shrunk, `CURRENT` set/cleared around the four calls per task, the deferred-square replay drained through a
+`ConcurrentLinkedQueue` with a stamp check so a racing double-add applies once, and `describe()` now counts
+`movingSquareDeferred`; the harness summary's `zombie_batches=` line carries `UpdateBatch.describe()` so every
+run reports batch counts, Lua suppressions, pathfind skips and deferrals. `tests/pzopt/PositionSnapshotTest`
+pins frozen cross-entity reads (latch-ordered, no scheduling luck), live self-reads, live-again after the join,
+staleness across batches and never-batched entities; `tests/pzopt/MovingSquareDeferralTest` pins stock behavior
+outside a window, the untouched shared list mid-window, the replay's end state, last-call-wins, and a batched
+update writing a non-queued entity's square.
+
+## zombie.Lua.LuaEventManager: worker events captured and replayed instead of dropped (`entityUpdateLuaReplay`)
+
+The first run summary with `UpdateBatch.describe()` wired in put a number on the drop guard's cost:
+`luaSuppressed=4,383,274` in a 26 s Louisville route — the per-zombie update event
+(`IsoZombie.updateInternal` → `triggerEvent`), deleted for every batched zombie every frame. In stock those
+handlers RUN, so part of the measured speedup was skipped work, and any mod hooking per-zombie events was
+silently dead while the batch was on. This applies the repo's own AnimParallel pattern (anim events captured on
+the workers, dispatched on the game thread in order) to the update batch.
+
+- Each `triggerEvent` overload's worker guard now routes to `UpdateBatch.captureLuaEvent(event, params…)`
+  instead of the drop counter (one line per overload, marked `pzopt: entityUpdateLuaReplay`). The varargs
+  array only allocates on the already-guarded worker path; the game-thread fast path is unchanged.
+- `UpdateBatch` keeps one pooled capture list per task; the runner points a ThreadLocal at the task's list
+  around the four update calls. After the join — after the deferred setMovingSquare replay, still inside the
+  bucket window — the game thread walks the tasks in queue order (stock's serial event order) and fans every
+  record back through the real `triggerEvent` overloads, so handlers run under the bucket's
+  `perObjectMultiplier` exactly as stock's inline dispatch did. Replay also runs after a failed batch: events
+  fired before the throw had fired in stock's semantics too.
+- Key `entityUpdateLuaReplay`, default on. Off = the previous count-and-drop guard, kept so the replay's
+  game-thread cost can be priced in an A/B. `describe()` carries `luaCaptured=`/`luaReplayed=` beside the
+  drop counter.
+
+`tests/pzopt/LuaEventReplayTest` pins the runtime counter flow (captured on the worker, zero mid-flight
+replays, replayed after the join, nothing dropped while the key is on) and, in bytecode, that the replay fans
+out through all nine `triggerEvent` overloads and every overload's guard routes to the capture funnel.
+`tests/pzopt/LuaEventGuardTest` keeps the guard pins and re-runs itself in a subprocess with the key off for
+the drop-mode runtime half (the bare JVM's null Lua state cannot take a replayed dispatch of the seven
+overloads that do not null-check `env`).
+
+## zombie.ai.ZombieGroupManager: the group list under one lock (`entityUpdateParallel`, new override)
+
+Run `lou-replay-on`, frame 928: a worker died with `NullPointerException: "idealSizeFactor" because "group" is
+null` in `findNearestGroup`, latching the batch off for the rest of the session. Root cause from the pinned
+jar: `groups` is a plain ArrayList and every batched zombie's `updateInternal` calls `update()` here —
+`findNearestGroup` iterates the list AND removes empties (`groups.remove(i--)`), `update()` adds groups,
+removes members and reads other groups' leaders, `preupdate()` sweeps, and the leader/member branches use the
+manager's shared `tempVec2`/`tempVec3` scratch. Concurrent iterate/add/remove on one ArrayList tears a slot;
+the joins are also gated on a global tick, so the race is bursty (one frame in thirty) and intermittent.
+
+Every group-touching section now runs under `synchronized (this.groups)`, the same idiom as the `lccMain` and
+`soundList` locks this repo already ships for PZMulticore's workers: the membership remove at `update()`'s
+entry, everything past the tick gate (join, leader spread, member follow — which also covers the tempVec
+scratch), the whole of `findNearestGroup` (reentrant under `update()`'s lock, locked itself for external
+callers), `preupdate()`'s sweep and `Reset()`. Uncontended on the stock path — the frame workers only exist
+while a batch is in flight — and the tick gate keeps the join block off 29 frames in 30.
+
+Key: `entityUpdateParallel`. A runtime hammer is not possible in a bare JVM (`findNearestGroup`'s first reads
+touch `SandboxOptions.instance`, whose initializer runs Lua through the game filesystem), so like the
+PathFindBehavior2 clone the evidence is structural plus the live run: `tests/pzopt/ZombieGroupGuardTest` pins
+in bytecode that the jar's methods hold no monitor (the lock is ours, and a TIS-added lock would be noticed)
+and that exactly `update`/`findNearestGroup`/`preupdate`/`Reset` in the override each hold one, with the
+method set otherwise identical to the jar's.
+
+## zombie.characters.IsoGameCharacter: setForwardDirectionFromIsoDirection off the static scratch (`entityUpdateParallel`)
+
+The residue of every batched Louisville run — 37 caught exceptions over 3,064 zombies (1.21% per zombie),
+unchanged by the position-snapshot AND the Lua-replay layers — was `IllegalStateException: Forward Direction
+cannot be zero length vector` out of WalkTowardState (27), ThumpState (5) and ClimbOverFenceState (1).
+ClimbOverFenceState throws it from `setDir(IsoDirections.N)`, a constant, which rules the states' own math
+out; all 33 stacks route through `setForwardDirectionFromIsoDirection`. Its jar body is four instructions:
+write the character's direction into the STATIC `tempVector2_2` with `getVectorFromDirection`, read it back
+into `setForwardDirection`. One scratch Vector2 shared by every character on every thread — and
+`getVectorFromDirection` zeroes the vector before its switch assigns the direction, so a batched zombie
+reading between another worker's zeroing and its assignment sees an exact (0,0) and throws. Between throws
+the same race silently hands a walker another zombie's direction for a frame.
+
+The method now takes its vector from `pzopt.UpdateBatch.dirScratch()`, a per-thread Vector2
+(`ThreadLocal.withInitial`, the `VehicleCull.near` idiom). Identical output single-threaded; the other
+`tempVector2_2` users (`processHitDamage`, `renderlast`, `isObjectBehind`, `isBehind`) keep the static and
+are the static-scratch audit's follow-up. `tests/pzopt/ForwardDirectionScratchTest` pins that the jar's
+method still uses the static (a TIS rework would be noticed), that the override's method touches no
+`tempVector2_2` and routes through `dirScratch()`, and that the scratch is per-thread; a runtime hammer
+needs a constructible IsoGameCharacter, which a bare JVM does not have.
+
+## zombie.characters.animals.IsoAnimal: updateLOS skips the no-effect far-zombie calls (`animalLosFast`, new override)
+
+Vanilla `updateLOS` walks the WHOLE cell object list once per animal per frame and calls
+`BaseAnimalBehavior.spotted(zombie, false, dist)` for every zombie in it — animals x objects, the quadratic
+behind updateLOS's 4% of the game thread in the maintainer's farm profile (on the Louisville horde it is
+0.45%: almost no animals near the route, ~4,000 objects each). Read from the pinned jar: for a zombie
+farther than 10 tiles (square non-null) the call's whole observable effect is `parent.spottedChr = null`
+plus one `lastAlerted` subtract-then-clamp — the stress/flee/alert branches all need `dist <= 10` (wild
+flee needs 3, flee 6), `spotted` cannot become true for a zombie past 10, and no `Rand` is drawn, so the
+shared RNG stream is identical either way.
+
+With `animalLosFast` (default on) the loop skips a zombie's call when its squared distance exceeds 101 —
+the 1.0 margin over 10² guarantees float-sqrt rounding at the boundary can never make vanilla's
+`dist <= 10` true for a skipped zombie — counting each skip (null-square objects are not counted: vanilla
+gives them no call either). The bookkeeping is replayed exactly where vanilla would have applied it:
+before the next executed `spotted()` call (which re-nulls `spottedChr` itself at entry),
+`AnimalLos.decay` applies the same N sequential subtract-then-clamp steps N vanilla calls would have — a
+loop, not one multiply, because float subtraction is not associative and the clamp can hit zero mid-run —
+and after the loop the remaining skips also null `spottedChr`. Player calls are never skipped (their
+acceptance/wild-spotting logic reaches past 10 tiles and draws from `Rand`).
+
+Also in this file, marked `pzopt: decompiler fix`: three `CreateItem`/`Translator` results CFR typed as
+`Object` (casts restored), and `fertilize`'s two branched `getData().maleGenome` stores that CFR folded
+into one ternary assignment (the jar's if/else shape restored) — all verified by the bytecode audit
+(0 mismatches over the class's unedited methods). `tests/pzopt/AnimalLosTest` pins `decay` bit-exact
+against the vanilla step sequence and, in bytecode, that the jar's `updateLOS` has no pzopt call while the
+override's still calls `spotted` and routes the skip accounting through `AnimalLos.decay`; a runtime drive
+needs a constructible IsoAnimal with a populated cell, which a bare JVM does not have (the constructor
+chain pulls AnimalDefinitions through the script engine).
+
+## entityUpdateParallel: vehicles and physics objects stay inline (batchableType)
+
+Found by the first hour-long live session (2026-09-26), not by any bench: the Louisville route is on foot,
+so no active vehicle ever updated mid-batch until real play did it. `UpdateBatch.batchableType` excluded
+players and animals but admitted `BaseVehicle` — an active vehicle's `update()` reaches Lua part scripts
+(`updateParts` → `VehicleParts.callLuaVoid` → `KahluaThread.pcall`), the wrong-thread guard errored 26
+times on `pzopt-frame-*` workers, and the 27th corrupted the Kahlua VM stack ("Index -4 out of bounds for
+length 1000"), latching batching off for the session. `batchableType` now also excludes `BaseVehicle`
+(Lua + pzBullet) and `IsoPhysicsObject` (native physics, never audited); both update inline on the game
+thread exactly as with the key off. The same session was otherwise the branch's strongest evidence: ~17,900
+frames of real play with zero caught state exceptions before the vehicle moment. `UpdateBatchTest` pins the
+four exclusions and the zombie/probe admissions.
+
+## entityUpdatePipeline: a bucket's batch flies while the next one collects (GameTime + FrameDelay new overrides, bucket/scheduler edits)
+
+The five simulation buckets each dispatched their batch and JOINED before returning: five sequential
+barriers per frame, the game thread idle at every one. With `entityUpdatePipeline` (default on, under
+`entityUpdateParallel`) the bucket's update() first lands the PREVIOUS bucket's flight (`joinPending`),
+then sends its own collection up without waiting (`dispatchAsync`) — so the next bucket's collection walk,
+its dead-body/reused-zombie branches and its inline entities (players, vehicles, animals, grappled
+zombies) all run while the previous batch's workers are still busy. The scheduler override joins once more
+after the last bucket, so postupdate and the render never see an airborne batch; FrameBatch's
+one-batch-at-a-time rule holds throughout (dispatch always joins first).
+
+Two consistency pieces make the overlap safe:
+
+- **perObjectMultiplier virtualization.** The global field belongs to whichever bucket the game thread is
+  IN — the airborne batch's tasks would read the wrong bucket's frame mod. Jar-wide the field funnels
+  through five read sites (the three GameTime getters, `FrameDelay.update`,
+  `IsoZombie.allowsInvisibleAnimationSkips`); each now reads `pzopt.UpdateBatch.pom(gameTime)` — the
+  dispatch-time capture while this thread runs one of the batch's tasks (a no-boxing float[1]
+  ThreadLocal), the live field otherwise, so off-batch behaviour is bit-identical. The Lua replay at the
+  join runs under the same holder: handlers see their own bucket's time scale even though the game
+  thread's global already belongs to the next bucket. `PerObjectMultiplierTest` pins all five sites in
+  bytecode (jar raw, override routed) and drives the capture semantics through a real racing batch.
+- **Inline entities stamp into the in-flight snapshot.** Serially, inline entities finished before the
+  dispatch, so workers always read their settled positions; overlapped, they move mid-flight. After an
+  inline entity's four calls the bucket loop stamps its post-update position into the airborne batch's
+  snapshot (`stampInline`, append past the queued block, `INLINE_SLACK` reserved so the arrays never grow
+  mid-flight; past the slack the entity simply stays live). The stamp's plain writes mean a torn read is
+  just one more live read.
+
+The queue is double-buffered (the flight owns its array; the next collection gets the spare), captures
+replay in queue order at the landing exactly as before, and a worker failure latches at the join as
+before. With the key off, `run()` is dispatch-then-join — the old synchronous shape, and what the JVM
+tests drive. `PipelineTest` pins the wiring (bucket dispatches async + joins the previous, scheduler holds
+the final join) and the discriminating runtime: with every task finished on the workers, nothing has
+replayed until `joinPending`. Also in the new GameTime override, marked `pzopt: decompiler fix`: two
+`Translator` results CFR typed as `Object`, and `daysInMonth`'s compound array assignment CFR expanded
+(one extra index constant) — audit 0 mismatches over the class's unedited methods.
+
+### zombie.characters.IsoGameCharacter: the tempo/tempo2 statics off the worker path (`entityUpdateParallel`)
+
+Run lou-pipe-off caught the dirScratch disease's sibling: ZombieEatBodyState threw the zero-length
+ForwardDirection exception through `faceThisObject`, whose jar body fills the STATIC `tempo` Vector2 and
+hands it to `DirectionFromVector` — two zombies facing anything concurrently share that one vector (the
+vehicle branch even calls `setForwardDirection` unguarded). The worker-reachable users — `faceThisObject`,
+`faceThisObjectAlt`, `facePosition`, `doDeferredMovement` (tempo) and `getMovementSpeed` (tempo2) — now
+take `pzopt.UpdateBatch.tempoScratch()` / `tempo2Scratch()` (per-thread, a method-local shadowing the
+static where the body uses the bare name, so the diff is one inserted line each). Per-thread scratch is
+behaviour-identical to the static for a single thread by definition, so the game-thread paths are
+untouched; the debug/render/death-path users (`renderDebugData`, `Throw`, `doDeathSplatterAndSounds`,
+`isObjectBehind`/`isBehind`…) keep the statics and stay byte-identical to the jar.
+ForwardDirectionScratchTest pins the five methods (jar reads the statics, override routes through the
+scratch getters) beside its tempVector2_2 pins.
+
+## zombie.ai.states.WalkTowardState: the singleton's scratch per thread (`entityUpdateParallel`, new override)
+
+The scratch family's last member, caught by run lou-pipe-final with both static scratches already
+converted: one WalkTowardState zero-length throw remained. The State instance is a SINGLETON — its
+`temp` Vector2 and `worldPos` Vector3f fields are shared by every walking zombie on every thread, and
+execute()'s whole direction computation (write targetX/targetY, subtract the position, offset, normalize,
+setDir, setForwardDirection) runs on `temp` across that window. `execute` and `calculateTargetLocation`
+now take per-thread vectors (`UpdateBatch.walkScratch()` / `walkScratch3()`) as method-locals shadowing
+the fields — one inserted line each, the bodies otherwise identical, per-thread scratch being
+behaviour-identical to the singleton field for a single thread. The fields themselves stay (enter/exit
+and the jar's shape untouched). ForwardDirectionScratchTest pins both methods beside the
+tempVector2_2/tempo pins.
+
+### fmod.fmod.FMODSoundEmitter: the emitter under its own lock (`entityUpdateParallel`)
+
+Run lou-pipe-clean2, the pipeline's first casualty: with bucket k airborne while bucket k+1 collects, the
+inline player fought zombies of the airborne bucket — its combat wrote into a zombie's emitter (playSound →
+the sound lists and the slot BitSet) while that zombie's worker task ticked the same emitter.
+`BitSet.clear(-1)` latched batching off at f:15 (the guard worked), but the race had already corrupted the
+emitter's sound list, and at f:366 the SERIAL path ticked the same emitter into
+`FMOD_Studio_GetPlaybackState(NULL)` — a native-argument NPE on the game thread, fatal (PZ saved and
+exited). This is also the branch's oldest ghost: the pre-guard wired run died with the identical
+"Index -1 out of bounds for length 2" at frame 10. All 23 list-touching entry points of the emitter — tick,
+the playSound family, stop/volume/3D/parameter, the isPlaying readers, the private stopSound overload —
+now hold the emitter's own monitor (`synchronized`, the ZombieGroupManager idiom): uncontended on the
+serial path, and every combination (worker vs inline game thread, worker vs worker) serializes.
+`tests/pzopt/EmitterLockTest` pins ACC_SYNCHRONIZED on exactly that surface and its absence in the jar; a
+runtime hammer needs the native FMOD system.
+
+### fmod.fmod.FMODSoundEmitter: the NULL event handle refused (`entityUpdateParallel`)
+
+Runs lou-pipe-clean2/3, both dying ~25-40 frames after route start at the ~4,200-zombie vocal storm, with
+the emitter lock already held and no worker-side signature: a stock bug our throughput exposes. The
+creation site guards FMOD's negative error codes (`eventInstance < 0`) but STORES the NULL handle (0) a
+saturated Studio system returns; the 0 survives its first tick (`isStarting` skips the state read) and
+kills the game on its second — `FMOD_Studio_GetPlaybackState(NULL)`, a native-argument NPE on whichever
+thread ticks it, fatal on the game thread. The guard is now `<= 0` (refusing the NULL exactly as stock
+refuses every other creation failure) plus a belt in `EventSound.tick`: a zeroed handle reports the sound
+finished instead of reaching the native. Load-dependent, not thread-dependent — vanilla can hit this under
+any heavy enough sound load.
+
+### The pipeline's measurement (`devPipelineAlternate`, and why the cross-run numbers lied)
+
+Cross-run Louisville comparisons are confounded twice: population=max spawns vary per run, AND a faster
+build loads MORE zombies by route start (the count is taken at route start), so an improvement penalizes
+itself. `devPipelineAlternate=N` is the repo's devPplAlternate pattern applied to the batch: the bucket
+seam flips entityUpdatePipeline on/off every N seconds inside one run (each flip logged with its epoch),
+so the frame log splits into paired windows over the identical population. First reading
+(lou-pipe-alt, 45 s route, 4 s windows, 3 route windows per mode, 2,944 zombies): a wash — mean 38.8 ms
+off vs 39.7 ms on, p50/p90 slightly for on, p99/max for off. The overlap window as first built holds
+little (collection is microseconds and the join helps), so the win waits on real work moving into it
+(deferred ticks, replay distribution); the key ships ON by the maintainer-side decision of 2026-09-26,
+with this measurement as the honest record and the rig as the permanent instrument.
+
+## zombie.statistics.StatisticsManager: the statistics map locked for the batch (`entityUpdateParallel`, new override, 2026-09-27)
+
+The first live modded session (Windows, 322 mods) latched batching off at frame 1: a worker's zombie update
+ran `IsoZombie.updateMovementStatistics` → `StatisticsManager.incrementStatistic`, whose `computeIfAbsent`
+raced another worker's on the singleton's plain `HashMap` — `ConcurrentModificationException`, one report,
+serial for the rest of the session (correct, the latch working as designed, but unbatched: the whole session
+measured the fallback path). The bench saves never see this because the statistics path only ticks with a
+consumer installed; the live save runs a daily-statistics mod.
+
+Every map-touching method of the manager (`incrementStatistic`, `setStatistic`, `getStatistic`,
+`getStatistics`, `getAllStatisticsDebug`, `load`, `save`) is now `synchronized` — the ZombieGroupManager /
+FMODSoundEmitter idiom, uncontended on the serial path. The `Statistic` increment itself is a
+read-modify-write and rides the same lock, so concurrent increments stop losing updates too. The lambdas and
+`getInstance` stay lock-free (they run under the caller's monitor or touch no shared state). `getStatistics`
+returns the live map (stock behaviour, kept); its callers iterate on the game thread, which the lock does not
+cover while a pipeline flight is airborne — no live sighting, watched for.
+
+`tests/pzopt/StatisticsLockTest` pins it structurally like EmitterLockTest: the jar's methods carry no
+ACC_SYNCHRONIZED, the override's seven all do, no strays, method set otherwise identical. No runtime hammer:
+`incrementStatistic` calls into `AchievementManager`, whose initialisation needs platform state a bare JVM
+does not have.
+
+## The batched zombies' emitter ticks land at the join (`emitterDefer`, 2026-09-27; IsoGameCharacter + UpdateBatch)
+
+The pipeline's overlap window held nothing (the lou-pipe-alt wash above): the flight's dear part is the
+zombies' FMOD work serializing on the emitter monitors (the FMODSoundEmitter locks) — worker against worker,
+and against the inline player's combat writes. `updateEmitter` now defers on a batch task: the character
+queues itself on its task's slot (the Lua capture's per-task shape, so queue order = stock's serial order)
+and returns; `joinPending` runs the queued ticks on the game thread right before the Lua replay, under the
+flight's captured multiplier, in the same frame. The idle-skip early-out still runs on the worker (an idle
+zombie never queues); the inline path never defers (the slot is only set on batch tasks, and only when the
+key was on at dispatch); a failed batch still drains what deferred before the throw. A side effect worth its
+own line: the prone-zombie branch of `updateEmitter` writes `CombatManager`'s STATIC `tempVectorBonePos` —
+the scratch-family disease again — and moving the whole tick to the game thread retires that hazard instead
+of converting it.
+
+Key `emitterDefer`, default on (inert without `entityUpdateParallel`). Counters `emitterDeferred` /
+`emitterDrained` on the batch status line. `tests/pzopt/EmitterDeferTest` pins the jar's updateEmitter
+pzopt-free and still on the static bone scratch (a TIS rework re-reads the override), the override routed
+through `deferEmitter`, the join's drain calling the real `updateEmitter`, and the off-task refusal. The
+win claim waits on the alternation rig (the measurement rule above); until that run lands this ships as
+a correctness + contention change, not a numbers claim.
+
+
+Measurements around the deferral (2026-09-27, Windows desktop, 9950X/4090, chunkGridWidth=25, max
+population, 90 s S:300 route at max zoom, the maintainer's own options file):
+
+- The branch's headline pair, back to back on the same route (runs lou-oursoff / lou-ourson, only
+  entityUpdateParallel + animalLosFast flipped, everything else identical): OFF = 12,434 zombies,
+  101.7 ms mean (9.8 fps), p50 86.0, p99 282; ON = 12,139 zombies, 57.7 ms mean (17.3 fps), p50 41.7,
+  p99 206. The median frame halved at twelve thousand zombies; the counts differ 2.4 % in OFF's favour,
+  so the true gap is at most a hair smaller. Zero exceptions on either side.
+- The pipeline alternation runs (lou-defer-alt, lou-defer-alt2) are NOT clean pipeline evidence: the
+  worst windows were GPU bake bursts (230 ms gpu_ms frames landing on whichever window parity the wall
+  clock chose) and the batch counters exposed the real defect — `async helped` ≈ 100 % of batched tasks,
+  i.e. at the join the workers had claimed essentially nothing: the overlap window as built is
+  structurally EMPTY. The join sits at the next bucket's seam, the dominant batch is followed by
+  trivial collections, and the game thread arrives at the join before the workers wake from the gate
+  monitor. The pipeline is currently sync-with-extra-steps; the fix (join at first dependency, workers
+  pre-woken at dispatch) is the next pass, and until it lands no pipeline number is claimed either way.
+
+## The game-thread offload pass (2026-09-27, branch `gt-offload`; findings in `docs/findings-gt-offload-2026-09-27.md`)
+
+Every key below reads its Config value unless `devGtAlternate=N` with `devGtAlternateKeys=...` alternates it on and off every
+N ms inside one run (`pzopt.GtAb`, `harness/gtab.py`): the off half takes the old path, so both halves share the scene.
+
+### zombie.iso.fboRenderChunk.FBORenderCell (`renderPrepParallel`, `pplPackParallel`, dev section timers)
+
+- `performRenderTiles`, after the god-ray camera call and before the chunk composite: `pzopt.RenderPrep.start` hands the
+  characters draw pre-pass's on-screen list to the frame workers, which compute each object's sun share for the capsule
+  shadows and its water / puddle proximity for the reflections while the game thread composites and draws the players,
+  corpses, items and puddles.
+- `renderMovingObjects`: joins that batch before the per-object loop, tells `RenderPrep` the index each object is drawn
+  at (so `CapsuleShadow.add / addAtlas / addVehicle` and `Ssr.addMoving` take the precomputed answer when the object at
+  that index is theirs), and clears it after the loop; the loop without the pre-pass list only joins and clears.
+- `performRenderTiles` / `renderMovingObjects` / `PixelLight.beforeComposite` call sites wrapped in `GtAb` section timers
+  (inert unless an alternation runs).
+
+### zombie.MovingObjectUpdateScheduler (`schedulerClassifyParallel`, `zombieStatsFold`, dev section timers)
+
+- `startFrame`: the stock body moved to a private method so the public one can time it; with the key on, the loop over
+  the cell's objects is `pzopt.SchedulerClassify.run`: the game thread fixes a missing square first (the loop's one
+  write; the classification never reads another object's square) and snapshots the set's order, the frame workers
+  compute each object's simulation level through the stock method, the game thread fills the buckets and the separation
+  batch in the snapshot's order. New public helpers: the worker entry (returns null for a character whose animation
+  player the body-model check would replace, which the game thread then classifies), the stock classification, and the
+  loop's bucket / separation step. `devSchedCheck=true` compares every worker result with the game thread's own.
+- `update`: body moved to a private method (timed); `pzopt.ZombieStats.begin / end` around the bucket loop (after the
+  entity batch's final join).
+
+### zombie.characters.IsoZombie (`zombieStatsFold`, `entityUpdateSafeStates`)
+
+- `updateMovementStatistics`: while the scheduler's loop runs, the travel distance goes to `pzopt.ZombieStats`, which
+  adds it to a per-statistic float in the zombies' order (started from the statistic's value) and writes it back once
+  after the loop, checking the achievement once per statistic: bitwise the same totals, the same unlocks, one map
+  lookup instead of ~2,000. A zombie updated on a frame worker (entityUpdateParallel) adds to its thread's partial sum,
+  added after the game thread's.
+- `update`: a dev counter of zombie updates per frame for `pzopt-gtab.out`.
+- New `pzoptBatchSafe`: the calm-state whitelist `UpdateBatch.batchable` uses when `entityUpdateSafeStates` is on (idle /
+  walk toward / path find; no ballistics target, ragdoll, fall, fire, grapple or reanimated player; no animation player
+  about to be replaced; no player within 12 squares). PR #35's crash under fire (Bullet's ballistics target released on a
+  worker) was a zombie outside this set.
+
+### zombie.characters.IsoGameCharacter (`schedulerClassifyParallel`, `entityUpdateSafeStates`)
+
+- Two read-only helpers: whether `getAnimationPlayer()` would replace the animation player (the body model changed), and
+  whether the animation player has a ragdoll (read from the field, never through the replacing getter).
+
+### zombie.characters.animals.IsoAnimal (new override, `animalLosFast`)
+
+- Vineflower decompile, compiles unchanged (bytecode audit clean). `updateLOS`: a zombie whose `BaseAnimalBehavior.spotted`
+  call can only clear `spottedChr` and tick `lastAlerted` down to zero (the animal does not flee zombies, or the zombie is
+  farther than 10 squares at the stock float distance: every branch that acts on a zombie needs 10, 6 or 3 squares, and
+  no random roll is reached) is counted instead of called; the counted ticks are applied, in the same float steps, before
+  the next `spotted` call that can act and at the end of the walk, so they keep their order against the calls that set
+  `lastAlerted`. No vanilla animal definition sets `fleeZombies`, so the distance branch is the one that applies. PR #35
+  reached the same fold (its squared-distance margin, `pzopt.AnimalLos`); this version uses the stock distance itself.
+  `updateLOS` call site timed (dev).
+
+### zombie.characters.IsoPlayer (`losLightPrefetch`, off; dev section timer)
+
+- `updateLOS`: before the walk, `pzopt.LosPrefetch` refreshes the stale lighting of the moving objects' squares on the frame
+  workers (one task per chunk level through `LightingBatch`, room / meta hooks deferred). Measured slower than the walk's
+  own lazy reads (~130 ns a square), so the key stays off. `updateLOS` call site timed (dev).
+
+### zombie.iso.LightingJNI (`losLightPrefetch`)
+
+- `JNILighting`: two helpers, whether the lazy refresh would read the native now, and the lazy refresh itself for a
+  prefetch task.
+
+### zombie.iso.IsoChunk (`losLightPrefetch`)
+
+- Two fields: the prefetch frame and the per-level task index of that frame.
+
+### zombie.iso.IsoWorld (dev section timer)
+
+- The scheduler's `postupdate` call timed.
+
+### zombie.core.properties.PropertyContainer (`entityUpdateParallel`)
+
+- `initSurface`: the lazy surface / slope parse is read from frame workers too (`updateFalling -> hasSlopedSurface` on a
+  batched zombie). Stock set the "parsed" bit before filling the fields, so a second thread could read half-parsed values;
+  now the fill runs under the container's monitor into the same fields and the bit is set last behind a release fence,
+  readers take an acquire fence after seeing it. Serially the same values in the same fields.
+
+### fmod.fmod.FMODSoundEmitter, zombie.characters.AttachedItems.AttachedItems, zombie.statistics.StatisticsManager (PR #35's locks)
+
+- PR #35 made the list-touching methods `synchronized`, which changes their signatures and fails build.sh's stock-member
+  check; each is now the stock signature with the same monitor taken as a block around the body (`tests/pzopt/*LockTest`,
+  `AttachedItemsSyncTest` check for the monitor in the body).
+
+### zombie.vispoly.VisibilityPolygon2 (`visPolyAsync`)
+
+- `renderMain`: takes the drawer `pzopt.VisPolyAsync` computed on its own thread since the top of the tile render when it is
+  this frame's drawer, else computes it as stock. Two helpers: this frame's drawer when the polygon may be computed ahead (one
+  player, the game's vision-polygon switch and new visibility on), and the worker's entry (the stock calculation). The Drawer
+  gets a flag under which the chunk walk reads a chunk's render levels without creating them (a chunk without them was never
+  on screen, which the stock test would have answered the same way after creating them).
+
+### zombie.iso.IsoChunk (`visPolyAsync`)
+
+- An accessor for the per-player render levels that does not create them.
+
+### zombie.iso.LightingJNI (`entityUpdateParallel`, the lighting race PR #35 left open)
+
+- `JNILighting.update`: on an entity-update batch task (`pzopt.LightingDefer.current()` non-null) the fboRenderChunk refresh runs
+  under the square lighting object's monitor. `updateFBORenderChunk`: on such a task every side effect of a refresh (the level
+  invalidation, LightDirt's bookkeeping, the puddle batch's light change, the cutaway check reset, the first-refresh
+  invalidation, the room / meta "square seen" hooks) goes to the task's list instead of running on the worker, and the worker
+  never creates the chunk's render levels; the game thread runs the lists at the batch's join in task (= stock) order. Off a
+  batch task nothing changes. Helpers for the deferred invalidation and LightDirt call.
+
+### zombie.iso.fboRenderChunk.FBORenderCell (`visPolyAsync`, `aoContextParallel`)
+
+- The cell render starts `pzopt.VisPolyAsync` right before `performRenderTiles`; `performRenderTiles` calls
+  `pzopt.ChunkAo.tilesBegin` first (the bakes of the frame then defer their AO / sun-shadow world masks to the batch
+  `ChunkAo.flush` runs after them).
+
+### zombie.iso.fboRenderChunk.FBORenderCell + zombie.iso.IsoChunk (`translucentOrderCache`)
+
+- `renderOneLevel_Translucent`: the merge of the level's three cached square lists (items, cutaway window frames, translucent
+  objects; a `contains` per insertion) and the world-order sort run only when `pzopt.TranslucentOrder` has no kept order whose
+  inputs (the three lists' squares in order and their coordinates) equal this frame's; the kept order is otherwise copied into
+  the same scratch list, and a freshly sorted one is stored. The render loop after it is stock. `IsoChunk` holds the kept orders
+  per player and level and drops them when the chunk object is reused. `devTlOrderCheck=true` recomputes the stock merge and
+  sort on every reuse: 369,052 reuses, 0 mismatches on the flip's 120 km/h drive.
+
+### zombie.core.skinnedmodel.animation.AnimationPlayer + zombie.characters.IsoGameCharacter (`ragdollCorpseGuard`, 2026-09-27)
+
+- `initRagdollController` makes no controller for a character that has already turned into its corpse (IsoGameCharacter gets
+  an accessor: its dead body is set; it is cleared when a zombie is reused). Stock rebuilds one in the frame a zombie dies: the
+  settled ragdoll's controller was released, the action state moves to onground, `ZombieOnGroundState.enter` calls `die()` (the
+  zombie becomes its IsoDeadBody and leaves the world), and the same `postUpdateAnimating`'s model update still finds the
+  ragdoll track. That controller belongs to nobody: an extra Bullet ragdoll until the zombie is reused, counted against the
+  active-ragdoll cap, and the SIGSEGV in `Ragdoll::deleteRigidBodies` when a game is quit while one is still there. Measured
+  with `devRagdollLedger=true` on the horde-shoot bench: stock 15 of 40 controllers were such, ours 47 of 109 (more kills a
+  second). Off with `enabled=false` like every hook.
+- `initRagdollController` / `releaseRagdollController` report each controller to `pzopt.RagdollLedger` (bookkeeping for the
+  sweep below).
+
+### zombie.core.physics.WorldSimulation (`ragdollQuitSweep`, 2026-09-27)
+
+- `destroy()` first lets `pzopt.RagdollLedger` remove every ragdoll still in the Bullet world (and log it). libPZBullet's
+  world destructor deletes the dynamics world before the ragdolls left in its id map, whose destructors then remove their
+  bodies from the deleted world through a null vtable slot (the quit crash above).
+
+### zombie.iso.IsoMovingObject (`devRagdollLedger`, 2026-09-27)
+
+- `removeFromSquare` reports the object to `pzopt.RagdollLedger` first (a dev key: the stack where a dead character left its
+  square and its ragdoll state at that moment; nothing without the key).

@@ -1711,10 +1711,15 @@ public final class AnimationPlayer extends PooledObject {
 
    private void initRagdollController() {
       if (this.ragdollController == null) {
+         if (pzopt.Config.RAGDOLL_CORPSE_GUARD && pzopt.Overrides.enabled() && this.character != null && this.character.pzoptBecameCorpse()) { // pzopt: ragdollCorpseGuard, no ragdoll for a corpse: stock rebuilt one from the leftover track the frame the zombie died, owned by nobody (crash at quit, counts against the ragdoll cap)
+            return; // pzopt: ragdollCorpseGuard
+         } // pzopt: ragdollCorpseGuard
+
          if (this.canRagdoll()) {
             pzopt.AnimParallel.noteRagdoll("controller created"); // pzopt: evidence rig, ragdoll physics off the game thread
             RagdollController ragdollController = RagdollController.alloc();
             ragdollController.setGameCharacterObject(this.getIsoGameCharacter());
+            pzopt.RagdollLedger.created(this, ragdollController); // pzopt: ragdollQuitSweep, ledger of controllers in the Bullet world
             if (this.getIsoGameCharacter() != null) {
                this.getIsoGameCharacter().onRagdollSimulationStarted();
             }
@@ -1751,7 +1756,9 @@ public final class AnimationPlayer extends PooledObject {
    public void releaseRagdollController() {
       if (this.pzoptInFlight) { pzopt.AnimBatch.guard(); } // pzopt: animBatchAsync, join the bone batch before a game-thread touch
       if (this.ragdollController != null) { pzopt.AnimParallel.noteRagdoll("controller released"); } // pzopt: evidence rig, ragdoll physics off the game thread
+      RagdollController pzoptReleased = this.ragdollController; // pzopt: ragdollQuitSweep, ledger
       this.ragdollController = (RagdollController)Pool.tryRelease(this.ragdollController);
+      if (pzoptReleased != null) { pzopt.RagdollLedger.released(pzoptReleased); } // pzopt: ragdollQuitSweep, ledger
       if (this.ragdollAnimationClip != null) {
          this.ragdollAnimationClip.setRagdollSimulationActive(false);
       }

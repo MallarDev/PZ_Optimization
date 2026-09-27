@@ -205,8 +205,10 @@ public final class SunShadow {
    // ------------------------------------------------------------------------------------------------ characters in the shade
 
    private static final int CACHE = 8192;
-   private static final long[] CACHE_KEY = new long[CACHE];
-   private static final float[] CACHE_VIS = new float[CACHE];
+   // one word per slot: the key's hash in the high 32 bits, the visibility's float bits in the low 32. A worker and the
+   // game thread may fill the cache at once (renderPrepParallel, the character draw pool): a single long store is atomic,
+   // so a reader sees a key with its own value or a miss, never a neighbour's value under its key
+   private static final long[] CACHE_E = new long[CACHE];
    private static final float LEVEL = 2.4494897F; // squares of height per level
 
    /**
@@ -231,13 +233,16 @@ public final class SunShadow {
    static float visibleAt(float x, float y, float z) {
       int hx = (int)Math.floor(x * 2F), hy = (int)Math.floor(y * 2F), iz = (int)Math.floor(z);
       long key = ((long)(hx & 0xFFFFF) << 40 | (long)(hy & 0xFFFFF) << 20 | (iz + 64) & 0xFF) * 31L + state;
-      int slot = (int)((key ^ key >>> 29) & (CACHE - 1));
-      if (CACHE_KEY[slot] == key) {
-         return CACHE_VIS[slot];
+      long h = key * 0x9E3779B97F4A7C15L;
+      h ^= h >>> 31;
+      int slot = (int)(h & (CACHE - 1));
+      long tag = h & 0xFFFFFFFF00000000L;
+      long e = CACHE_E[slot];
+      if (e != 0L && (e & 0xFFFFFFFF00000000L) == tag) {
+         return Float.intBitsToFloat((int)e);
       }
       float v = march((hx + 0.5F) * 0.5F, (hy + 0.5F) * 0.5F, iz);
-      CACHE_VIS[slot] = v;
-      CACHE_KEY[slot] = key;
+      CACHE_E[slot] = tag | Float.floatToRawIntBits(v) & 0xFFFFFFFFL;
       return v;
    }
 

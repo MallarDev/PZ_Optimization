@@ -221,7 +221,9 @@ public final class ChunkAo {
       int minLevel = rc.getMinLevel();
       long key = keyOf(c, minLevel, rc);
       if (geometry) {
-         COLUMNS.remove(columnKey(c.wx, c.wy)); // its column heights for the far-field march
+         synchronized (COLUMNS) {
+            COLUMNS.remove(columnKey(c.wx, c.wy)); // its column heights for the far-field march
+         }
       }
       Info info = INFOS.get(rc.index);
       if (info == null) {
@@ -331,6 +333,8 @@ public final class ChunkAo {
     * oldest first. A texture that is dirty again waits for its bake; one recycled to another chunk is dropped.
     */
    public static void flush(int playerIndex) {
+      runMasks();
+      inTiles = false;
       frames++;
       if (SunShadow.update() && enabled()) {
          // the sun moved a step (or its strength changed): every kept term with shadows is stale; the textures on screen
@@ -497,10 +501,13 @@ public final class ChunkAo {
       job.isoS = s;
       job.isoTop = FBORenderChunk.PIXELS_PER_LEVEL * (rc.getTopLevel() - minLevel + 1) + FBORenderLevels.extraHeightForJumboTrees(minLevel, rc.getTopLevel());
       job.sun = SunShadow.enabled() && SunShadow.dir[3] > 0F;
-      job.vegetation = Config.AO && Config.AO_STRENGTH_VEGETATION_PCT != Config.AO_STRENGTH_OBJECT_PCT
-         && vegetationMask(job.veg, c, minLevel, rc.getTopLevel());
-      job.nTrees = job.sun && Config.SUN_SHADOW_TREES || Config.AO && Config.AO_TREE_CANOPY_PCT > 0 ? collectTrees(job, c, minLevel, rc.getTopLevel()) : 0;
-      job.trees = job.nTrees > 0;
+      boolean deferMasks = inTiles && Config.AO_CONTEXT_PARALLEL && Config.DEV_AO_DUMP_TREE <= 0 && GtAb.on(GtAb.AO_CONTEXT); // aoContextParallel
+      if (!deferMasks) {
+         job.vegetation = Config.AO && Config.AO_STRENGTH_VEGETATION_PCT != Config.AO_STRENGTH_OBJECT_PCT
+            && vegetationMask(job.veg, c, minLevel, rc.getTopLevel());
+         job.nTrees = job.sun && Config.SUN_SHADOW_TREES || Config.AO && Config.AO_TREE_CANOPY_PCT > 0 ? collectTrees(job, c, minLevel, rc.getTopLevel()) : 0;
+         job.trees = job.nTrees > 0;
+      }
       System.arraycopy(SunShadow.world, 0, job.sunWorld, 0, 4);
       job.treeDump = 0;
       if (Config.DEV_AO_DUMP_TREE > 0 && treeComputes < Config.DEV_AO_DUMP_TREE && (hasTree(c, minLevel) || job.nTrees > 0)) {
@@ -512,11 +519,19 @@ public final class ChunkAo {
          System.arraycopy(SunShadow.perp, 0, job.sunPerp, 0, 4);
          float wz = SunShadow.world[2], wh = (float)Math.sqrt(SunShadow.world[0] * SunShadow.world[0] + SunShadow.world[1] * SunShadow.world[1]);
          job.sunTanElev = wz / Math.max(1e-3F, wh);
-         exteriorMask(job.ext, c, minLevel);
-         wallMask(job.wall, c, minLevel);
-         job.far = Config.SUN_SHADOW_FAR && farGrid(job, c, minLevel);
+         if (!deferMasks) {
+            exteriorMask(job.ext, c, minLevel);
+            wallMask(job.wall, c, minLevel);
+            job.far = Config.SUN_SHADOW_FAR && farGrid(job, c, minLevel);
+         }
       } else {
          job.far = false;
+      }
+      if (deferMasks) { // aoContextParallel: the pure world reads above, for every bake of the frame at once on the workers (flush)
+         job.maskChunk = c;
+         job.maskMinLevel = minLevel;
+         job.maskTopLevel = rc.getTopLevel();
+         MASK_JOBS.add(job);
       }
       boolean sunReach = SunShadow.enabled(); // a shadow reaches a whole chunk: any caster here matters to every neighbour
       int casters = -1; // lazily: does anything but floor stand in this chunk (sun shadows)
@@ -569,6 +584,68 @@ public final class ChunkAo {
          }
       }
       return mask;
+   }
+
+   // ---- aoContextParallel (2026-09-27, the game-thread offload pass) ----
+   private static boolean inTiles; // game thread: between tilesBegin and flush, context() defers the masks
+   private static final java.util.ArrayList<Job> MASK_JOBS = new java.util.ArrayList<>();
+   public static long maskBatches, maskJobs;
+
+   /** Game thread, the top of performRenderTiles: the bakes about to run defer their masks to flush's batch. */
+   public static void tilesBegin() {
+      runMasks(); // (anything left from a frame that never reached flush)
+      inTiles = enabled();
+   }
+
+   /**
+    * Game thread, in flush (after the bakes, before the frame is handed to the render thread): the deferred jobs' masks, one
+    * frame-worker task per job. They read squares and objects only (the caches above are locked); the jobs were queued in
+    * the bakes and are first read by the render thread when it draws this frame's state, after this returns.
+    */
+   private static void runMasks() {
+      int n = MASK_JOBS.size();
+      if (n == 0) {
+         return;
+      }
+      maskBatches++;
+      maskJobs += n;
+      Throwable t = n == 1 ? runMask(0) : FrameBatch.run(n, ChunkAo::runMaskTask);
+      if (t != null) {
+         Log.warn("aoContextParallel: a mask task failed: " + t);
+      }
+      MASK_JOBS.clear();
+   }
+
+   private static void runMaskTask(int i) throws Throwable {
+      Throwable t = runMask(i);
+      if (t != null) {
+         throw t;
+      }
+   }
+
+   private static Throwable runMask(int i) {
+      Job job = MASK_JOBS.get(i);
+      IsoChunk c = job.maskChunk;
+      try {
+         int minLevel = job.maskMinLevel, topLevel = job.maskTopLevel;
+         job.vegetation = Config.AO && Config.AO_STRENGTH_VEGETATION_PCT != Config.AO_STRENGTH_OBJECT_PCT && vegetationMask(job.veg, c, minLevel, topLevel);
+         job.nTrees = job.sun && Config.SUN_SHADOW_TREES || Config.AO && Config.AO_TREE_CANOPY_PCT > 0 ? collectTrees(job, c, minLevel, topLevel) : 0;
+         job.trees = job.nTrees > 0;
+         if (job.sun) {
+            exteriorMask(job.ext, c, minLevel);
+            wallMask(job.wall, c, minLevel);
+            job.far = Config.SUN_SHADOW_FAR && farGrid(job, c, minLevel);
+         }
+         return null;
+      } catch (Throwable t) {
+         job.vegetation = false; // a job without masks still draws (AO without vegetation / sun terms) rather than garbage
+         job.trees = false;
+         job.nTrees = 0;
+         job.far = false;
+         return t;
+      } finally {
+         job.maskChunk = null;
+      }
    }
 
    /**
@@ -767,18 +844,17 @@ public final class ChunkAo {
    private static byte[] columns(zombie.iso.IsoCell cell, int wx, int wy) {
       long key = columnKey(wx, wy);
       long now = System.currentTimeMillis();
-      byte[] b = COLUMNS.get(key);
-      Long t = COLUMN_MS.get(key);
-      if (b != null && t != null && now - t < 60_000L) {
-         return b;
+      byte[] b;
+      synchronized (COLUMNS) { // aoContextParallel: the mask tasks share this cache
+         b = COLUMNS.get(key);
+         Long t = COLUMN_MS.get(key);
+         if (b != null && t != null && now - t < 60_000L) {
+            return b;
+         }
       }
       IsoChunk c = cell.getChunk(wx, wy);
       if (c == null) {
          return null;
-      }
-      if (COLUMNS.size() > 4096) {
-         COLUMNS.clear();
-         COLUMN_MS.clear();
       }
       b = new byte[64];
       for (int z = Math.max(0, c.minLevel); z <= Math.min(c.maxLevel, 60); z++) {
@@ -803,9 +879,15 @@ public final class ChunkAo {
             }
          }
       }
-      COLUMNS.put(key, b);
-      COLUMN_MS.put(key, now);
-      columnBuilds++;
+      synchronized (COLUMNS) {
+         if (COLUMNS.size() > 4096) {
+            COLUMNS.clear();
+            COLUMN_MS.clear();
+         }
+         COLUMNS.put(key, b);
+         COLUMN_MS.put(key, now);
+         columnBuilds++;
+      }
       return b;
    }
 
@@ -953,7 +1035,7 @@ public final class ChunkAo {
       }
       float ccx = c.wx * 8 + 4F, ccy = c.wy * 8 + 4F;
       int n = 0;
-      float[] dist = TREE_DIST;
+      float[] dist = job.treeDist; // (per job: the mask tasks run in parallel)
       for (int dy = -TREE_CHUNK_REACH; dy <= TREE_CHUNK_REACH; dy++) {
          for (int dx = -TREE_CHUNK_REACH; dx <= TREE_CHUNK_REACH; dx++) {
             IsoChunk nc = dx == 0 && dy == 0 ? c : cell.getChunk(c.wx + dx, c.wy + dy);
@@ -1003,9 +1085,11 @@ public final class ChunkAo {
    /** A chunk's trees on any level: x, y, z, sprite height in levels per tree; cached 600 frames (trees are rarely felled). */
    private static float[] chunkTrees(IsoChunk c) {
       long key = ((long)c.wx << 32) ^ (c.wy & 0xFFFFFFFFL);
-      Object[] e = CHUNK_TREES.get(key);
-      if (e != null && frames - (Long)e[0] < 600L) {
-         return (float[])e[1];
+      synchronized (CHUNK_TREES) { // aoContextParallel: the mask tasks share this cache
+         Object[] e = CHUNK_TREES.get(key);
+         if (e != null && frames - (Long)e[0] < 600L) {
+            return (float[])e[1];
+         }
       }
       float[] out = new float[16];
       int n = 0;
@@ -1029,10 +1113,12 @@ public final class ChunkAo {
          }
       }
       out = java.util.Arrays.copyOf(out, n);
-      if (CHUNK_TREES.size() > 4096) {
-         CHUNK_TREES.clear();
+      synchronized (CHUNK_TREES) {
+         if (CHUNK_TREES.size() > 4096) {
+            CHUNK_TREES.clear();
+         }
+         CHUNK_TREES.put(key, new Object[] {frames, out});
       }
-      CHUNK_TREES.put(key, new Object[] {frames, out});
       return out;
    }
 
@@ -1162,6 +1248,9 @@ public final class ChunkAo {
       boolean trees; // sunShadowTrees / aoTreeCanopyPct: crown proxies in reach (collectTrees)
       int nTrees;
       final float[] treeA = new float[MAX_TREES * 4], treeB = new float[MAX_TREES * 4];
+      final float[] treeDist = new float[MAX_TREES]; // collectTrees' scratch
+      IsoChunk maskChunk; // aoContextParallel: the chunk whose masks a task fills
+      int maskMinLevel, maskTopLevel;
       final float[] sunWorld = new float[4]; // the direction to the sun in world squares (x east, y south, z up)
       int treeDump; // dev (devAoDumpTree): > 0 = this compute's texture holds a tree and is the Nth such: dump it
       String dumpWhere = ""; // dev: the chunk wx, wy and the texture's levels

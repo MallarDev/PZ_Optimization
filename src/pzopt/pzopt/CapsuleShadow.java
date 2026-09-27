@@ -206,6 +206,29 @@ public final class CapsuleShadow {
       return n;
    }
 
+   /** The sun share through the grid and the clouds at an object outdoors: renderPrepParallel's answer, or computed here. */
+   private static float sunShare(zombie.iso.IsoMovingObject o) {
+      float v = RenderPrep.sunVis(o);
+      return v == v ? v : SunShadow.visibleAt(o.getX(), o.getY(), o.getZ()) * CloudShadow.transmittanceAt(o.getX(), o.getY(), o.getZ());
+   }
+
+   /** renderPrepParallel: this frame's pass will ask characters and vehicles their sun share (any thread). */
+   static boolean wantsSunVis() {
+      return Overrides.enabled() && Config.SUN_SHADOWS && (Config.SUN_SHADOW_CHARACTERS || Config.SUN_SHADOW_VEHICLES) && !failed && SunShadow.dir[3] > 0F;
+   }
+
+   /** renderPrepParallel, a frame worker: what add / addAtlas / addVehicle compute as the object's sun share (NaN: not asked). */
+   static float sunVisFor(zombie.iso.IsoMovingObject o) {
+      if (!(o instanceof zombie.characters.IsoGameCharacter) && !(o instanceof zombie.vehicles.BaseVehicle)) {
+         return Float.NaN;
+      }
+      IsoGridSquare sq = o.getCurrentSquare();
+      if (sq == null || !sq.isOutside()) {
+         return Float.NaN; // not asked (the pass tests the square itself)
+      }
+      return SunShadow.visibleAt(o.getX(), o.getY(), o.getZ()) * CloudShadow.transmittanceAt(o.getX(), o.getY(), o.getZ());
+   }
+
    /** Game thread, where a character's stock shadow is drawn: its capsules join this frame's pass. */
    public static void add(IsoGameCharacter chr) {
       Frame f = current;
@@ -221,7 +244,7 @@ public final class CapsuleShadow {
       }
       // a character standing in the static world's shade casts no sun shadow of its own (the shade is already there): its
       // sun share through the grid (SunShadow's cached march, the same that darkens its model) scales the sun shadow
-      float sunVis = f.sunOn && sq.isOutside() ? SunShadow.visibleAt(chr.getX(), chr.getY(), chr.getZ()) * CloudShadow.transmittanceAt(chr.getX(), chr.getY(), chr.getZ()) : 0F;
+      float sunVis = f.sunOn && sq.isOutside() ? sunShare(chr) : 0F;
       boolean sun = sunVis > 0.05F;
       if (!sun && f.nl == 0) {
          return; // indoors or in the shade in daylight without a torch around: nothing to cast
@@ -279,7 +302,7 @@ public final class CapsuleShadow {
       if (sq == null) {
          return;
       }
-      float sunVis = f.sunOn && sq.isOutside() ? SunShadow.visibleAt(chr.getX(), chr.getY(), chr.getZ()) * CloudShadow.transmittanceAt(chr.getX(), chr.getY(), chr.getZ()) : 0F;
+      float sunVis = f.sunOn && sq.isOutside() ? sunShare(chr) : 0F;
       if (sunVis <= 0.05F && f.nl == 0) {
          return;
       }
@@ -312,7 +335,7 @@ public final class CapsuleShadow {
       if (sq == null) {
          return;
       }
-      float sunVis = f.sunOn && sq.isOutside() ? SunShadow.visibleAt(v.getX(), v.getY(), v.getZ()) * CloudShadow.transmittanceAt(v.getX(), v.getY(), v.getZ()) : 0F;
+      float sunVis = f.sunOn && sq.isOutside() ? sunShare(v) : 0F;
       boolean sun = sunVis > 0.05F;
       if (!sun && f.nl == 0) {
          return;

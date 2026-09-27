@@ -370,6 +370,14 @@ public final class CharDraw {
       return onScreen;
    }
 
+   /**
+    * renderPrepParallel, game thread between start() and join(): the walk's on-screen list, the objects (and the order)
+    * the draw loop will walk; null when no pass is under way.
+    */
+   static ArrayList<IsoMovingObject> onScreenForPrep() {
+      return started && !failed && walkPending.get() == 0 ? onScreen : null;
+   }
+
    /** The stock loop: true when the pre-pass built this slot's draw data this frame (and it has not been taken yet). */
    public static boolean isPrepared(ModelManager.ModelSlot slot) {
       if (!active || slot == null) {

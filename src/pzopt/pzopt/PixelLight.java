@@ -149,11 +149,9 @@ public final class PixelLight {
    private static int[] slotLevel; // per slot and level & 15: the level uploaded there
    private static boolean[] slotAir; // per slot and level & 15: some squares of that level took their column's light from below (pplAirFill)
    private static boolean[] slotLite; // per slot and level & 15: packed lite (a ring chunk: no connectivity), repacked in full once on screen
-   private static boolean packLite; // pack(): this chunk is only in the ring
    private static boolean[] slotAirPending; // per slot: a light change waits for the next refresh of the borrowed levels
    private static long[] slotAirFrame; // per slot: the frame its borrowed levels were last refreshed (pplAirFill carries a light change up at most every AIR_REFRESH_FRAMES)
    private static final int AIR_REFRESH_FRAMES = 120;
-   private static int lastAboveBlock = -1; // this chunk's block of the level above its top, packed this frame (copied to the levels above it)
    private static final ArrayList<Frame> RING = new ArrayList<>();
    private static long frames, blocksUploaded, blocksCopied, framesFull, packNs, packSimple, packHidden, packSlow;
    private static int traceSq, traceSeen; // dev (devPplTrace): this frame's packed squares, the seen ones
@@ -252,66 +250,15 @@ public final class PixelLight {
          slotTop = new int[s * s];
       }
       ArrayList<IsoChunk> packList = Config.PPL_AIR_FILL || Config.PPL_PACK_RING ? withRing(onScreen, s) : onScreen;
-      for (int i = 0; i < packList.size(); i++) {
-         IsoChunk c = packList.get(i);
-         boolean ring = i >= onScreen.size(); // withRing lists the on-screen chunks first
-         int slot = Math.floorMod(c.wx, s) + Math.floorMod(c.wy, s) * s;
-         if (slotChunk[slot] != c) {
-            slotChunk[slot] = c;
-            java.util.Arrays.fill(slotLevel, slot * LEVELS, slot * LEVELS + LEVELS, Integer.MIN_VALUE);
+      SERIAL_CTX.begin();
+      if (Config.PPL_PACK_PARALLEL && GtAb.on(GtAb.PPL_PACK) && Config.DEV_PPL_PROBE <= 0 && !Config.DEV_PPL_TRACE && !packParallelFailed && packList.size() >= 8) {
+         packParallel(f, packList, onScreen.size(), s, playerIndex);
+      } else {
+         for (int i = 0; i < packList.size(); i++) {
+            packChunkLevels(SERIAL_CTX, f, packList.get(i), i >= onScreen.size(), s, playerIndex, false); // withRing lists the on-screen chunks first
          }
-         // one level above the top: tall sprites (tree crowns) reach into it; with pplAirFill up to the tallest neighbour's top
-         // + 1 as well: a tree's copy in a neighbour's texture (TreeBake) reads this chunk's squares at that texture's levels,
-         // and an unpacked level holds the light of whichever chunk used the slot before
-         int zTop = Math.min(Config.PPL_AIR_FILL ? Math.max(c.maxLevel, neighbourTop(c, s)) + 1 : c.maxLevel + 1, c.minLevel + LEVELS - 1);
-         if (Config.PPL_AIR_FILL && slotAirPending[slot] && frames - slotAirFrame[slot] >= AIR_REFRESH_FRAMES) {
-            slotAirFrame[slot] = frames;
-            slotAirPending[slot] = false;
-            markAirDirty(c, slot, c.minLevel + 1, zTop);
-         }
-         for (int z = c.minLevel; z <= zTop; z++) {
-            int li = z + 32;
-            int idx = slot * LEVELS + (z & (LEVELS - 1));
-            boolean dirty = li >= 0 && li < 64 && c.pzoptPplDirty[li] != 0;
-            if (slotLevel[idx] == z && !dirty && !(slotLite[idx] && !ring)) {
-               continue;
-            }
-            if (!f.room()) {
-               framesFull++;
-               break;
-            }
-            if (li >= 0 && li < 64) {
-               c.pzoptPplDirty[li] = 0;
-            }
-            slotLevel[idx] = z;
-            if (z > c.maxLevel + 1 && lastAboveBlock >= 0) {
-               copyBlock(f, lastAboveBlock, z); // every level above the top + 1 is the same: the columns' top corners
-               slotAir[idx] = true;
-               continue;
-            }
-            packLite = ring;
-            boolean air = pack(f, c, z, playerIndex);
-            packLite = false;
-            slotAir[idx] = air;
-            slotLite[idx] = ring;
-            if (z == c.maxLevel + 1) {
-               lastAboveBlock = f.blocks - 1;
-            }
-            if (Config.PPL_AIR_FILL && z <= c.maxLevel && !air) { // (a borrowed level's own repack does not propagate)
-               // the levels above lend this level's top corners to their empty squares: they follow its light, at most every
-               // AIR_REFRESH_FRAMES (they only light tree crowns and air; repacking them with every ground light change while
-               // driving doubled the lattice uploads: +130 us a frame on the game thread)
-               if (frames - slotAirFrame[slot] >= AIR_REFRESH_FRAMES) {
-                  slotAirFrame[slot] = frames;
-                  slotAirPending[slot] = false;
-                  markAirDirty(c, slot, z + 1, zTop);
-               } else {
-                  slotAirPending[slot] = true;
-               }
-            }
-         }
-         lastAboveBlock = -1;
       }
+      SERIAL_CTX.end();
       blocksUploaded += f.blocks;
       if (Config.DEV_PPL_PROBE > 0) {
          probe(playerIndex, f.blocks);
@@ -810,6 +757,71 @@ public final class PixelLight {
       }
    }
 
+   /**
+    * One chunk of the pack list: its levels that changed since they were last packed (all of them when the chunk just took
+    * its lattice slot), each into a block of the frame. {@code atomic}: a pack task on a frame worker (pplPackParallel),
+    * blocks taken from the shared counter; the chunk's own slot state is touched by this task alone.
+    */
+   private static void packChunkLevels(PackCtx x, Frame f, IsoChunk c, boolean ring, int s, int playerIndex, boolean atomic) {
+      x.lastAbove = -1;
+      int slot = Math.floorMod(c.wx, s) + Math.floorMod(c.wy, s) * s;
+      if (slotChunk[slot] != c) {
+         slotChunk[slot] = c;
+         java.util.Arrays.fill(slotLevel, slot * LEVELS, slot * LEVELS + LEVELS, Integer.MIN_VALUE);
+      }
+      // one level above the top: tall sprites (tree crowns) reach into it; with pplAirFill up to the tallest neighbour's top
+      // + 1 as well: a tree's copy in a neighbour's texture (TreeBake) reads this chunk's squares at that texture's levels,
+      // and an unpacked level holds the light of whichever chunk used the slot before
+      int zTop = Math.min(Config.PPL_AIR_FILL ? Math.max(c.maxLevel, neighbourTop(c, s)) + 1 : c.maxLevel + 1, c.minLevel + LEVELS - 1);
+      if (Config.PPL_AIR_FILL && slotAirPending[slot] && frames - slotAirFrame[slot] >= AIR_REFRESH_FRAMES) {
+         slotAirFrame[slot] = frames;
+         slotAirPending[slot] = false;
+         markAirDirty(c, slot, c.minLevel + 1, zTop);
+      }
+      for (int z = c.minLevel; z <= zTop; z++) {
+         int li = z + 32;
+         int idx = slot * LEVELS + (z & (LEVELS - 1));
+         boolean dirty = li >= 0 && li < 64 && c.pzoptPplDirty[li] != 0;
+         if (slotLevel[idx] == z && !dirty && !(slotLite[idx] && !ring)) {
+            continue;
+         }
+         int blk = allocBlock(f, atomic);
+         if (blk < 0) {
+            x.full++;
+            break;
+         }
+         if (li >= 0 && li < 64) {
+            c.pzoptPplDirty[li] = 0;
+         }
+         slotLevel[idx] = z;
+         if (z > c.maxLevel + 1 && x.lastAbove >= 0) {
+            copyBlock(x, f, x.lastAbove, z, blk); // every level above the top + 1 is the same: the columns' top corners
+            slotAir[idx] = true;
+            continue;
+         }
+         x.lite = ring;
+         boolean air = pack(x, f, c, z, playerIndex, blk);
+         x.lite = false;
+         slotAir[idx] = air;
+         slotLite[idx] = ring;
+         if (z == c.maxLevel + 1) {
+            x.lastAbove = blk;
+         }
+         if (Config.PPL_AIR_FILL && z <= c.maxLevel && !air) { // (a borrowed level's own repack does not propagate)
+            // the levels above lend this level's top corners to their empty squares: they follow its light, at most every
+            // AIR_REFRESH_FRAMES (they only light tree crowns and air; repacking them with every ground light change while
+            // driving doubled the lattice uploads: +130 us a frame on the game thread)
+            if (frames - slotAirFrame[slot] >= AIR_REFRESH_FRAMES) {
+               slotAirFrame[slot] = frames;
+               slotAirPending[slot] = false;
+               markAirDirty(c, slot, z + 1, zTop);
+            } else {
+               slotAirPending[slot] = true;
+            }
+         }
+      }
+   }
+
    private static final ArrayList<IsoChunk> ringList = new ArrayList<>();
    private static long[] slotStamp; // per lattice slot: the frame a chunk in it joined this frame's pack list
    private static int[] slotTop; // per lattice slot: that chunk's maxLevel (neighbourTop reads it: no cell lookups)
@@ -870,15 +882,26 @@ public final class PixelLight {
       return top;
    }
 
-   /** A copy of block {@code from} of this frame as level {@code z} of the chunk the last pack() wrote. */
-   private static void copyBlock(Frame f, int from, int z) {
+   /** A copy of block {@code from} of this frame as level {@code z} of the chunk the last pack() wrote, into block {@code blk}. */
+   private static void copyBlock(PackCtx x, Frame f, int from, int z, int blk) {
       ByteBuffer b = f.buf();
-      b.put(f.blocks * BLOCK_BYTES, b, from * BLOCK_BYTES, BLOCK_BYTES);
-      f.bx[f.blocks] = f.bx[from];
-      f.by[f.blocks] = f.by[from];
-      f.bl[f.blocks] = z & (LEVELS - 1);
-      f.blocks++;
-      blocksCopied++;
+      b.put(blk * BLOCK_BYTES, b, from * BLOCK_BYTES, BLOCK_BYTES);
+      f.bx[blk] = f.bx[from];
+      f.by[blk] = f.by[from];
+      f.bl[blk] = z & (LEVELS - 1);
+      x.copied++;
+   }
+
+   /** The next block of the frame, or -1 when it is full. Serial: Frame.room (grows the buffer); parallel: the shared counter (packParallel grew it). */
+   private static int allocBlock(Frame f, boolean atomic) {
+      if (atomic) {
+         int blk = PACK_NEXT.getAndIncrement();
+         return blk < MAX_BLOCKS ? blk : -1;
+      }
+      if (!f.room()) {
+         return -1;
+      }
+      return f.blocks++;
    }
 
    /**
@@ -889,11 +912,12 @@ public final class PixelLight {
     *
     * <p>Returns true when some of its squares took their column's light from below (pplAirFill).
     */
-   private static boolean pack(Frame f, IsoChunk c, int z, int playerIndex) {
+   private static boolean pack(PackCtx px, Frame f, IsoChunk c, int z, int playerIndex, int blk) {
       ByteBuffer b = f.buf();
-      int base = f.blocks * BLOCK_BYTES;
+      int base = blk * BLOCK_BYTES;
       IsoCell cell = IsoWorld.instance.currentCell;
-      packChunk = c;
+      px.chunk = c;
+      px.torchLevel(c, z);
       boolean allSat = true, allHidden = true, air = false;
       for (int y = 0; y < 8; y++) {
          for (int x = 0; x < 8; x++) {
@@ -945,7 +969,7 @@ public final class PixelLight {
                   }
                   float tmax = Math.max(tr, Math.max(tg, tb)), imax = Math.max(li.r, Math.max(li.g, li.b));
                   boolean canSee = (jl.pzoptVis() & 2) != 0;
-                  if (tmax > 0.02F && (imax < 0.9F * tmax || Config.PPL_TORCH_CAN_SEE && !canSee) || tmax <= 0.02F && !canSee && torchNear(sq.x + 0.5F, sq.y + 0.5F, z)) {
+                  if (tmax > 0.02F && (imax < 0.9F * tmax || Config.PPL_TORCH_CAN_SEE && !canSee) || tmax <= 0.02F && !canSee && torchNear(px, sq.x + 0.5F, sq.y + 0.5F, z)) {
                      // the native lists the torch here but did not add it (a wall hides it, or the square is dark for the
                      // player): nothing to take out, and the torch stays off here. A square the player cannot see never took
                      // it: a room lit by its own lamp is brighter than the torch, so the brightness test alone let the torch
@@ -961,31 +985,31 @@ public final class PixelLight {
                   boolean outside = sq.isOutside();
                   boolean clipped = tmax >= 0.99F || tmax > 0.0F && Math.max(li.r, Math.max(li.g, li.b)) >= 0.999F;
                   int est = outside ? ambOut : ambIn;
-                  float er = est >= 0 ? (est & 0xFF) / 255.0F : ambR, eg = est >= 0 ? (est >> 8 & 0xFF) / 255.0F : ambG, eb = est >= 0 ? (est >> 16 & 0xFF) / 255.0F : ambB;
+                  float er = est >= 0 ? (est & 0xFF) / 255.0F : px.ambR, eg = est >= 0 ? (est >> 8 & 0xFF) / 255.0F : px.ambG, eb = est >= 0 ? (est >> 16 & 0xFF) / 255.0F : px.ambB;
                   float br = clipped ? Math.min(li.r, er) : Math.max(0.0F, li.r - tr);
                   float bg = clipped ? Math.min(li.g, eg) : Math.max(0.0F, li.g - tg);
                   float bb = clipped ? Math.min(li.b, eb) : Math.max(0.0F, li.b - tb);
                   info = Math.min(255, (int)(br * 255.0F + 0.5F)) | Math.min(255, (int)(bg * 255.0F + 0.5F)) << 8 | Math.min(255, (int)(bb * 255.0F + 0.5F)) << 16;
                   if ((jl.pzoptVis() & 1) != 0 && tr + tg + tb == 0.0F && li.r + li.g + li.b > 0.0F) {
-                     ambientSample(outside ? 0 : 1, (int)(li.r * 255.0F + 0.5F) | (int)(li.g * 255.0F + 0.5F) << 8 | (int)(li.b * 255.0F + 0.5F) << 16);
+                     px.sample(outside ? 0 : 1, (int)(li.r * 255.0F + 0.5F) | (int)(li.g * 255.0F + 0.5F) << 8 | (int)(li.b * 255.0F + 0.5F) << 16);
                   }
-                  if ((jl.pzoptVis() & 1) != 0 && tr + tg + tb == 0.0F && li.r + li.g + li.b > 0.0F && li.r < ambR + 0.5F) {
-                     ambR = Math.min(ambR, li.r); // a seen square without torch light: the ambient is at most its light
-                     ambG = Math.min(ambG, li.g);
-                     ambB = Math.min(ambB, li.b);
+                  if ((jl.pzoptVis() & 1) != 0 && tr + tg + tb == 0.0F && li.r + li.g + li.b > 0.0F && li.r < px.ambR + 0.5F) {
+                     px.ambR = Math.min(px.ambR, li.r); // a seen square without torch light: the ambient is at most its light
+                     px.ambG = Math.min(px.ambG, li.g);
+                     px.ambB = Math.min(px.ambB, li.b);
                   }
                   int wx = sq.x, wy = sq.y;
                   // E, S, W, N, SE, SW, NW, NE: shared corners equal (a ring chunk, off screen, lends only its light: every
                   // neighbour counts as connected, no lookups; it packs in full once it comes on screen)
-                  if (packLite) conn = 255; else {
-                  if (same(v1, corner(cell, wx + 1, wy, z, 0, playerIndex)) && same(v2, corner(cell, wx + 1, wy, z, 3, playerIndex))) conn |= 1;
-                  if (same(v3, corner(cell, wx, wy + 1, z, 0, playerIndex)) && same(v2, corner(cell, wx, wy + 1, z, 1, playerIndex))) conn |= 2;
-                  if (same(v0, corner(cell, wx - 1, wy, z, 1, playerIndex)) && same(v3, corner(cell, wx - 1, wy, z, 2, playerIndex))) conn |= 4;
-                  if (same(v0, corner(cell, wx, wy - 1, z, 3, playerIndex)) && same(v1, corner(cell, wx, wy - 1, z, 2, playerIndex))) conn |= 8;
-                  if ((conn & 3) == 3 && same(v2, corner(cell, wx + 1, wy + 1, z, 0, playerIndex))) conn |= 16;
-                  if ((conn & 6) == 6 && same(v3, corner(cell, wx - 1, wy + 1, z, 1, playerIndex))) conn |= 32;
-                  if ((conn & 12) == 12 && same(v0, corner(cell, wx - 1, wy - 1, z, 2, playerIndex))) conn |= 64;
-                  if ((conn & 9) == 9 && same(v1, corner(cell, wx + 1, wy - 1, z, 3, playerIndex))) conn |= 128;
+                  if (px.lite) conn = 255; else {
+                  if (same(v1, corner(px, cell, wx + 1, wy, z, 0, playerIndex)) && same(v2, corner(px, cell, wx + 1, wy, z, 3, playerIndex))) conn |= 1;
+                  if (same(v3, corner(px, cell, wx, wy + 1, z, 0, playerIndex)) && same(v2, corner(px, cell, wx, wy + 1, z, 1, playerIndex))) conn |= 2;
+                  if (same(v0, corner(px, cell, wx - 1, wy, z, 1, playerIndex)) && same(v3, corner(px, cell, wx - 1, wy, z, 2, playerIndex))) conn |= 4;
+                  if (same(v0, corner(px, cell, wx, wy - 1, z, 3, playerIndex)) && same(v1, corner(px, cell, wx, wy - 1, z, 2, playerIndex))) conn |= 8;
+                  if ((conn & 3) == 3 && same(v2, corner(px, cell, wx + 1, wy + 1, z, 0, playerIndex))) conn |= 16;
+                  if ((conn & 6) == 6 && same(v3, corner(px, cell, wx - 1, wy + 1, z, 1, playerIndex))) conn |= 32;
+                  if ((conn & 12) == 12 && same(v0, corner(px, cell, wx - 1, wy - 1, z, 2, playerIndex))) conn |= 64;
+                  if ((conn & 9) == 9 && same(v1, corner(px, cell, wx + 1, wy - 1, z, 3, playerIndex))) conn |= 128;
                   }
                }
             }
@@ -999,9 +1023,11 @@ public final class PixelLight {
             int simple = conn != 255 ? (tvis == 255 ? 192 : 64) : tvis == 255 ? 255 : 0;
             if (sq != null && !above) { // (no square: no pixels; above the top: the level below's)
                allSat &= (info & 0xFF) >= 252 && (info >> 8 & 0xFF) >= 252 && (info >> 16 & 0xFF) >= 252;
-               allHidden &= tvis == 0 || !torchNear(sq.x + 0.5F, sq.y + 0.5F, z); // no torch there: none to hide
+               if (px.torchFilter ? allHidden && tvis != 0 : true) { // pplTorchNearChunk: once a square decided it, the rest are not asked (the test has no side effects)
+                  allHidden &= tvis == 0 || !torchNear(px, sq.x + 0.5F, sq.y + 0.5F, z); // no torch there: none to hide
+               }
             }
-            if (conn != 255) packSlow++; else if (simple == 0) packHidden++; else packSimple++;
+            if (conn != 255) px.slow++; else if (simple == 0) px.hidden++; else px.simple++;
             if (Config.DEV_PPL_TRACE && sq != null && !above) {
                traceSq++;
                traceLum += (info & 0xFF) + (info >> 8 & 0xFF) + (info >> 16 & 0xFF);
@@ -1021,10 +1047,9 @@ public final class PixelLight {
       if (z + 32 >= 0 && z + 32 < 64) {
          c.pzoptPplFlags[z + 32] = (byte)((allSat ? 1 : 0) | (allHidden ? 2 : 0));
       }
-      f.bx[f.blocks] = Math.floorMod(c.wx * 8, f.n);
-      f.by[f.blocks] = Math.floorMod(c.wy * 8, f.n);
-      f.bl[f.blocks] = z & (LEVELS - 1);
-      f.blocks++;
+      f.bx[blk] = Math.floorMod(c.wx * 8, f.n);
+      f.by[blk] = Math.floorMod(c.wy * 8, f.n);
+      f.bl[blk] = z & (LEVELS - 1);
       return air;
    }
 
@@ -1144,7 +1169,217 @@ public final class PixelLight {
       }
       java.util.Arrays.fill(ambCounts, 0);
    }
-   private static IsoChunk packChunk;
+
+   // ---- pplPackParallel / pplTorchNearChunk (2026-09-27) ----
+
+   /**
+    * What one pack task keeps apart from the others: the chunk being packed, its lattice bookkeeping, the counters and the
+    * ambient samples of the squares it packed, and the torches that can reach the level it is on. The serial path runs
+    * through {@link #SERIAL_CTX}, which samples straight into the static tables and hands its ambient minimum back, so it
+    * computes exactly what the loop did before the context existed. A worker's context starts from the frame's ambient
+    * and its samples are merged after the batch (the minimum and the per-colour counts do not depend on the order).
+    */
+   private static final class PackCtx {
+      IsoChunk chunk;
+      boolean lite;
+      int lastAbove = -1;
+      long simple, hidden, slow, copied, full;
+      float ambR, ambG, ambB;
+      final boolean shared;
+      final int[] aKeys = new int[2 * 64], aCounts = new int[2 * 64], aTotal = new int[2];
+      int[] torch = new int[16];
+      int torches;
+      boolean torchFilter;
+      long frame = -1L;
+
+      PackCtx(boolean shared) {
+         this.shared = shared;
+      }
+
+      void begin() {
+         this.simple = this.hidden = this.slow = this.copied = this.full = 0L;
+         this.ambR = PixelLight.ambR;
+         this.ambG = PixelLight.ambG;
+         this.ambB = PixelLight.ambB;
+         if (!this.shared) {
+            java.util.Arrays.fill(this.aCounts, 0);
+            this.aTotal[0] = this.aTotal[1] = 0;
+         }
+         this.torchFilter = Config.PPL_TORCH_NEAR_CHUNK && GtAb.on(GtAb.TORCH_NEAR);
+      }
+
+      /** Game thread, after the packs: the counters, the ambient minimum and (a worker's) samples into the statics. */
+      void end() {
+         packSimple += this.simple;
+         packHidden += this.hidden;
+         packSlow += this.slow;
+         blocksCopied += this.copied;
+         framesFull += this.full;
+         this.simple = this.hidden = this.slow = this.copied = this.full = 0L;
+         // (the serial context started from the static and only lowered it: its minimum is its running value)
+         PixelLight.ambR = Math.min(PixelLight.ambR, this.ambR);
+         PixelLight.ambG = Math.min(PixelLight.ambG, this.ambG);
+         PixelLight.ambB = Math.min(PixelLight.ambB, this.ambB);
+         if (this.shared) {
+            return; // its samples went straight into the static tables
+         }
+         for (int i = 0; i < this.aKeys.length; i++) {
+            for (int k = this.aCounts[i]; k > 0; k--) {
+               ambientSample(i / 64, this.aKeys[i]);
+            }
+         }
+      }
+
+      void sample(int cls, int rgb) {
+         if (this.shared) {
+            ambientSample(cls, rgb);
+            return;
+         }
+         int base = cls * 64, h = (rgb * 0x9E3779B1) >>> 26;
+         for (int k = 0; k < 64; k++) {
+            int i = base + (h + k & 63);
+            if (this.aCounts[i] == 0) {
+               this.aKeys[i] = rgb;
+               this.aCounts[i] = 1;
+               this.aTotal[cls]++;
+               return;
+            }
+            if (this.aKeys[i] == rgb) {
+               this.aCounts[i]++;
+               this.aTotal[cls]++;
+               return;
+            }
+         }
+      }
+
+      /**
+       * pplTorchNearChunk: the frame's torches that can reach some square centre of chunk {@code c} at level {@code z}
+       * (torchNear's own tests, against the chunk's square-centre rectangle with a small margin); torchNear then walks
+       * only those. A torch left out is farther than its reach from every centre, so every answer is the same.
+       */
+      void torchLevel(IsoChunk c, int z) {
+         if (!this.torchFilter) {
+            return;
+         }
+         ArrayList<IsoGameCharacter.TorchInfo> all = LightingJNI.pzoptTorches();
+         if (this.torch.length < all.size()) {
+            this.torch = new int[all.size() + 16];
+         }
+         float x0 = c.wx * 8 + 0.5F, x1 = c.wx * 8 + 7.5F, y0 = c.wy * 8 + 0.5F, y1 = c.wy * 8 + 7.5F;
+         int n = 0;
+         for (int j = 0; j < all.size(); j++) {
+            IsoGameCharacter.TorchInfo t = all.get(j);
+            if (t.id == 0 || t.id >= 4096 || (Config.PPL_OWN_LEVEL_LIGHTS ? lightLevel(t.z) != z : Math.abs(t.z - z) > 1.5F)) {
+               continue;
+            }
+            double dx = Math.max(0.0, Math.max(x0 - t.x, t.x - x1)), dy = Math.max(0.0, Math.max(y0 - t.y, t.y - y1));
+            double r = Math.max(1.0F, t.dist) + 1.0F + 0.01;
+            if (dx * dx + dy * dy < r * r) {
+               this.torch[n++] = j;
+            }
+         }
+         this.torches = n;
+      }
+   }
+
+   private static final PackCtx SERIAL_CTX = new PackCtx(true);
+   private static final ThreadLocal<PackCtx> PACK_CTX = ThreadLocal.withInitial(() -> new PackCtx(false));
+   private static final ArrayList<PackCtx> PACK_CTX_USED = new ArrayList<>();
+   private static volatile long packCtxFrame;
+   private static final java.util.concurrent.atomic.AtomicInteger PACK_NEXT = new java.util.concurrent.atomic.AtomicInteger();
+   private static IsoChunk[] parChunk = new IsoChunk[512];
+   private static boolean[] parRing = new boolean[512], parAliased = new boolean[512];
+   private static int[] slotSeen, slotFirst;
+   private static int slotSeenStamp;
+   private static boolean packParallelFailed;
+   private static long packParallelFrames, packParallelTasks, packAliasedSerial;
+
+   private static PackCtx packCtx() {
+      PackCtx x = PACK_CTX.get();
+      if (x.frame != packCtxFrame) {
+         x.frame = packCtxFrame;
+         x.begin();
+         synchronized (PACK_CTX_USED) {
+            PACK_CTX_USED.add(x);
+         }
+      }
+      return x;
+   }
+
+   /**
+    * pplPackParallel, game thread: the pack list's chunks as frame-worker tasks, one chunk (all its levels, in order) per
+    * task, blocks taken from a shared counter. Every piece of lattice state a task writes belongs to its chunk's slot or to
+    * its own blocks, and every read of the world is a plain field read (the lighting was refreshed on the game thread
+    * before the bakes). Chunks that share a lattice slot (the ring aliases at the grid's edge when the grid fills the
+    * lattice) are packed after the batch on the game thread, in list order, as the serial loop would.
+    */
+   private static void packParallel(Frame f, ArrayList<IsoChunk> packList, int onScreenN, int s, int playerIndex) {
+      int n = packList.size();
+      if (parChunk.length < n) {
+         parChunk = new IsoChunk[n + 128];
+         parRing = new boolean[n + 128];
+         parAliased = new boolean[n + 128];
+      }
+      if (slotSeen == null || slotSeen.length != s * s) {
+         slotSeen = new int[s * s];
+         slotFirst = new int[s * s];
+      }
+      int stamp = ++slotSeenStamp;
+      for (int i = 0; i < n; i++) {
+         IsoChunk c = packList.get(i);
+         int slot = Math.floorMod(c.wx, s) + Math.floorMod(c.wy, s) * s;
+         parChunk[i] = c;
+         parRing[i] = i >= onScreenN;
+         parAliased[i] = false;
+         if (slotSeen[slot] == stamp) {
+            parAliased[i] = true;
+            parAliased[slotFirst[slot]] = true;
+         } else {
+            slotSeen[slot] = stamp;
+            slotFirst[slot] = i;
+         }
+      }
+      if (f.big == null) {
+         f.big = BufferUtils.createByteBuffer(MAX_BLOCKS * BLOCK_BYTES).order(ByteOrder.LITTLE_ENDIAN); // what room() grows into at 64 blocks
+         f.big.put(0, f.data, 0, f.blocks * BLOCK_BYTES);
+      }
+      PACK_NEXT.set(f.blocks);
+      packCtxFrame++;
+      PACK_CTX_USED.clear();
+      final IsoChunk[] chunks = parChunk;
+      final boolean[] ring = parRing, aliased = parAliased;
+      Throwable failure = FrameBatch.run(n, i -> {
+         if (!aliased[i]) {
+            packChunkLevels(packCtx(), f, chunks[i], ring[i], s, playerIndex, true);
+         }
+      });
+      f.blocks = Math.min(PACK_NEXT.get(), MAX_BLOCKS);
+      for (int k = 0; k < PACK_CTX_USED.size(); k++) {
+         PACK_CTX_USED.get(k).end();
+      }
+      packParallelFrames++;
+      packParallelTasks += n;
+      if (failure != null) {
+         packParallelFailed = true;
+         f.blocks = 0; // a half-written block must not reach the GPU: nothing this frame, every level again next frame
+         java.util.Arrays.fill(slotLevel, Integer.MIN_VALUE);
+         Log.warn("pplPackParallel: a pack task failed, serial from now on: " + failure);
+         return;
+      }
+      for (int i = 0; i < n; i++) {
+         if (aliased[i]) {
+            packAliasedSerial++;
+            packChunkLevels(SERIAL_CTX, f, chunks[i], ring[i], s, playerIndex, false);
+         }
+         chunks[i] = null;
+      }
+   }
+
+   /** The pack counters for the harness summary (gt_offload=). */
+   static String packDescribe() {
+      return "pplPack parallelFrames=" + packParallelFrames + " tasks=" + packParallelTasks + " aliasedSerial=" + packAliasedSerial + " blocks=" + blocksUploaded
+            + " copied=" + blocksCopied + " fullFrames=" + framesFull + (packParallelFailed ? " FAILED" : "");
+   }
 
    /** The level a light belongs to: a holder on the stairs (z 0.6) lights the level of the stairs' squares. */
    static int lightLevel(float z) {
@@ -1152,10 +1387,11 @@ public final class PixelLight {
    }
 
    /** A handheld torch could reach this point (the frame's torch list, reach + a square). */
-   private static boolean torchNear(float x, float y, int z) {
+   private static boolean torchNear(PackCtx p, float x, float y, int z) {
       ArrayList<IsoGameCharacter.TorchInfo> torches = LightingJNI.pzoptTorches();
-      for (int i = 0; i < torches.size(); i++) {
-         IsoGameCharacter.TorchInfo t = torches.get(i);
+      int count = p.torchFilter ? p.torches : torches.size();
+      for (int j = 0; j < count; j++) {
+         IsoGameCharacter.TorchInfo t = torches.get(p.torchFilter ? p.torch[j] : j);
          if (t.id == 0 || t.id >= 4096 || (Config.PPL_OWN_LEVEL_LIGHTS ? lightLevel(t.z) != z : Math.abs(t.z - z) > 1.5F)) {
             continue;
          }
@@ -1171,8 +1407,8 @@ public final class PixelLight {
    private static final int NO_SQUARE = 0x00FFFFFF;
 
    /** A neighbour square's corner colour as lit (NO_SQUARE: none), for the connectivity bits. */
-   private static int corner(IsoCell cell, int x, int y, int z, int i, int playerIndex) {
-      IsoChunk c = packChunk;
+   private static int corner(PackCtx p, IsoCell cell, int x, int y, int z, int i, int playerIndex) {
+      IsoChunk c = p.chunk;
       int lx = x - c.wx * 8, ly = y - c.wy * 8;
       IsoGridSquare sq = lx >= 0 && lx < 8 && ly >= 0 && ly < 8 ? c.getGridSquare(lx, ly, z) : cell.getGridSquare(x, y, z); // inside the chunk: no cell lookup
       return sq != null && sq.lighting[playerIndex] instanceof LightingJNI.JNILighting jl ? jl.pzoptVert(i) : NO_SQUARE;

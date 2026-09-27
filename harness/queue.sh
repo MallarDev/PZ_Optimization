@@ -793,7 +793,7 @@ remote_job() { # sync -> wrapper -> run in the ssh foreground -> collect; sets R
   REMOTE_RUN_DIR=""
   echo "[$(ts)] sync harness/ -> $m:$repo/" >> "$d/output.log"
   if [[ "$os" == linux ]]; then
-    mrsync "$m" --exclude runs/ --exclude bench-save/ --exclude __pycache__/ "$cwd/harness/" "$host:$repo/harness/" >> "$d/output.log" 2>&1 || { echo "[$(ts)] rsync harness/ failed ($m disconnected?)" >> "$d/output.log"; return 70; }
+    mrsync "$m" --copy-unsafe-links --exclude runs/ --exclude bench-save/ --exclude __pycache__/ "$cwd/harness/" "$host:$repo/harness/" >> "$d/output.log" 2>&1 || { echo "[$(ts)] rsync harness/ failed ($m disconnected?)" >> "$d/output.log"; return 70; }
     mrsync "$m" "$cwd/scripts/" "$host:$repo/scripts/" >> "$d/output.log" 2>&1
     mrsync "$m" "$cwd/install.sh" "$host:$repo/install.sh" >> "$d/output.log" 2>&1
   else

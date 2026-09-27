@@ -554,15 +554,11 @@ public final class Ssr {
       }
       boolean vehicle = o instanceof zombie.vehicles.BaseVehicle;
       float half = vehicle ? 2.6F : 0.4F, height = vehicle ? 0.8F : 0.75F;
-      int x = (int)Math.floor(o.getX()), y = (int)Math.floor(o.getY());
-      int r = (int)Math.ceil(half), reach = 2 + (int)Math.ceil(6F * (z + height));
-      boolean near = false, water = false;
-      for (int t = 0; t <= reach && !water; t++) {
-         for (int k = -r; k <= r && !water; k++) {
-            water = waterAt(x + t + k, y + t, false) || waterAt(x + t, y + t + k, false);
-            near |= water || f.puddles && (waterAt(x + t + k, y + t, true) || waterAt(x + t, y + t + k, true));
-         }
+      int code = RenderPrep.ssrNear(o); // pzopt: renderPrepParallel, the frame workers' search below, or 0
+      if (code == 0) {
+         code = nearCode(f, o, z, vehicle, half, height);
       }
+      boolean near = code >= 2, water = code == 3;
       if (!near) {
          movingSkipped++;
          return;
@@ -584,6 +580,41 @@ public final class Ssr {
       f.box[i * 4 + 3] = half;
       f.boxH[i] = water ? height : -height; // negative: puddles only (half-resolution sources)
       movingAdded++;
+   }
+
+   /** renderPrepParallel: a frame this object's water search can run ahead for (any thread). */
+   static boolean wantsMoving() {
+      return gameFrame != null;
+   }
+
+   /**
+    * Any thread, once beforeComposite built the water map: 1 no water or puddle within the object's mirror reach (or out
+    * of the levels the scatter covers), 2 puddles only, 3 water. The search addMoving runs, as a pure read.
+    */
+   static int nearCode(zombie.iso.IsoMovingObject o) {
+      Frame f = gameFrame;
+      if (f == null) {
+         return 0;
+      }
+      float z = o.getZ();
+      if (z < 0F || z >= 2F) {
+         return 1;
+      }
+      boolean vehicle = o instanceof zombie.vehicles.BaseVehicle;
+      return nearCode(f, o, z, vehicle, vehicle ? 2.6F : 0.4F, vehicle ? 0.8F : 0.75F);
+   }
+
+   private static int nearCode(Frame f, zombie.iso.IsoMovingObject o, float z, boolean vehicle, float half, float height) {
+      int x = (int)Math.floor(o.getX()), y = (int)Math.floor(o.getY());
+      int r = (int)Math.ceil(half), reach = 2 + (int)Math.ceil(6F * (z + height));
+      boolean near = false, water = false;
+      for (int t = 0; t <= reach && !water; t++) {
+         for (int k = -r; k <= r && !water; k++) {
+            water = waterAt(x + t + k, y + t, false) || waterAt(x + t, y + t + k, false);
+            near |= water || f.puddles && (waterAt(x + t + k, y + t, true) || waterAt(x + t, y + t + k, true));
+         }
+      }
+      return water ? 3 : near ? 2 : 1;
    }
 
    /** Game thread, right before the water: the moving objects' scatter (after they are all drawn). */

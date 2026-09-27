@@ -146,6 +146,9 @@ public final class IsoChunk {
    // per-frame map lookup FBORenderCell.calculateOccludingSquares used for clean levels (cutawayFast)
    public final long[] pzoptOccluderMask = new long[64];
    public long pzoptOccluderMaskSet;
+   public Object[] pzoptTlOrder; // pzopt: translucentOrderCache, per player and level the kept translucent square order
+   public int pzoptLosFrame; // pzopt: losLightPrefetch, the prefetch frame pzoptLosTask belongs to
+   public int[] pzoptLosTask; // pzopt: losLightPrefetch, per level (z + 32): this frame's task index, -1 none
    public pzopt.PuddleCache.Slot pzoptPuddles; // pzopt: packed puddle vertices per player and level (Config puddleCache)
    // pzopt: frame number of the last cacheLightInfo per square, rows indexed playerIndex * 64 + level + 32
    // (Config.LIGHT_INFO_ONCE_PER_FRAME, used by FBORenderCell)
@@ -5465,6 +5468,7 @@ public final class IsoChunk {
    public void resetForStore() {
       loadGridSquare.remove(this);
       this.pzoptOccluderMaskSet = 0L; // pzopt: a reused chunk object starts without stored occluder masks
+      this.pzoptTlOrder = null; // pzopt: translucentOrderCache, the kept orders belong to the previous chunk
       this.pzoptTreeExportFp = null; // pzopt: tree export fingerprints belong to the previous chunk
       pzopt.LightDirt.chunkReused(this); // pzopt: strong-light and bake frame stamps belong to the previous chunk
       this.pzoptSeamDirs = 0; // pzopt: seamDirections
@@ -5599,6 +5603,11 @@ public final class IsoChunk {
          && Float.compare(y, this.wy * 8) >= 0
          && Float.compare(y, (this.wy + 1) * 8) < 0;
    }
+
+   /** pzopt: visPolyAsync, the render levels without creating them (a worker must not race the game thread's lazy creation). */
+   public FBORenderLevels pzoptRenderLevelsOrNull(int playerIndex) { // pzopt
+      return this.renderLevels[playerIndex]; // pzopt
+   } // pzopt
 
    public FBORenderLevels getRenderLevels(int playerIndex) {
       if (this.renderLevels[playerIndex] == null) {

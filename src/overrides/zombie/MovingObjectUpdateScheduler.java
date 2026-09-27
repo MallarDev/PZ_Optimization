@@ -35,6 +35,15 @@ public final class MovingObjectUpdateScheduler {
    private boolean pzoptSeparateBatch; // pzopt: separateParallel, this frame's zombies are being collected
 
    public void startFrame() {
+      long pzoptT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
+      try { // pzopt
+         this.pzoptStartFrame(); // pzopt
+      } finally { // pzopt
+         pzopt.GtAb.end(pzopt.GtAb.S_START_FRAME, pzoptT); // pzopt
+      } // pzopt
+   } // pzopt
+
+   private void pzoptStartFrame() { // pzopt: the stock body of startFrame
       this.frameCounter++;
       pzopt.SeparateBatch.clear(); // pzopt: separateParallel, anything a previous frame left uncollected
       this.pzoptSeparateBatch = pzopt.SeparateBatch.enabled();
@@ -43,6 +52,11 @@ public final class MovingObjectUpdateScheduler {
       if (GameServer.server) {
          ZombieCountOptimiser.prepareZombiesForDeletion();
       }
+
+      if (!GameServer.server && this.isEnabled && pzopt.SchedulerClassify.enabled()) { // pzopt: schedulerClassifyParallel
+         pzopt.SchedulerClassify.run(this, IsoWorld.instance.getCell().getObjectList(), averageFps); // pzopt: the loop below, classified on the frame workers
+         return; // pzopt
+      } // pzopt
 
       for (IsoMovingObject isoMovingObject : IsoWorld.instance.getCell().getObjectList()) {
          if (GameServer.server && isoMovingObject instanceof IsoZombie isoZombie) {
@@ -67,6 +81,34 @@ public final class MovingObjectUpdateScheduler {
          }
       }
    }
+
+   /**
+    * pzopt: schedulerClassifyParallel, a frame worker: this object's simulation level as the loop in startFrame computes
+    * it, or null when computing it here could write (a character whose animation player the body-model check would
+    * replace): the game thread classifies that one itself.
+    */
+   public UpdateSchedulerSimulationLevel pzoptClassify(IsoMovingObject isoMovingObject, float averageFps) { // pzopt
+      if (isoMovingObject instanceof zombie.characters.IsoGameCharacter chr && chr.pzoptAnimPlayerStale()) { // pzopt
+         return null; // pzopt
+      } // pzopt
+      return this.getUpdateSchedulerSimulationLevelForObject(isoMovingObject, averageFps); // pzopt
+   } // pzopt
+
+   /** pzopt: schedulerClassifyParallel, game thread: the stock loop's classification of one object. */
+   public UpdateSchedulerSimulationLevel pzoptClassifySerial(IsoMovingObject isoMovingObject, float averageFps) { // pzopt
+      return this.getUpdateSchedulerSimulationLevelForObject(isoMovingObject, averageFps); // pzopt
+   } // pzopt
+
+   /** pzopt: schedulerClassifyParallel, game thread, in the loop's order: the rest of the stock loop body for one object. */
+   public void pzoptAdd(IsoMovingObject isoMovingObject, UpdateSchedulerSimulationLevel sim) { // pzopt
+      this.simulationLevels[sim.getUpdateOrderIndex()].add(isoMovingObject); // pzopt
+      if (pzoptSeparateBatch && isoMovingObject instanceof IsoZombie zombieForSeparate) { // pzopt: separateParallel, as in startFrame
+         int frameMod = sim.getFrameMod(); // pzopt
+         if (isoMovingObject.getID() % frameMod == (int)(this.frameCounter % (long)frameMod)) { // pzopt
+            pzopt.SeparateBatch.add(zombieForSeparate); // pzopt
+         } // pzopt
+      } // pzopt
+   } // pzopt
 
    private UpdateSchedulerSimulationLevel getUpdateSchedulerSimulationLevelForObject(IsoMovingObject isoMovingObject, float averageFps) {
       if (this.isEnabled && !GameServer.server) {
@@ -169,14 +211,29 @@ public final class MovingObjectUpdateScheduler {
    }
 
    public void update() {
+      long pzoptT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
+      try { // pzopt
+         this.pzoptUpdate(); // pzopt
+      } finally { // pzopt
+         pzopt.GtAb.end(pzopt.GtAb.S_SCHED_UPDATE, pzoptT); // pzopt
+      } // pzopt
+   } // pzopt
+
+   private void pzoptUpdate() { // pzopt: the stock body of update
       pzopt.FrameTick.next(); // pzopt: the frame stamp of the simulation memos (separateFast, allPlayersAsleep)
       if (this.pzoptSeparateBatch) {
          pzopt.SeparateBatch.run(); // pzopt: separateParallel, this frame's separations computed on the workers
       }
 
+      pzopt.ZombieStats.begin(); // pzopt: zombieStatsFold, the zombies' distance statistics accumulated through the loop
+      try { // pzopt
       for (MovingObjectUpdateSchedulerUpdateBucket simulation : this.simulationLevels) {
          simulation.update((int)this.frameCounter);
       }
+      pzopt.UpdateBatch.joinPending(); // pzopt: entityUpdatePipeline -- the last bucket's batch is still airborne (each bucket joined only the PREVIOUS one); nothing past this line may see a half-updated entity, so land it here before postupdate and the render read anything
+      } finally { // pzopt
+         pzopt.ZombieStats.end(); // pzopt: zombieStatsFold, written back after the batch landed, the achievement check once per statistic
+      } // pzopt
    }
 
    public void postupdate() {

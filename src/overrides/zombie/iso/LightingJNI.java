@@ -1632,6 +1632,13 @@ public final class LightingJNI {
 
       private void update() {
          if (this.playerIndex != -1 && PerformanceSettings.fboRenderChunk) {
+            java.util.ArrayList<Runnable> pzoptDefer = pzopt.LightingDefer.current(); // pzopt: entityUpdateParallel, a batched entity reading light
+            if (pzoptDefer != null) { // pzopt: one refresh of this square at a time; its side effects to the game thread at the join
+               synchronized (this) { // pzopt
+                  this.updateFBORenderChunk(); // pzopt
+               } // pzopt
+               return; // pzopt
+            } // pzopt
             this.updateFBORenderChunk();
          } else if (this.playerIndex == -1 || LightingJNI.updateCounter[this.playerIndex] != -1) {
             int[] lightInts = pzoptLightInts.get(); // pzopt: lightingReadParallel, thread-local scratch
@@ -1757,6 +1764,26 @@ public final class LightingJNI {
        * level's texture was last baked; past Config.lightingStrongDelta the level is marked strong for this frame and
        * FBORenderCell re-bakes it now instead of holding it as sky drift.
        */
+      /** pzopt: entityUpdateParallel. The level invalidation of a light change, at the join when a batch task read the light. */
+      private void pzoptInvalidate(java.util.ArrayList<Runnable> defer, FBORenderLevels renderLevels) { // pzopt
+         if (defer == null) { // pzopt
+            renderLevels.invalidateLevel(this.square.z, 32L); // pzopt
+            return; // pzopt
+         } // pzopt
+         IsoChunk c = this.square.chunk; int z = this.square.z, p = this.playerIndex; // pzopt
+         defer.add(() -> c.getRenderLevels(p).invalidateLevel(z, 32L)); // pzopt
+      } // pzopt
+
+      /** pzopt: entityUpdateParallel. LightDirt's bookkeeping of a light change, at the join when a batch task read the light. */
+      private void pzoptLightChangedMaybeDeferred(java.util.ArrayList<Runnable> defer, int infoDelta, int darkDelta, int levelDelta, // pzopt
+            int was1, int was2, int was3, int was4, int was5, int was6, int was7, int was8) { // pzopt
+         if (defer == null) { // pzopt
+            this.pzoptLightChanged(infoDelta, darkDelta, levelDelta, was1, was2, was3, was4, was5, was6, was7, was8); // pzopt
+            return; // pzopt
+         } // pzopt
+         defer.add(() -> this.pzoptLightChanged(infoDelta, darkDelta, levelDelta, was1, was2, was3, was4, was5, was6, was7, was8)); // pzopt
+      } // pzopt
+
       private void pzoptLightChanged(int infoDelta, int darkDelta, int levelDelta,
             int was1, int was2, int was3, int was4, int was5, int was6, int was7, int was8) {
          IsoChunk chunk = this.square.chunk;
@@ -1785,6 +1812,7 @@ public final class LightingJNI {
       }
 
       private void updateFBORenderChunk() {
+         java.util.ArrayList<Runnable> pzoptDefer = pzopt.LightingDefer.current(); // pzopt: entityUpdateParallel, null on the game thread (and in LightingBatch tasks)
          if (this.square.chunk != null) {
             if (LightingJNI.updateCounter[this.playerIndex] != -1) {
                if (this.updateTick != LightingJNI.updateCounter[this.playerIndex]) {
@@ -1872,13 +1900,17 @@ public final class LightingJNI {
                         int isVertLight7 = this.cacheVertLight[6];
                         int isVertLight8 = this.cacheVertLight[7];
                         if (isVertLight1 != wasVertLight1 || isVertLight2 != wasVertLight2 || isVertLight3 != wasVertLight3 || isVertLight4 != wasVertLight4) {
+                           if (pzoptDefer != null) { // pzopt: entityUpdateParallel, to the game thread at the join
+                              IsoChunk pzoptC = this.square.chunk; int pzoptZ = this.square.z; // pzopt
+                              pzoptDefer.add(() -> pzopt.PuddleCache.lightsChanged(pzoptC, pzoptZ)); // pzopt
+                           } else // pzopt
                            pzopt.PuddleCache.lightsChanged(this.square.chunk, this.square.z); // pzopt: puddleVbo re-uploads this level's puddle batch (the lower four vertex lights are the puddle colours)
                         }
-                        FBORenderLevels renderLevels = this.square.chunk.getRenderLevels(this.playerIndex);
+                        FBORenderLevels renderLevels = pzoptDefer != null ? null : this.square.chunk.getRenderLevels(this.playerIndex); // pzopt: entityUpdateParallel, a worker never creates the levels object
                         if (pzopt.PixelLight.ACTIVE) { // pzopt: pixelLight, the chunk texture is unlit: a light change updates the lattice, a visibility change re-bakes
                            pzopt.PixelLight.lightChanged(this.square); // pzopt
                            if (pzoptWasVis != this.vis && !DebugOptions.instance.fboRenderChunk.nolighting.getValue()) { // pzopt
-                              renderLevels.invalidateLevel(this.square.z, 32L); // pzopt
+                              this.pzoptInvalidate(pzoptDefer, renderLevels); // pzopt
                            } // pzopt
                         } else // pzopt
                         if (isDarkMulti == wasDarkMulti
@@ -1898,18 +1930,22 @@ public final class LightingJNI {
                                     || isVertLight8 != wasVertLight8
                               )
                               && !DebugOptions.instance.fboRenderChunk.nolighting.getValue()) {
-                              renderLevels.invalidateLevel(this.square.z, 32L);
-                              this.pzoptLightChanged(0, 0, 0, wasVertLight1, wasVertLight2, wasVertLight3, wasVertLight4, wasVertLight5, wasVertLight6, wasVertLight7, wasVertLight8); // pzopt: LightDirt
+                              this.pzoptInvalidate(pzoptDefer, renderLevels); // pzopt: renderLevels.invalidateLevel(z, 32), deferred on a batch task
+                              this.pzoptLightChangedMaybeDeferred(pzoptDefer, 0, 0, 0, wasVertLight1, wasVertLight2, wasVertLight3, wasVertLight4, wasVertLight5, wasVertLight6, wasVertLight7, wasVertLight8); // pzopt: LightDirt
                            }
                         } else if (!DebugOptions.instance.fboRenderChunk.nolighting.getValue()) {
-                           renderLevels.invalidateLevel(this.square.z, 32L);
-                           this.pzoptLightChanged( // pzopt: LightDirt
+                           this.pzoptInvalidate(pzoptDefer, renderLevels); // pzopt: renderLevels.invalidateLevel(z, 32), deferred on a batch task
+                           this.pzoptLightChangedMaybeDeferred(pzoptDefer, // pzopt: LightDirt
                               Math.abs(isLightInfoR - wasLightInfoR) + Math.abs(isLightInfoG - wasLightInfoG) + Math.abs(isLightInfoB - wasLightInfoB),
                               Math.abs(isDarkMulti - wasDarkMulti), isLightLevel == wasLightLevel ? 0 : 255,
                               wasVertLight1, wasVertLight2, wasVertLight3, wasVertLight4, wasVertLight5, wasVertLight6, wasVertLight7, wasVertLight8);
                         }
 
                         if (wasCouldSee != ((this.vis & 4) != 0)) {
+                           if (pzoptDefer != null) { // pzopt: entityUpdateParallel
+                              IsoGridSquare pzoptSq = this.square; // pzopt
+                              pzoptDefer.add(() -> FBORenderCutaways.getInstance().squareChanged(pzoptSq)); // pzopt
+                           } else // pzopt
                            FBORenderCutaways.getInstance().squareChanged(this.square);
                         }
 
@@ -1936,6 +1972,15 @@ public final class LightingJNI {
                            this.lights[i].flags = rgb >> 24 & 0xFF;
                         }
 
+                        if (this.updateTick == -1 && pzoptDefer != null) { // pzopt: entityUpdateParallel, the first-refresh invalidation at the join
+                           IsoChunk pzoptC = this.square.chunk; int pzoptZ = this.square.z, pzoptP = this.playerIndex; // pzopt
+                           pzoptDefer.add(() -> { // pzopt
+                              FBORenderLevels pzoptRl = pzoptC.getRenderLevels(pzoptP); // pzopt
+                              if (pzoptRl.isOnScreen(pzoptZ)) { // pzopt
+                                 pzoptRl.invalidateLevel(pzoptZ, 32L); // pzopt
+                              } // pzopt
+                           }); // pzopt
+                        } else // pzopt
                         if (this.updateTick == -1 && renderLevels.isOnScreen(this.square.z)) {
                            renderLevels.invalidateLevel(this.square.z, 32L);
                         }
@@ -1951,6 +1996,14 @@ public final class LightingJNI {
                            pzopt.LightingBatch.Effects pzoptEffects = pzopt.LightingBatch.current();
                            if (pzoptEffects != null) {
                               pzoptEffects.seen(this.square, wasSeen);
+                           } else if (pzoptDefer != null) { // pzopt: entityUpdateParallel, the room / meta hooks at the join
+                              IsoGridSquare pzoptSq = this.square; int pzoptP = this.playerIndex; // pzopt
+                              pzoptDefer.add(() -> { // pzopt
+                                 pzoptSq.checkRoomSeen(pzoptP); // pzopt
+                                 if (!wasSeen && !GameClient.client) { // pzopt
+                                    Meta.instance.dealWithSquareSeen(pzoptSq); // pzopt
+                                 } // pzopt
+                              }); // pzopt
                            } else {
                               this.square.checkRoomSeen(this.playerIndex);
                               if (!wasSeen) {
@@ -1973,6 +2026,17 @@ public final class LightingJNI {
        * read stored (the visibility bits, the light colour, the dark multipliers, the light level, the vertex lights);
        * true when everything matches. Game thread, after a parallel batch, for a sample of its squares.
        */
+      /** pzopt: losLightPrefetch, the lazy refresh would read the native now (the fboRenderChunk path, not read this pass). */
+      public boolean pzoptStale() { // pzopt
+         return this.playerIndex != -1 && PerformanceSettings.fboRenderChunk && this.square != null && this.square.chunk != null // pzopt
+            && LightingJNI.updateCounter[this.playerIndex] != -1 && this.updateTick != LightingJNI.updateCounter[this.playerIndex]; // pzopt
+      } // pzopt
+
+      /** pzopt: losLightPrefetch, the lazy refresh every lighting getter runs first (a frame worker inside a LightingBatch task). */
+      public void pzoptRefresh() { // pzopt
+         this.update(); // pzopt
+      } // pzopt
+
       public boolean pzoptRecheck() {
          if (this.square.chunk == null || this.updateTick != LightingJNI.updateCounter[this.playerIndex]) {
             return true;

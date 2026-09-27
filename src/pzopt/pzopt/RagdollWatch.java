@@ -75,6 +75,7 @@ public final class RagdollWatch {
       if (out == null) {
          return;
       }
+      RagdollLedger.frame(nowNs);
       seen.clear();
       ArrayList<IsoZombie> list = IsoWorld.instance.getCell().getZombieList();
       for (int i = 0; i < list.size(); i++) {

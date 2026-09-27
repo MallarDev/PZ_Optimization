@@ -224,10 +224,20 @@ public final class PropertyContainer extends TShortShortHashMap {
    }
 
    private void initSurface() {
+      if ((this.surfaceFlags & 1) != 0) { // pzopt: entityUpdateParallel, the lazy init is read from frame workers too: the flag is
+         java.lang.invoke.VarHandle.acquireFence(); // pzopt: published last (release fence below), so a reader that sees it sees the fields
+         return; // pzopt
+      } // pzopt
+      synchronized (this) { // pzopt: one initializer at a time; the fields are filled before the initialized bit
+         this.pzoptInitSurfaceLocked(); // pzopt
+      } // pzopt
+   }
+
+   private void pzoptInitSurfaceLocked() { // pzopt: the stock body of initSurface, the initialized bit set last
       if ((this.surfaceFlags & 1) == 0) {
          this.surface = 0;
          this.stackReplaceTileOffset = 0;
-         this.surfaceFlags = 1;
+         this.surfaceFlags = 0; // pzopt: stock sets 1 here; the bit is published after the fill (below)
          this.itemHeight = 0;
          this.slopedSurfaceDirection = null;
          this.slopedSurfaceHeightMin = 0;
@@ -247,6 +257,8 @@ public final class PropertyContainer extends TShortShortHashMap {
                return true; // pzopt
             }); // pzopt
          } // pzopt
+         java.lang.invoke.VarHandle.releaseFence(); // pzopt: the fields before the bit
+         this.surfaceFlags = (byte)(this.surfaceFlags | 1); // pzopt: initialized (stock set it before the fill)
       }
    }
 

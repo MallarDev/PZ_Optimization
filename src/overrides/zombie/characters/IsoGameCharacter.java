@@ -385,7 +385,20 @@ public abstract class IsoGameCharacter
    private static final float ZombieNearbyClimbPenalty = 7.0F;
    public static final int GlovesStrengthBonus = 1;
    public static final int AwkwardGlovesStrengthDivisor = 2;
+   // pzopt: entityUpdateParallel. Nothing reads this any more — the jar's own users of it are this class and
+   // IsoZombie.helmetFallFromVisuals, both of which take pzoptTempItemVisuals below instead. It is left declared,
+   // with the jar's name, type and access, only so anything compiled against the shipped class still links
+   // (scripts/build.sh's signature check enforces that for every non-private member). Do not use it: it is the
+   // shared buffer the per-thread one replaces.
    protected static final ItemVisuals tempItemVisuals = new ItemVisuals();
+   // pzopt: entityUpdateParallel. One ItemVisuals shared by every character is a data race as soon as two
+   // frame workers run two entities' update(): getItemVisuals(buffer) clears the buffer and refills it from the
+   // caller's worn items, so one worker shortens the list another worker is part way through walking by index
+   // (a 4,220-zombie batch died on ParameterShoeType's copy of the same pattern at frame 53). One buffer per
+   // thread: the game thread still sees a single buffer reused across calls, exactly as the static gave it, so
+   // this is unconditional rather than behind the key. Every user below fills it and reads it inside the one
+   // call and nothing carries over between calls, so per-thread is behaviour-identical on one thread.
+   protected static final ThreadLocal<ItemVisuals> pzoptTempItemVisuals = ThreadLocal.withInitial(ItemVisuals::new);
    public static final float HUMANOID_WORLD_CHEST_HEIGHT = 0.495F;
    public static final float HUMANOID_SCREEN_CHEST_HEIGHT = 20.0F;
    private final float extraLungeRange = 0.2F;
@@ -1563,6 +1576,14 @@ public abstract class IsoGameCharacter
          return; // pzopt: emitterIdleSkip
       }
 
+      // pzopt: emitterDefer. On a batch task (the slot is only set there, and only with the key on at
+      // dispatch) the FMOD work below queues for the join's game-thread drain instead of running on the
+      // worker: the ticks serialized on the emitter monitors, and the prone branch writes the static
+      // tempVectorBonePos scratch. Same frame, stock's queue order, under the flight's multiplier.
+      if (pzopt.UpdateBatch.deferEmitter(this)) { // pzopt: emitterDefer
+         return; // pzopt: emitterDefer
+      }
+
       // pzopt: emitterParamSkip. Stock recomputes every FMOD parameter of every character every frame (the footstep
       // material walks the square's objects, the zone parameter the room) although a parameter value only goes
       // anywhere through the event instances of this character's own emitter. With no instance running and none about
@@ -1608,7 +1629,7 @@ public abstract class IsoGameCharacter
          }
 
          if (GameServer.server || this.isAnimationUpdatingThisFrame()) {
-            Vector2 dMovement = tempo;
+            Vector2 dMovement = pzopt.UpdateBatch.tempoScratch(); // pzopt: entityUpdateParallel -- the static tempo scratch is shared by every character on every thread (faceThisObject through the batch threw the zero-length exception in run lou-pipe-off); per-thread scratch, identical output single-threaded
             this.getDeferredMovement(dMovement, true);
             if (this.getPath2() != null && !this.isCurrentState(ClimbOverFenceState.instance()) && !this.isCurrentState(ClimbThroughWindowState.instance())) {
                if (this.isCurrentState(WalkTowardState.instance())
@@ -1725,6 +1746,22 @@ public abstract class IsoGameCharacter
    public boolean hasAnimationPlayer() {
       return this.animPlayer != null;
    }
+
+   /** pzopt: entityUpdateSafeStates, game thread: no ragdoll in this character's animation player (no Bullet on a worker). */
+   public boolean pzoptRagdollFree() { // pzopt
+      AnimationPlayer ap = this.animPlayer; // pzopt: the field, never getAnimationPlayer() (it can replace the player)
+      return ap == null || !ap.isRagdollSimulationActive() && ap.getRagdollController() == null; // pzopt
+   } // pzopt
+
+   /** pzopt: ragdollCorpseGuard, true once this character has turned into its IsoDeadBody (cleared when the zombie is reused). */
+   public boolean pzoptBecameCorpse() { // pzopt
+      return this.diedBody != null; // pzopt
+   } // pzopt
+
+   /** pzopt: schedulerClassifyParallel, any thread: getAnimationPlayer() would replace the player (the body model changed). */
+   public boolean pzoptAnimPlayerStale() { // pzopt
+      return this.animPlayer != null && this.animPlayer.getModel() != ModelManager.instance.getBodyModel(this); // pzopt
+   } // pzopt
 
    public AnimationPlayer getAnimationPlayer() {
       Model model = ModelManager.instance.getBodyModel(this);
@@ -2899,6 +2936,14 @@ public abstract class IsoGameCharacter
       float forwardDirectionLength = this.forwardDirection.normalize();
       super.setForwardIsoDirection(IsoDirections.fromAngle(directionX, directionY));
       if (PZMath.equal(forwardDirectionLength, 0.0F)) {
+         // pzopt: entityUpdateParallel. On a frame worker a zero-length direction is a torn position read
+         // (WalkTowardState's delta collapses when another thread moves the target between the two reads), not a
+         // programming error: keep the previous direction and let the next frame recompute, instead of one throw
+         // latching the whole batch off. Vanilla's writes above already happened, exactly as they do on the
+         // vanilla throw path; the game thread still throws, key on or off.
+         if (pzopt.UpdateBatch.onWorkerNow()) { // pzopt: entityUpdateParallel
+            return; // pzopt: entityUpdateParallel
+         } // pzopt: entityUpdateParallel
          throw new IllegalStateException("Forward Direction cannot be zero length vector.");
       }
    }
@@ -4933,8 +4978,9 @@ public abstract class IsoGameCharacter
    }
 
    public void setForwardDirectionFromIsoDirection() {
-      this.getVectorFromDirection(tempVector2_2);
-      this.setForwardDirection(tempVector2_2);
+      Vector2 scratch = pzopt.UpdateBatch.dirScratch(); // pzopt: entityUpdateParallel — the static tempVector2_2 is shared by every character on every thread, and getVectorFromDirection zeroes it before assigning, so batched zombies read each other's mid-write (0,0) here and threw "Forward Direction cannot be zero length vector" (the WalkToward/Thump/ClimbOverFence residue); per-thread scratch, identical output single-threaded
+      this.getVectorFromDirection(scratch); // pzopt: entityUpdateParallel
+      this.setForwardDirection(scratch); // pzopt: entityUpdateParallel
    }
 
    public void setForwardDirectionFromAnimAngle() {
@@ -5831,6 +5877,7 @@ public abstract class IsoGameCharacter
    }
 
    public float getMovementSpeed() {
+      Vector2 tempo2 = pzopt.UpdateBatch.tempo2Scratch(); // pzopt: entityUpdateParallel -- the static tempo scratch is shared by every character on every thread (faceThisObject through the batch threw the zero-length exception in run lou-pipe-off); per-thread scratch, identical output single-threaded
       tempo2.x = this.getX() - this.getLastX();
       tempo2.y = this.getY() - this.getLastY();
       return tempo2.getLength();
@@ -10188,7 +10235,7 @@ public abstract class IsoGameCharacter
 
    public void faceThisObject(IsoObject object) {
       if (object != null) {
-         Vector2 facingPosition = tempo;
+         Vector2 facingPosition = pzopt.UpdateBatch.tempoScratch(); // pzopt: entityUpdateParallel -- the static tempo scratch is shared by every character on every thread (faceThisObject through the batch threw the zero-length exception in run lou-pipe-off); per-thread scratch, identical output single-threaded
          BaseVehicle objVehicle = (BaseVehicle)Type.tryCastTo(object, BaseVehicle.class);
          BarricadeAble barricadeAble = (BarricadeAble)Type.tryCastTo(object, BarricadeAble.class);
          if (objVehicle != null) {
@@ -10225,6 +10272,7 @@ public abstract class IsoGameCharacter
    }
 
    public void facePosition(int x, int y) {
+      Vector2 tempo = pzopt.UpdateBatch.tempoScratch(); // pzopt: entityUpdateParallel -- the static tempo scratch is shared by every character on every thread (faceThisObject through the batch threw the zero-length exception in run lou-pipe-off); per-thread scratch, identical output single-threaded
       tempo.x = x;
       tempo.y = y;
       tempo.x = tempo.x - this.getX();
@@ -10237,6 +10285,7 @@ public abstract class IsoGameCharacter
    }
 
    public void faceThisObjectAlt(IsoObject object) {
+      Vector2 tempo = pzopt.UpdateBatch.tempoScratch(); // pzopt: entityUpdateParallel -- the static tempo scratch is shared by every character on every thread (faceThisObject through the batch threw the zero-length exception in run lou-pipe-off); per-thread scratch, identical output single-threaded
       if (object != null) {
          if (object.hasSpriteGrid()) {
             object = object.getClosestSpriteGridObject(this.getX(), this.getY());
@@ -11800,6 +11849,7 @@ public abstract class IsoGameCharacter
    }
 
    public long playWeaponHitArmourSound(int partIndex, boolean bullet) {
+      ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
       this.getItemVisuals(tempItemVisuals);
 
       for (int i = tempItemVisuals.size() - 1; i >= 0; i--) {
@@ -12959,6 +13009,7 @@ public abstract class IsoGameCharacter
          }
 
          HumanVisual humanVisual = ((IHumanVisual)this).getHumanVisual();
+         ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
          this.getItemVisuals(tempItemVisuals);
          BloodClothingType.addBasicPatch(part, humanVisual, tempItemVisuals);
          this.updateModelTextures = true;
@@ -12983,6 +13034,7 @@ public abstract class IsoGameCharacter
       }
 
       HumanVisual humanVisual = ((IHumanVisual)this).getHumanVisual();
+      ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
       this.getItemVisuals(tempItemVisuals);
       boolean addedHole = BloodClothingType.addHole(part, humanVisual, tempItemVisuals, allLayers);
       this.updateModelTextures = true;
@@ -13005,6 +13057,7 @@ public abstract class IsoGameCharacter
             randomPart = true;
          }
 
+         ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
          this.getItemVisuals(tempItemVisuals);
 
          for (int i = 0; i < nbr; i++) {
@@ -13034,6 +13087,7 @@ public abstract class IsoGameCharacter
             randomPart = true;
          }
 
+         ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
          this.getItemVisuals(tempItemVisuals);
 
          for (int i = 0; i < nbr; i++) {
@@ -13079,6 +13133,7 @@ public abstract class IsoGameCharacter
             nbr += 8;
          }
 
+         ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
          this.getItemVisuals(tempItemVisuals);
 
          for (int i = 0; i < nbr; i++) {
@@ -13102,6 +13157,7 @@ public abstract class IsoGameCharacter
    }
 
    private boolean bodyPartHasTag(Integer part, ItemTag itemTag) {
+      ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
       this.getItemVisuals(tempItemVisuals);
 
       for (int i = tempItemVisuals.size() - 1; i >= 0; i--) {
@@ -13146,6 +13202,7 @@ public abstract class IsoGameCharacter
 
    public float getBodyPartClothingDefense(Integer part, boolean bite, boolean bullet) {
       float result = 0.0F;
+      ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
       this.getItemVisuals(tempItemVisuals);
 
       for (int i = tempItemVisuals.size() - 1; i >= 0; i--) {
@@ -13878,6 +13935,7 @@ public abstract class IsoGameCharacter
    }
 
    public boolean addHoleFromZombieAttacks(BloodBodyPartType part, boolean scratch) {
+      ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
       this.getItemVisuals(tempItemVisuals);
       ItemVisual itemHit = null;
 
@@ -15031,6 +15089,7 @@ public abstract class IsoGameCharacter
    public void updateWornItemsVisionModifier() {
       float mod = 1.0F;
       if (this instanceof IsoZombie) {
+         ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
          this.getItemVisuals(tempItemVisuals);
          if (tempItemVisuals != null) {
             for (int i = tempItemVisuals.size() - 1; i >= 0; i--) {
@@ -15066,6 +15125,7 @@ public abstract class IsoGameCharacter
    public void updateWornItemsHearingModifier() {
       float mod = 1.0F;
       if (this instanceof IsoZombie) {
+         ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
          this.getItemVisuals(tempItemVisuals);
 
          for (int i = tempItemVisuals.size() - 1; i >= 0; i--) {
@@ -15144,6 +15204,7 @@ public abstract class IsoGameCharacter
    }
 
    public boolean hasDirtyClothing(Integer part) {
+      ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
       this.getItemVisuals(tempItemVisuals);
 
       for (int i = tempItemVisuals.size() - 1; i >= 0; i--) {
@@ -15176,6 +15237,7 @@ public abstract class IsoGameCharacter
    }
 
    public boolean hasBloodyClothing(Integer part) {
+      ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
       this.getItemVisuals(tempItemVisuals);
 
       for (int i = tempItemVisuals.size() - 1; i >= 0; i--) {
@@ -15337,6 +15399,7 @@ public abstract class IsoGameCharacter
          SafeHouse safe = SafeHouse.isSafeHouse(this.getCurrentSquare(), null, false);
          if (safe == null || !ServerOptions.instance.safehouseDisableDisguises.getValue() || player.role.hasCapability(Capability.CanGoInsideSafehouses)) {
             HashSet<ItemTag> testItemTags = new HashSet<>();
+            ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
             this.getItemVisuals(tempItemVisuals);
             if (tempItemVisuals != null) {
                for (int i = tempItemVisuals.size() - 1; i >= 0; i--) {

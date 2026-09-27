@@ -3117,7 +3117,9 @@ public final class IsoWorld {
          ProfileArea var1 = GameProfiler.getInstance().profile("Animation");
 
          try {
+            long pzoptPost = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
             MovingObjectUpdateScheduler.instance.postupdate();
+            pzopt.GtAb.end(pzopt.GtAb.S_POSTUPDATE, pzoptPost); // pzopt
          } catch (Throwable var5) {
             if (var1 != null) {
                try {

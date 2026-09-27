@@ -79,6 +79,7 @@ public final class WorldSimulation {
    }
 
    public void destroy() {
+      pzopt.RagdollLedger.beforeDestroy(); // pzopt: ragdollQuitSweep, no ragdoll left in the world libPZBullet destroys first
       Bullet.destroyWorld();
    }
 

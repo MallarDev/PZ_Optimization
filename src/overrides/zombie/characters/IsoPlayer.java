@@ -2099,7 +2099,9 @@ public class IsoPlayer extends IsoLivingCharacter implements IAnimalVisual, IHum
          boolean updateBaseAndSend = this.updateInternal2();
          if (updateBaseAndSend) {
             if (!this.remote) {
+               long pzoptLosT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
                this.updateLOS();
+               pzopt.GtAb.end(pzopt.GtAb.S_PLAYER_LOS, pzoptLosT); // pzopt
             }
 
             super.update();
@@ -5993,6 +5995,9 @@ public class IsoPlayer extends IsoLivingCharacter implements IAnimalVisual, IHum
             this.pzoptLos.sync(this.lastSpotted);
             this.pzoptSpotted.clear(); // pzopt: spottedList is a synchronized Vector; collect the frame's objects here and push them in one addAll
          }
+         if (!GameServer.server && !GameClient.client) { // pzopt: losLightPrefetch, the stale squares of the walk refreshed on the frame workers first
+            pzopt.LosPrefetch.run(this.playerIndex, this.getCell().getObjectList()); // pzopt
+         } // pzopt
 
          boolean bServer = GameServer.server;
          boolean bClient = GameClient.client;

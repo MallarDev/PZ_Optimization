@@ -299,6 +299,58 @@ public final class Scene {
       Log.info("harness: crowd: " + spawned + " zombies spawned around " + px + "," + py + " (" + ground.size() + " outdoor squares)");
    }
 
+   private static int animals = -1;
+   private static String animalType = "cow";
+   private static long animalsAtNs;
+
+   /**
+    * animals=N[:type] (2026-09-27, the animal line-of-sight rig of the game-thread offload pass): N animals (default cows,
+    * a random breed each) spawned once, 3 s after the first tick, on free outdoor squares 4-20 squares around the player.
+    */
+   private static void animalsTick(IsoPlayer p, long nowNs) {
+      if (animals < 0) {
+         String v = HarnessFlags.get("animals", "0").trim();
+         int c = v.indexOf(':');
+         if (c > 0) {
+            animalType = v.substring(c + 1);
+            v = v.substring(0, c);
+         }
+         animals = Integer.parseInt(v);
+         animalsAtNs = nowNs + 3_000_000_000L;
+      }
+      if (animals <= 0 || nowNs < animalsAtNs) {
+         return;
+      }
+      int want = animals;
+      animals = 0;
+      zombie.characters.animals.AnimalDefinitions def = zombie.characters.animals.AnimalDefinitions.getDef(animalType);
+      if (def == null) {
+         Log.warn("harness: animals: no animal type " + animalType);
+         return;
+      }
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      java.util.ArrayList<zombie.iso.IsoGridSquare> ground = new java.util.ArrayList<>();
+      int px = (int)Math.floor(p.getX()), py = (int)Math.floor(p.getY());
+      for (int y = py - 20; y <= py + 20; y++) {
+         for (int x = px - 20; x <= px + 20; x++) {
+            int d2 = (x - px) * (x - px) + (y - py) * (y - py);
+            zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, 0);
+            if (d2 >= 16 && d2 <= 400 && sq != null && sq.isOutside() && sq.isFree(false) && !sq.isWaterSquare()) {
+               ground.add(sq);
+            }
+         }
+      }
+      java.util.Collections.shuffle(ground, new java.util.Random(7));
+      int spawned = 0;
+      for (int i = 0; i < ground.size() && spawned < want; i++) {
+         zombie.iso.IsoGridSquare sq = ground.get(i);
+         zombie.characters.animals.IsoAnimal a = new zombie.characters.animals.IsoAnimal(cell, sq.x, sq.y, 0, animalType, def.getRandomBreed());
+         a.addToWorld();
+         spawned++;
+      }
+      Log.info("harness: animals: " + spawned + " " + animalType + " spawned around " + px + "," + py + " (" + ground.size() + " outdoor squares)");
+   }
+
    /** Per-frame upkeep while the run is live: keep the overrides pinned and fire the scheduled lightning. */
    static void tick(IsoPlayer p, long nowNs) {
       if (headlights && p.getVehicle() != null && p.getVehicle().hasHeadlights() && !p.getVehicle().getHeadlightsOn()) {
@@ -314,6 +366,7 @@ public final class Scene {
       RoomLightRig.tick(p, nowNs); // room_light=auto: the room light off / on timeline
       ThumpRig.tick(p, nowNs); // thump=N: zombies thumping a door off-screen (the thump-burst repro)
       crowdTick(p, nowNs); // crowd=N: a crowd around the player (the capsule shadow rig)
+      animalsTick(p, nowNs); // animals=N[:type]: animals around the player (the animal line-of-sight rig)
       if (zombiesOff) {
          removeZombies();
       }

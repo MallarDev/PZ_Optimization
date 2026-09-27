@@ -85,10 +85,34 @@ public final class VisibilityPolygon2 {
       if (DebugOptions.instance.fboRenderChunk.renderVisionPolygon.getValue()) {
          int stateIndex = SpriteRenderer.instance.getMainStateIndex();
          VisibilityPolygon2.Drawer drawer = this.drawers[playerIndex][stateIndex];
-         drawer.calculateVisibilityPolygon(playerIndex);
+         if (!pzopt.VisPolyAsync.join(drawer)) { // pzopt: visPolyAsync, the polygon computed on a worker since the top of the tile render
+            drawer.calculateVisibilityPolygon(playerIndex);
+         } // pzopt
          SpriteRenderer.instance.drawGeneric(drawer);
       }
    }
+
+   /**
+    * pzopt: visPolyAsync. Game thread, right before performRenderTiles: this frame's drawer for the player, when the polygon
+    * may be computed ahead (one player; the game's own switch on), else null.
+    */
+   public Object pzoptAsyncDrawer(int playerIndex) { // pzopt
+      if (IsoPlayer.numPlayers != 1 || !DebugOptions.instance.fboRenderChunk.renderVisionPolygon.getValue() || !DebugOptions.instance.useNewVisibility.getValue()) { // pzopt
+         return null; // pzopt: split screen shares the drawer's static scratch; the old calculation is not audited for it
+      } // pzopt
+      return this.drawers[playerIndex][SpriteRenderer.instance.getMainStateIndex()]; // pzopt
+   } // pzopt
+
+   /** pzopt: visPolyAsync, the worker's call: the stock calculation, render levels read without creating them. */
+   public static void pzoptCalculate(Object drawer, int playerIndex) { // pzopt
+      VisibilityPolygon2.Drawer d = (VisibilityPolygon2.Drawer)drawer; // pzopt
+      d.pzoptNoCreate = true; // pzopt
+      try { // pzopt
+         d.calculateVisibilityPolygon(playerIndex); // pzopt
+      } finally { // pzopt
+         d.pzoptNoCreate = false; // pzopt
+      } // pzopt
+   } // pzopt
 
    public void addChunkToWorld(IsoChunk chunk) {
       this.dirtyObstacleCounter++;
@@ -264,6 +288,7 @@ public final class VisibilityPolygon2 {
       float dirX2;
       float dirY2;
       float circleRadius = 40.0F;
+      boolean pzoptNoCreate; // pzopt: visPolyAsync, running on a worker: a chunk without render levels is not on screen
       static final ArrayList<Vector3f> circlePoints = new ArrayList<>();
       final VisibilityPolygon2.Partition[] partitions = new VisibilityPolygon2.Partition[8];
       final TFloatArrayList shadows = new TFloatArrayList();
@@ -399,8 +424,8 @@ public final class VisibilityPolygon2 {
                   for (int c = 0; c < chunks.length; c++) {
                      IsoChunk chunk = chunks[c];
                      if (chunk != null && chunk.loaded && !chunk.lightingNeverDone[playerIndex]) {
-                        FBORenderLevels renderLevels = chunk.getRenderLevels(playerIndex);
-                        if (renderLevels.isOnScreen(this.pz)) {
+                        FBORenderLevels renderLevels = this.pzoptNoCreate ? chunk.pzoptRenderLevelsOrNull(playerIndex) : chunk.getRenderLevels(playerIndex); // pzopt: visPolyAsync
+                        if (renderLevels != null && renderLevels.isOnScreen(this.pz)) { // pzopt: (null only on the worker path: never rendered, not on screen)
                            VisibilityPolygon2.ChunkLevelData chunkLevelData = chunk.getVispolyDataForLevel(this.pz);
                            if (chunkLevelData != null && chunk.IsOnScreen(false)) {
                               if (chunkLevelData.adjacentChunkLoadedCounter != chunk.adjacentChunkLoadedCounter) {

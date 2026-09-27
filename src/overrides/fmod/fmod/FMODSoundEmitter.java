@@ -82,7 +82,9 @@ public final class FMODSoundEmitter extends BaseSoundEmitter {
    }
 
    public int stopSound(long soundRef) {
-      return this.stopSound(soundRef, true);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         return this.stopSound(soundRef, true);
+      } // pzopt
    }
 
    public int stopSoundDelayRelease(long soundRef) {
@@ -90,50 +92,54 @@ public final class FMODSoundEmitter extends BaseSoundEmitter {
    }
 
    private int stopSound(long soundRef, boolean bReleaseEvent) {
-      for (int i = 0; i < this.toStart.size(); i++) {
-         FMODSoundEmitter.Sound s = this.toStart.get(i);
-         if (s.getRef() == soundRef) {
-            this.sendStopSound(s.name, false);
-            s.release(s.clip.isStopImmediate());
-            this.toStart.remove(i--);
-         }
-      }
-
-      for (int i = 0; i < this.instances.size(); i++) {
-         FMODSoundEmitter.Sound s = this.instances.get(i);
-         if (s.getRef() == soundRef) {
-            s.stop(bReleaseEvent, s.clip.isStopImmediate());
-            this.sendStopSound(s.name, false);
-            if (bReleaseEvent) {
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- emitter lock (reentrant under its public callers), see the other entry points
+         for (int i = 0; i < this.toStart.size(); i++) {
+            FMODSoundEmitter.Sound s = this.toStart.get(i);
+            if (s.getRef() == soundRef) {
+               this.sendStopSound(s.name, false);
                s.release(s.clip.isStopImmediate());
-            } else {
-               this.stopped.add(s);
+               this.toStart.remove(i--);
             }
-
-            this.instances.remove(i--);
          }
-      }
 
-      return 0;
+         for (int i = 0; i < this.instances.size(); i++) {
+            FMODSoundEmitter.Sound s = this.instances.get(i);
+            if (s.getRef() == soundRef) {
+               s.stop(bReleaseEvent, s.clip.isStopImmediate());
+               this.sendStopSound(s.name, false);
+               if (bReleaseEvent) {
+                  s.release(s.clip.isStopImmediate());
+               } else {
+                  this.stopped.add(s);
+               }
+
+               this.instances.remove(i--);
+            }
+         }
+
+         return 0;
+      } // pzopt
    }
 
    public void stopSoundLocal(long soundRef) {
-      for (int i = 0; i < this.toStart.size(); i++) {
-         FMODSoundEmitter.Sound s = this.toStart.get(i);
-         if (s.getRef() == soundRef) {
-            s.release(s.clip.isStopImmediate());
-            this.toStart.remove(i--);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         for (int i = 0; i < this.toStart.size(); i++) {
+            FMODSoundEmitter.Sound s = this.toStart.get(i);
+            if (s.getRef() == soundRef) {
+               s.release(s.clip.isStopImmediate());
+               this.toStart.remove(i--);
+            }
          }
-      }
 
-      for (int i = 0; i < this.instances.size(); i++) {
-         FMODSoundEmitter.Sound s = this.instances.get(i);
-         if (s.getRef() == soundRef) {
-            s.stop(true, s.clip.isStopImmediate());
-            s.release(s.clip.isStopImmediate());
-            this.instances.remove(i--);
+         for (int i = 0; i < this.instances.size(); i++) {
+            FMODSoundEmitter.Sound s = this.instances.get(i);
+            if (s.getRef() == soundRef) {
+               s.stop(true, s.clip.isStopImmediate());
+               s.release(s.clip.isStopImmediate());
+               this.instances.remove(i--);
+            }
          }
-      }
+      } // pzopt
    }
 
    public void stopOrTriggerSoundLocal(long soundRef) {
@@ -278,19 +284,21 @@ public final class FMODSoundEmitter extends BaseSoundEmitter {
    }
 
    public void setVolume(long soundRef, float volume) {
-      for (int i = 0; i < this.toStart.size(); i++) {
-         FMODSoundEmitter.Sound s = this.toStart.get(i);
-         if (s.getRef() == soundRef) {
-            s.volume = volume;
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         for (int i = 0; i < this.toStart.size(); i++) {
+            FMODSoundEmitter.Sound s = this.toStart.get(i);
+            if (s.getRef() == soundRef) {
+               s.volume = volume;
+            }
          }
-      }
 
-      for (int i = 0; i < this.instances.size(); i++) {
-         FMODSoundEmitter.Sound s = this.instances.get(i);
-         if (s.getRef() == soundRef) {
-            s.volume = volume;
+         for (int i = 0; i < this.instances.size(); i++) {
+            FMODSoundEmitter.Sound s = this.instances.get(i);
+            if (s.getRef() == soundRef) {
+               s.volume = volume;
+            }
          }
-      }
+      } // pzopt
    }
 
    public void setPitch(long soundRef, float pitch) {
@@ -349,126 +357,152 @@ public final class FMODSoundEmitter extends BaseSoundEmitter {
    }
 
    public void setVolumeAll(float volume) {
-      for (int i = 0; i < this.toStart.size(); i++) {
-         FMODSoundEmitter.Sound s = this.toStart.get(i);
-         s.volume = volume;
-      }
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         for (int i = 0; i < this.toStart.size(); i++) {
+            FMODSoundEmitter.Sound s = this.toStart.get(i);
+            s.volume = volume;
+         }
 
-      for (int i = 0; i < this.instances.size(); i++) {
-         FMODSoundEmitter.Sound s = this.instances.get(i);
-         s.volume = volume;
-      }
+         for (int i = 0; i < this.instances.size(); i++) {
+            FMODSoundEmitter.Sound s = this.instances.get(i);
+            s.volume = volume;
+         }
+      } // pzopt
    }
 
    public void stopAll() {
-      for (int i = 0; i < this.toStart.size(); i++) {
-         FMODSoundEmitter.Sound s = this.toStart.get(i);
-         s.release(s.clip.isStopImmediate());
-      }
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         for (int i = 0; i < this.toStart.size(); i++) {
+            FMODSoundEmitter.Sound s = this.toStart.get(i);
+            s.release(s.clip.isStopImmediate());
+         }
 
-      for (int i = 0; i < this.instances.size(); i++) {
-         FMODSoundEmitter.Sound s = this.instances.get(i);
-         s.stop(true, s.clip.isStopImmediate());
-         s.release(s.clip.isStopImmediate());
-      }
+         for (int i = 0; i < this.instances.size(); i++) {
+            FMODSoundEmitter.Sound s = this.instances.get(i);
+            s.stop(true, s.clip.isStopImmediate());
+            s.release(s.clip.isStopImmediate());
+         }
 
-      this.toStart.clear();
-      this.instances.clear();
+         this.toStart.clear();
+         this.instances.clear();
+      } // pzopt
    }
 
    public long playSound(String file) {
-      if (GameClient.client) {
-         if (this.parent instanceof IsoMovingObject movingObject) {
-            if (!(this.parent instanceof IsoPlayer player && player.isInvisible())) {
-               INetworkPacket.send(PacketType.PlaySound, new Object[]{file, (byte)0, movingObject});
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         if (GameClient.client) {
+            if (this.parent instanceof IsoMovingObject movingObject) {
+               if (!(this.parent instanceof IsoPlayer player && player.isInvisible())) {
+                  INetworkPacket.send(PacketType.PlaySound, new Object[]{file, (byte)0, movingObject});
+               }
+            } else {
+               GameClient.instance.PlayWorldSound(file, PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), (byte)PZMath.fastfloor(this.z));
             }
-         } else {
-            GameClient.instance.PlayWorldSound(file, PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), (byte)PZMath.fastfloor(this.z));
          }
-      }
 
-      return GameServer.server ? 0L : this.playSoundImpl(file, (IsoObject)null);
+         return GameServer.server ? 0L : this.playSoundImpl(file, (IsoObject)null);
+      } // pzopt
    }
 
    public long playSound(String file, IsoGameCharacter character) {
-      if (GameClient.client) {
-         if (!character.isInvisible()) {
-            INetworkPacket.send(PacketType.PlaySound, new Object[]{file, (byte)0, character});
-         }
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         if (GameClient.client) {
+            if (!character.isInvisible()) {
+               INetworkPacket.send(PacketType.PlaySound, new Object[]{file, (byte)0, character});
+            }
 
-         return character.isInvisible() && !DebugOptions.instance.character.debug.playSoundWhenInvisible.getValue()
-            ? 0L
-            : this.playSoundImpl(file, (IsoObject)null);
-      } else {
-         return GameServer.server ? 0L : this.playSoundImpl(file, (IsoObject)null);
-      }
+            return character.isInvisible() && !DebugOptions.instance.character.debug.playSoundWhenInvisible.getValue()
+               ? 0L
+               : this.playSoundImpl(file, (IsoObject)null);
+         } else {
+            return GameServer.server ? 0L : this.playSoundImpl(file, (IsoObject)null);
+         }
+      } // pzopt
    }
 
    public long playSound(String file, int x, int y, int z) {
-      this.x = x;
-      this.y = y;
-      this.z = z;
-      return this.playSound(file);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         this.x = x;
+         this.y = y;
+         this.z = z;
+         return this.playSound(file);
+      } // pzopt
    }
 
    public long playSound(String file, IsoGridSquare square) {
-      this.x = square.x + 0.5F;
-      this.y = square.y + 0.5F;
-      this.z = square.z;
-      return this.playSound(file);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         this.x = square.x + 0.5F;
+         this.y = square.y + 0.5F;
+         this.z = square.z;
+         return this.playSound(file);
+      } // pzopt
    }
 
    public long playSoundImpl(String file, IsoGridSquare square) {
-      this.x = square.x + 0.5F;
-      this.y = square.y + 0.5F;
-      this.z = square.z + 0.5F;
-      return this.playSoundImpl(file, (IsoObject)null);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         this.x = square.x + 0.5F;
+         this.y = square.y + 0.5F;
+         this.z = square.z + 0.5F;
+         return this.playSoundImpl(file, (IsoObject)null);
+      } // pzopt
    }
 
    public long playSound(String file, boolean doWorldSound) {
-      return this.playSound(file);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         return this.playSound(file);
+      } // pzopt
    }
 
    public long playSoundImpl(String file, boolean doWorldSound, IsoObject parent) {
-      return this.playSoundImpl(file, parent);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         return this.playSoundImpl(file, parent);
+      } // pzopt
    }
 
    public long playSoundLooped(String file) {
-      if (GameClient.client) {
-         if (this.parent instanceof IsoMovingObject isoMovingObject) {
-            INetworkPacket.send(PacketType.PlaySound, new Object[]{file, (byte)1, isoMovingObject});
-         } else {
-            GameClient.instance.PlayWorldSound(file, PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), (byte)PZMath.fastfloor(this.z));
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         if (GameClient.client) {
+            if (this.parent instanceof IsoMovingObject isoMovingObject) {
+               INetworkPacket.send(PacketType.PlaySound, new Object[]{file, (byte)1, isoMovingObject});
+            } else {
+               GameClient.instance.PlayWorldSound(file, PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), (byte)PZMath.fastfloor(this.z));
+            }
          }
-      }
 
-      return this.playSoundLoopedImpl(file);
+         return this.playSoundLoopedImpl(file);
+      } // pzopt
    }
 
    public long playSoundLoopedImpl(String file) {
-      return this.playSoundImpl(file, false, null);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         return this.playSoundImpl(file, false, null);
+      } // pzopt
    }
 
    public long playSound(String file, IsoObject parent) {
-      if (GameClient.client) {
-         if (parent instanceof IsoMovingObject isoMovingObject) {
-            INetworkPacket.send(PacketType.PlaySound, new Object[]{file, (byte)0, isoMovingObject});
-         } else {
-            GameClient.instance.PlayWorldSound(file, PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), (byte)PZMath.fastfloor(this.z));
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         if (GameClient.client) {
+            if (parent instanceof IsoMovingObject isoMovingObject) {
+               INetworkPacket.send(PacketType.PlaySound, new Object[]{file, (byte)0, isoMovingObject});
+            } else {
+               GameClient.instance.PlayWorldSound(file, PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), (byte)PZMath.fastfloor(this.z));
+            }
          }
-      }
 
-      return GameServer.server ? 0L : this.playSoundImpl(file, parent);
+         return GameServer.server ? 0L : this.playSoundImpl(file, parent);
+      } // pzopt
    }
 
    public long playSoundImpl(String file, IsoObject parent) {
-      GameSound gameSound = GameSounds.getSound(file);
-      if (gameSound == null) {
-         return 0L;
-      }
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         GameSound gameSound = GameSounds.getSound(file);
+         if (gameSound == null) {
+            return 0L;
+         }
 
-      GameSoundClip clip = gameSound.getRandomClip();
-      return this.playClip(clip, parent);
+         GameSoundClip clip = gameSound.getRandomClip();
+         return this.playClip(clip, parent);
+      } // pzopt
    }
 
    public long playClip(GameSoundClip clip, IsoObject parent) {
@@ -511,58 +545,64 @@ public final class FMODSoundEmitter extends BaseSoundEmitter {
    }
 
    public void set3D(long soundRef, boolean is3D) {
-      for (int i = 0; i < this.toStart.size(); i++) {
-         FMODSoundEmitter.Sound s = this.toStart.get(i);
-         if (s.getRef() == soundRef) {
-            s.set3D(is3D);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         for (int i = 0; i < this.toStart.size(); i++) {
+            FMODSoundEmitter.Sound s = this.toStart.get(i);
+            if (s.getRef() == soundRef) {
+               s.set3D(is3D);
+            }
          }
-      }
 
-      for (int i = 0; i < this.instances.size(); i++) {
-         FMODSoundEmitter.Sound s = this.instances.get(i);
-         if (s.getRef() == soundRef) {
-            s.set3D(is3D);
+         for (int i = 0; i < this.instances.size(); i++) {
+            FMODSoundEmitter.Sound s = this.instances.get(i);
+            if (s.getRef() == soundRef) {
+               s.set3D(is3D);
+            }
          }
-      }
+      } // pzopt
    }
 
    public void tick() {
-      if (!this.isEmpty()) {
-         this.occlusion.update();
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         if (!this.isEmpty()) {
+            this.occlusion.update();
 
-         for (int i = 0; i < this.parameters.size(); i++) {
-            FMODParameter parameter = this.parameters.get(i);
-            parameter.update();
+            for (int i = 0; i < this.parameters.size(); i++) {
+               FMODParameter parameter = this.parameters.get(i);
+               parameter.update();
+            }
          }
-      }
 
-      for (int i = 0; i < this.toStart.size(); i++) {
-         FMODSoundEmitter.Sound sound = this.toStart.get(i);
-         this.instances.add(sound);
-      }
-
-      for (int i = 0; i < this.instances.size(); i++) {
-         FMODSoundEmitter.Sound s = this.instances.get(i);
-         boolean isStarting = this.toStart.contains(s);
-         if (s.tick(isStarting)) {
-            this.instances.remove(i--);
-            s.release(s.clip.isStopImmediate());
+         for (int i = 0; i < this.toStart.size(); i++) {
+            FMODSoundEmitter.Sound sound = this.toStart.get(i);
+            this.instances.add(sound);
          }
-      }
 
-      this.toStart.clear();
-
-      for (int i = 0; i < this.stopped.size(); i++) {
-         FMODSoundEmitter.Sound s = this.stopped.get(i);
-         if (s.tickWhileStopped()) {
-            this.stopped.remove(i--);
-            s.release(s.clip.isStopImmediate());
+         for (int i = 0; i < this.instances.size(); i++) {
+            FMODSoundEmitter.Sound s = this.instances.get(i);
+            boolean isStarting = this.toStart.contains(s);
+            if (s.tick(isStarting)) {
+               this.instances.remove(i--);
+               s.release(s.clip.isStopImmediate());
+            }
          }
-      }
+
+         this.toStart.clear();
+
+         for (int i = 0; i < this.stopped.size(); i++) {
+            FMODSoundEmitter.Sound s = this.stopped.get(i);
+            if (s.tickWhileStopped()) {
+               this.stopped.remove(i--);
+               s.release(s.clip.isStopImmediate());
+            }
+         }
+      } // pzopt
    }
 
    public boolean hasSoundsToStart() {
-      return !this.toStart.isEmpty();
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         return !this.toStart.isEmpty();
+      } // pzopt
    }
 
    public boolean isEmpty() {
@@ -570,35 +610,39 @@ public final class FMODSoundEmitter extends BaseSoundEmitter {
    }
 
    public boolean isPlaying(long soundRef) {
-      for (int i = 0; i < this.toStart.size(); i++) {
-         if (this.toStart.get(i).getRef() == soundRef) {
-            return true;
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         for (int i = 0; i < this.toStart.size(); i++) {
+            if (this.toStart.get(i).getRef() == soundRef) {
+               return true;
+            }
          }
-      }
 
-      for (int i = 0; i < this.instances.size(); i++) {
-         if (this.instances.get(i).getRef() == soundRef) {
-            return true;
+         for (int i = 0; i < this.instances.size(); i++) {
+            if (this.instances.get(i).getRef() == soundRef) {
+               return true;
+            }
          }
-      }
 
-      return false;
+         return false;
+      } // pzopt
    }
 
    public boolean isPlaying(String alias) {
-      for (int i = 0; i < this.toStart.size(); i++) {
-         if (alias.equals(this.toStart.get(i).name)) {
-            return true;
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         for (int i = 0; i < this.toStart.size(); i++) {
+            if (alias.equals(this.toStart.get(i).name)) {
+               return true;
+            }
          }
-      }
 
-      for (int i = 0; i < this.instances.size(); i++) {
-         if (alias.equals(this.instances.get(i).name)) {
-            return true;
+         for (int i = 0; i < this.instances.size(); i++) {
+            if (alias.equals(this.instances.get(i).name)) {
+               return true;
+            }
          }
-      }
 
-      return false;
+         return false;
+      } // pzopt
    }
 
    public boolean restart(long handle) {
@@ -711,32 +755,34 @@ public final class FMODSoundEmitter extends BaseSoundEmitter {
    }
 
    public void setParameterValue(long soundRef, FMOD_STUDIO_PARAMETER_DESCRIPTION parameterDescription, float value) {
-      if (soundRef != 0L && parameterDescription != null) {
-         int index = this.findInstance(soundRef);
-         if (index != -1) {
-            FMODSoundEmitter.Sound sound = this.instances.get(index);
-            sound.setParameterValue(parameterDescription, value);
-         } else {
-            index = this.findParameterValue(soundRef, parameterDescription);
+      synchronized (this) { // pzopt: (the emitter lock as a block: the stock signature stays) entityUpdateParallel -- the emitter is mutated from a batch worker (this character updating) AND the game thread (an inline player fighting it mid-flight, possible since entityUpdatePipeline): run lou-pipe-clean2 hit BitSet.clear(-1) on a worker at f:15 and the corrupted sound list killed the game at f:366 through a NULL native handle; every list-touching entry point now holds the emitter lock, uncontended serially
+         if (soundRef != 0L && parameterDescription != null) {
+            int index = this.findInstance(soundRef);
             if (index != -1) {
-               this.parameterValues.get(index).value = value;
+               FMODSoundEmitter.Sound sound = this.instances.get(index);
+               sound.setParameterValue(parameterDescription, value);
             } else {
-               index = this.findStopped(soundRef);
+               index = this.findParameterValue(soundRef, parameterDescription);
                if (index != -1) {
-                  javafmod.FMOD_Studio_EventInstance_SetParameterByID(soundRef, parameterDescription.id, value, false);
+                  this.parameterValues.get(index).value = value;
                } else {
-                  index = this.findToStart(soundRef);
+                  index = this.findStopped(soundRef);
                   if (index != -1) {
-                     FMODSoundEmitter.ParameterValue parameterValue = (FMODSoundEmitter.ParameterValue)parameterValuePool.alloc();
-                     parameterValue.eventInstance = soundRef;
-                     parameterValue.parameterDescription = parameterDescription;
-                     parameterValue.value = value;
-                     this.parameterValues.add(parameterValue);
+                     javafmod.FMOD_Studio_EventInstance_SetParameterByID(soundRef, parameterDescription.id, value, false);
+                  } else {
+                     index = this.findToStart(soundRef);
+                     if (index != -1) {
+                        FMODSoundEmitter.ParameterValue parameterValue = (FMODSoundEmitter.ParameterValue)parameterValuePool.alloc();
+                        parameterValue.eventInstance = soundRef;
+                        parameterValue.parameterDescription = parameterDescription;
+                        parameterValue.value = value;
+                        this.parameterValues.add(parameterValue);
+                     }
                   }
                }
             }
          }
-      }
+      } // pzopt
    }
 
    public void setParameterValueByName(long soundRef, String parameterName, float value) {
@@ -902,7 +948,7 @@ public final class FMODSoundEmitter extends BaseSoundEmitter {
          }
 
          long eventInstance = javafmod.FMOD_Studio_System_CreateEventInstance(eventDescription.address);
-         if (eventInstance < 0L) {
+         if (eventInstance <= 0L) { // pzopt: entityUpdateParallel -- stock guards FMOD's negative error codes but stores the NULL handle (0) a saturated Studio system returns; the 0 survives its first tick (isStarting skips the state read) and kills the game on its second (GetPlaybackState(NULL), runs lou-pipe-clean2/3 at the ~4,200-zombie route-start vocal storm). Refusing it here is exactly what stock does for every other creation failure
             return null;
          }
 
@@ -1032,6 +1078,10 @@ public final class FMODSoundEmitter extends BaseSoundEmitter {
       @Override
       public boolean tick(boolean isStarting) {
          if (!isStarting) {
+            if (this.eventInstance == 0L) { // pzopt: entityUpdateParallel -- belt to the creation guard above: a zeroed handle can never reach the native (any other zeroing path reports the sound finished instead of crashing)
+               this.emitter.stopEvent(this.eventInstance, this.clip, this.remote); // pzopt: entityUpdateParallel
+               return true; // pzopt: entityUpdateParallel
+            } // pzopt: entityUpdateParallel
             int state = javafmod.FMOD_Studio_GetPlaybackState(this.eventInstance);
             if (state == FMOD_STUDIO_PLAYBACK_STATE.FMOD_STUDIO_PLAYBACK_STOPPING.index) {
                return false;

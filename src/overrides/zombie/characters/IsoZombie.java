@@ -3384,7 +3384,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    public boolean allowsInvisibleAnimationSkips() {
       if (GameClient.client && this.isRemoteZombie()) {
          return false;
-      } else if (GameTime.getInstance().perObjectMultiplier > 1.0F) {
+      } else if (pzopt.UpdateBatch.pom(GameTime.getInstance()) > 1.0F) { // pzopt: entityUpdateParallel -- a batch task reads its bucket's dispatch-time multiplier through pom() (the game thread may have moved on to the next bucket's global write); the live field everywhere else
          return false;
       } else {
          return !DebugOptions.instance.zombieAnimationDelay.getValue() ? false : super.allowsInvisibleAnimationSkips();
@@ -3572,6 +3572,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public void update() {
+      pzopt.GtAb.zombieUpdates++; // pzopt: devGtAlternate, zombie updates per frame in pzopt-gtab.out
       AbstractPerformanceProfileProbe var1 = IsoZombie.s_performance.update.profile();
 
       try {
@@ -6062,6 +6063,31 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       return this.getCell().getChunkMap(playerIndex).getGridSquare(PZMath.fastfloor(v.x), PZMath.fastfloor(v.y), PZMath.fastfloor(this.getZ()));
    }
 
+   /**
+    * pzopt: entityUpdateSafeStates. Whether this zombie's whole update may run on a frame worker (entityUpdateParallel):
+    * a calm state (idle, walking toward a point, following a path), nothing that calls Bullet (a ballistics target, a
+    * ragdoll), not falling (the slope and landing paths), not burning, not grappled, no animation player about to be
+    * replaced, and no player within 12 squares (the lunge, attack and hit exchanges with a player happen there). Read on
+    * the game thread before the batch; everything else updates inline as stock.
+    */
+   public boolean pzoptBatchSafe() { // pzopt
+      if (this.getBallisticsTarget() != null || this.isRagdoll() || this.isFalling() || this.isOnFire() || this.isBeingGrappled() || this.isGrappling() // pzopt
+         || this.getReanimatedPlayer() != null || this.pzoptAnimPlayerStale() || !this.pzoptRagdollFree()) { // pzopt
+         return false; // pzopt
+      } // pzopt
+      zombie.ai.State state = this.getCurrentState(); // pzopt
+      if (state != ZombieIdleState.instance() && state != WalkTowardState.instance() && state != PathFindState.instance()) { // pzopt
+         return false; // pzopt
+      } // pzopt
+      for (int i = 0; i < IsoPlayer.numPlayers; i++) { // pzopt
+         IsoPlayer player = IsoPlayer.players[i]; // pzopt
+         if (player != null && this.DistToSquared(player) < 144.0F) { // pzopt
+            return false; // pzopt
+         } // pzopt
+      } // pzopt
+      return true; // pzopt
+   } // pzopt
+
    public boolean couldSeeHeadSquare(IsoPlayer player) {
       int playerIndex = player.getIndex();
       IsoGridSquare headSquare = this.getHeadSquare(player);
@@ -6107,6 +6133,9 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          statisticName = "Zombie's Distance Ran";
       }
 
+      if (pzopt.ZombieStats.add(statisticName, distanceTraveled)) { // pzopt: zombieStatsFold, the same float additions in the same order, written back after the loop
+         return; // pzopt
+      } // pzopt
       StatisticsManager.getInstance().incrementStatistic(StatisticType.Zombie, StatisticCategory.Travel, statisticName, distanceTraveled);
    }
 
@@ -6116,6 +6145,9 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
 
    public boolean helmetFallFromVisuals(boolean hitHead) {
       boolean removed = false;
+      // pzopt: entityUpdateParallel. The only user of IsoGameCharacter's shared static scratch buffer outside that
+      // class; it is one ItemVisuals per thread there now (pzoptTempItemVisuals), so this reads its own.
+      ItemVisuals tempItemVisuals = pzoptTempItemVisuals.get(); // pzopt: entityUpdateParallel
       this.getItemVisuals(tempItemVisuals);
 
       for (int i = 0; i < tempItemVisuals.size(); i++) {
