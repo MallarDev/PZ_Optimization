@@ -224,3 +224,9 @@ After: clear night 0 orbs (the one pair over the threshold is the character chan
 
 Found on the way: in play mode (the camera's zoom eases all the time in a car) the volume was reallocated and recomputed
 651 times in 45 s, one column at a time; its size now moves in steps of 16 cells with hysteresis (1 reallocation).
+
+## Black world on AMD / Windows (2026-09-27)
+
+Since this release the composite patches went in for everyone, god rays on or off, and AMD players under Windows saw
+the whole world black. Fixed in `3f8f7dc` (patches only with god rays on at launch, the game's samplers back on their
+stock units); causes, fix and triage: `findings-amd-black-world-2026-09-27.md`.
