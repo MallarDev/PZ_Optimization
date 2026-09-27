@@ -22,7 +22,8 @@ import zombie.core.utils.DirectBufferAllocator;
  * deflated: 36-40 % of the blocks, ~330 MB for everything a boot loads), so a later boot skips the page's PNG decode
  * (13 ns a pixel on the desktop), its mips and its encode: the worker inflates the blocks (0.85 ns a pixel) and the
  * render thread uploads them. Keyed by the resolved pack file (path, size, mtime: a mod's pack of the same name is a
- * different key), the page, the upload's mip / premultiply state, the mask flag and the encoder version.
+ * different key), the page, the upload's mip / premultiply state, the mask flag, the encoder version and the pzopt
+ * build (pzopt.CacheDir empties the directory when another build filled it).
  *
  * A hit returns an ImageData with the texture's sizes, the mask and the blocks, and a 4-byte placeholder pixel buffer
  * (so stock's "has pixels" checks hold); hits are used only once the render thread has confirmed S3TC, so the stock
@@ -39,9 +40,7 @@ public final class TexCache {
 
    static File dir() {
       if (dir == null) {
-         File d = new File(zombie.ZomboidFileSystem.instance.getCacheDir(), "pzopt" + File.separator + "texcache");
-         d.mkdirs();
-         dir = d;
+         dir = CacheDir.open("texcache");
       }
       return dir;
    }
@@ -55,7 +54,7 @@ public final class TexCache {
             return null;
          }
          String key = pack + '\u0000' + page + '\u0000' + f.getAbsolutePath() + '\u0000' + f.length() + '\u0000' + f.lastModified() + '\u0000'
-               + mips + premul + mask + '\u0000' + VERSION + '\u0000' + Config.TEX_COMPRESS_HQ + '\u0000' + Config.TEX_COMPRESS_HQ_THRESHOLD + '\u0000' + TexBc.decoderId();
+               + mips + premul + mask + '\u0000' + VERSION + '\u0000' + Config.TEX_COMPRESS_HQ + '\u0000' + Config.TEX_COMPRESS_HQ_THRESHOLD + '\u0000' + TexBc.decoderId() + '\u0000' + CacheDir.BUILD_KEY;
          byte[] h = MessageDigest.getInstance("SHA-1").digest(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
          StringBuilder sb = new StringBuilder(44);
          for (byte b : h) {

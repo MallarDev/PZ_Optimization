@@ -15,7 +15,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.lwjgl.util.vector.Quaternion;
 import org.lwjgl.util.vector.Vector3f;
-import zombie.ZomboidFileSystem;
 import zombie.core.skinnedmodel.animation.AnimationClip;
 import zombie.core.skinnedmodel.animation.Keyframe;
 import zombie.core.skinnedmodel.model.jassimp.JAssImpImporter;
@@ -32,10 +31,13 @@ import zombie.core.skinnedmodel.model.jassimp.JAssImpImporter;
  * AnimationClip constructor, so the per-bone tables come out identical.
  *
  * The key covers the source file (path, size, mtime), the skinning mesh the
- * bone indices refer to, and a format version; anything else compiles as
- * stock and refreshes its cache entry. Files live under
- * <cache dir>/pzopt/anims/. Writes go through one daemon thread so the file
- * pool never waits on disk.
+ * bone indices refer to, a format version and the pzopt build (game revision
+ * + commit, + build time for a dirty or git-less build); anything else
+ * compiles as stock and refreshes its cache entry. Files live under
+ * <cache dir>/pzopt/anims/, emptied by pzopt.CacheDir when another build
+ * filled it, so an update re-caches the animations during its first boot's
+ * stock imports. Writes go through one daemon thread so the file pool never
+ * waits on disk.
  */
 public final class AnimClipCache {
    private static final int VERSION = 1;
@@ -58,8 +60,7 @@ public final class AnimClipCache {
    private static File dir() {
       File d = dir;
       if (d == null) {
-         d = new File(ZomboidFileSystem.instance.getCacheDir(), "pzopt" + File.separator + "anims");
-         d.mkdirs();
+         d = CacheDir.open("anims");
          dir = d;
       }
       return d;
@@ -72,7 +73,7 @@ public final class AnimClipCache {
          if (!src.isFile()) {
             return null;
          }
-         String key = src.getCanonicalPath() + "|" + src.length() + "|" + src.lastModified() + "|" + meshKey + "|v" + VERSION;
+         String key = src.getCanonicalPath() + "|" + src.length() + "|" + src.lastModified() + "|" + meshKey + "|v" + VERSION + "|" + CacheDir.BUILD_KEY;
          MessageDigest md = MessageDigest.getInstance("SHA-1");
          byte[] h = md.digest(key.getBytes("UTF-8"));
          StringBuilder sb = new StringBuilder(40);
