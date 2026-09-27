@@ -960,8 +960,10 @@ public final class UpdateBatch {
 
       flightFailure = null;
       inFlight = true; // onWorkerNow() and frozen(): the workers are running this batch's entities from here to joinPending
+      LightingDefer.prepare(n); // gt-offload: the tasks' lazy light-read side effects, applied at the join (merge fix: the combined flight needs it like dispatchAsync)
       FrameBatch.runAsync(n, i -> {
          IsoMovingObject entity = q[i];
+         LightingDefer.begin(i);
          CURRENT.set(entity); // frozen(): this task's entity reads itself live, everyone else frozen
          POM.get()[0] = poms[i]; // spec 3.3: per-task, not per-flight — this flight spans every bucket of the frame
          java.util.ArrayList<Object[]> capture = null;
@@ -997,6 +999,7 @@ public final class UpdateBatch {
             entity.frameStep();
             entity.update();
          } finally {
+            LightingDefer.end();
             CURRENT.set(null); // a pooled worker must not carry the reference into the next task
             POM.get()[0] = Float.NaN; // pom() follows the live field again off-task
             if (capture != null) {
