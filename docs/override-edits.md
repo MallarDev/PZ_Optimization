@@ -4020,3 +4020,33 @@ direct-sun share and the wall fixes in `pzopt.ChunkAo`'s kernel.
 ### zombie.iso.weather.fx.WeatherFxMask
 - The stock screen-space cloud layer is skipped (and does not keep the weather mask awake) while
   `CloudShadow.replaceStock` (`cloudReplaceStock`, off by default).
+
+## God rays (2026-09-27)
+
+Write-up: `docs/findings-god-rays-2026-09-27.md`. Class `pzopt.GodRays` (occupancy, the rectified froxel volume, light
+volumes, local lights, the haze's taps); `pzopt.FogPass` carries the fog shade.
+
+### zombie.core.opengl.ShaderUnit
+- The patch chain gets `GodRays.patchShader` innermost (the stock `screen.frag`: its bicubic fetch of the world picture is
+  wrapped, one tap of the quarter god ray buffer, before the colour grade's patch) and `GodRays.patchChunk` between the
+  cloud shadows' patch and the reflections': the chunk composite (`chunkShader.frag`, pixelLight's programs) adds the
+  outdoor haze from each fragment's own depth. The chunk patch only with `godRaysHazeComposite=chunk` (the default).
+
+### zombie.viewCone.ChunkRenderShader
+- `startRenderThread`: `GodRays.chunkDraw()` after the cloud shadows' uniforms: the haze uniforms once per program per
+  frame (off: the shader returns after one uniform test).
+
+### zombie.iso.fboRenderChunk.FBORenderCell
+- At a level's bake, when its objects were added, removed or changed and `godRays` is on: `GodRays.chunkChanged(chunk)`
+  (the occupancy of that chunk is rebuilt: a door opened, a window broken).
+- Before the chunk composite `GodRays.beforeComposite` (this frame's camera for the haze in the composite); before
+  `renderFog` `GodRays.queue` (this frame's light, volume updates, light volumes and local lights; the scene depth is
+  complete there).
+
+### zombie.iso.weather.WeatherShader
+- `startRenderThread`: `GodRays.worldUniforms(program)`: the quarter buffer and its mapping on the world composite (or its
+  switch off).
+
+### zombie.core.textures.MultiTextureFBO2
+- Around the screen composite `GodRays.screenBegin` / `screenEnd`: dev timing (`devGodRaysTiming`), and with
+  `godRaysLateDraw` (off) the light volumes and local lights drawn there over the finished world.
