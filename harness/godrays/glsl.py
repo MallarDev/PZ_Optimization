@@ -15,7 +15,7 @@ SRC = os.path.join(HERE, "..", "..", "src", "pzopt", "pzopt")
 
 CONSTANTS = {
     "OCC_L": "16", "OCC_N": "256", "(OCC_N - 1)": "255", "VIEW_PATH": "4.8989795",
-    "VOL_UNIT": "17", "DEPTH_UNIT": "18", "OCC_UNIT": "19", "AUX_UNIT": "20", "TOP_UNIT": "21", "(OCC_CHUNKS - 1)": "31", "MARCH_V_UNIT": "22", "MARCH_MM_UNIT": "23", "MARCH_HIST_UNIT": "24", "PLANE_UNIT": "25", "APC_WORLD_UNIT": "26", "MAX_LIGHTS": "16", "CLOUD_UNIT": "27", "LOCAL_UNIT": "28", "FS_DEPTH_UNIT": "18", "LOCAL_CORE_SQ": "2.25",
+    "VOL_UNIT": "17", "DEPTH_UNIT": "18", "OCC_UNIT": "19", "AUX_UNIT": "20", "TOP_UNIT": "21", "(OCC_CHUNKS - 1)": "31", "MARCH_V_UNIT": "22", "MARCH_MM_UNIT": "23", "MARCH_HIST_UNIT": "24", "PLANE_UNIT": "25", "APC_WORLD_UNIT": "26", "MAX_LIGHTS": "16", "CLOUD_UNIT": "27", "LOCAL_UNIT": "28", "FS_DEPTH_UNIT": "18", "LOCAL_CORE_SQ": "2.25", "HAZE_UNIT": "29",
 }
 
 

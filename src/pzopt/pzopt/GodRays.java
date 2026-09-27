@@ -3451,6 +3451,9 @@ public final class GodRays {
       if (l[1] < 0) {
          return;
       }
+      if (l[0] >= 0) {
+         GL20.glUniform1i(l[0], unit); // its own unit also when off: the sampler3D on a sampler2D's unit 0 fails the draw on Mesa
+      }
       boolean on = Gl.screenOn && Gl.hazeOn && Gl.shadeNow && Gl.sTex != 0 && Gl.params[0] > 0F && Config.GOD_RAYS_FOG_FUSE && Gl.depthTex != 0
          && "pixel".equals(Config.GOD_RAYS_FOG_SHADE); // (lowres: fogShade applied it to the fog buffer already)
       if (!on) {
@@ -3460,7 +3463,6 @@ public final class GodRays {
       GL13.glActiveTexture(GL13.GL_TEXTURE0 + unit);
       GL11.glBindTexture(GL12.GL_TEXTURE_3D, Gl.sTex);
       GL13.glActiveTexture(GL13.GL_TEXTURE0);
-      GL20.glUniform1i(l[0], unit);
       GL20.glUniform4f(l[1], 1F, 2.2F, Gl.groundTc, 0F);
       GL20.glUniform4f(l[2], Gl.mapX[0], Gl.mapX[1], Gl.mapX[2], Gl.mapX[3]);
       GL20.glUniform4f(l[3], Gl.mapY[0], Gl.mapY[1], Gl.mapY[2], Gl.mapY[3]);
@@ -3560,7 +3562,19 @@ public final class GodRays {
          }
          bodyAt = n2;
       }
-      String c = code.substring(0, bodyAt) + "\n#define PZG_OUT " + out + "\n#define PZG_TEX3 " + (old ? "texture3D" : "texture")
+      // the sampler3D needs its own unit from the link on: the game validates the program with every sampler on unit 0,
+      // and a sampler2D and a sampler3D on one unit fail on Mesa (the composite dropped: the whole baked world black)
+      int version = 0;
+      try {
+         version = Integer.parseInt(first.substring(8).trim().split("\\s+")[0]);
+      } catch (RuntimeException e) {
+         // (unknown: the extension line is harmless)
+      }
+      String head = code.substring(0, bodyAt);
+      if (version < 420 && !head.contains("GL_ARB_shading_language_420pack")) {
+         head += "\n#extension GL_ARB_shading_language_420pack : enable";
+      }
+      String c = head + "\n#define PZG_OUT " + out + "\n#define PZG_TEX3 " + (old ? "texture3D" : "texture")
          + code.substring(bodyAt).replace("void main()", "void pzGrHazeInner()") + "\n" + CHUNK_GLSL + "\n";
       int test = GL20.glCreateShader(GL20.GL_FRAGMENT_SHADER);
       GL20.glShaderSource(test, c);
@@ -3578,7 +3592,7 @@ public final class GodRays {
    }
 
    static final String CHUNK_GLSL = String.join("\n",
-      "uniform sampler3D pzGrHV;", // HAZE_UNIT: the integration's volume (R in-scatter, G transmittance)
+      "layout(binding = " + HAZE_UNIT + ") uniform sampler3D pzGrHV;", // the integration's volume (R in-scatter, G transmittance)
       "uniform vec4 pzGrHX;", // volume tc = dot(X / Y / Z, (window x, window y, depth, 1))
       "uniform vec4 pzGrHY;",
       "uniform vec4 pzGrHZ;",
@@ -3698,11 +3712,11 @@ public final class GodRays {
          return;
       }
       CHUNK_APPLIED.put(prog, chunkSerial);
+      GL20.glUniform1i(l[0], HAZE_UNIT); // (also with the haze off: a sampler3D left on a sampler2D's unit fails the draw on Mesa)
       if (!chunkHazeNow) {
          GL20.glUniform4f(l[4], 0F, 0F, 0F, 0F);
          return;
       }
-      GL20.glUniform1i(l[0], HAZE_UNIT);
       GL20.glUniform4f(l[1], cX[0], cX[1], cX[2], cX[3]);
       GL20.glUniform4f(l[2], cY[0], cY[1], cY[2], cY[3]);
       GL20.glUniform4f(l[3], cZ[0], cZ[1], cZ[2], cZ[3]);
