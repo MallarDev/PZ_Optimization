@@ -363,6 +363,7 @@ public final class Config {
    public static final boolean UPDATE_PREFETCH = bool("updatePrefetch", true); // once a release is offered, fetch the files that differ from the installed ones in the background (a range request per changed span; the whole zip never before the click)
    public static final int UPDATE_PREFETCH_MAX_KB = integer("updatePrefetchMaxKb", 16384); // the background fetch stops at this many compressed KB of changed entries (a release apart is ~60 KB)
    public static final boolean DEV_UPDATE_DRIVE = bool("devUpdateDrive", false); // dev rig: the menu opens the update dialog, presses Update now and Restart game; the restarted process logs its timing and quits (pzopt.Updater.drive)
+   public static final boolean DEV_UNINSTALL_DRIVE = bool("devUninstallDrive", false); // dev rig: the main menu opens Options > Optimizations, presses Uninstall PZ Optimization and Yes (harness/uninstall-e2e.sh)
    public static final boolean DEV_UPDATE_OFFER = bool("devUpdateOffer", false); // dev: offer the newest release for this revision whatever this build is (menu item / dialog / install checks)
    public static final boolean TRANSLUCENT_CACHE = bool("translucentCache", false);
    public static final int HOTSAVE_INTERVAL_SEC = integer("hotsaveIntervalSec", 30);

@@ -888,6 +888,14 @@ Lua: "", "drive", "restarted:<ms>"). The install now goes through `pzopt.UpdateD
 changed zip entries only (range requests, prefetched in the background once offered), written
 beside their targets and renamed over them; unchanged files are not rewritten.
 
+In-game uninstall (2026-09-27): three forwards to `pzopt.Uninstall` for the Optimizations tab's
+"Uninstall PZ Optimization..." button: `getPzoptUninstallUnavailable()` ("" or why the button is
+off: a harness run, or no `pzopt-installed.txt` / `pzopt-files.txt` in the game folder),
+`pzoptUninstall()` (undoes AotCache's and GcChoice's launcher edits, writes the file list, starts
+a helper that deletes the files once this process has ended; the Lua then calls the stock
+`quitToDesktop`) and `getPzoptUninstallMessage()`. The button is off in a world (the quit would
+skip the save).
+
 Performance overlay item (added 2026-09-23): three forwards to `pzopt.Overlay`
 for `media/lua/client/pzopt/pzopt_mainscreen_overlay.lua`: `togglePzoptOverlay()`
 (`Overlay.toggle()`, the same path as the key binding, which now calls it too:
