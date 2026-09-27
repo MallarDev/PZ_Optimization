@@ -241,7 +241,7 @@ If da.gd ever goes away, delete the cache line or switch the helper to another C
 `description.txt` still work but the page is ~1,600 characters longer. The same files go in the item's own carousel:
 on the Workshop page, "Add/edit images & videos" takes the JPGs (upload `00` first, it becomes
 the header) and a YouTube URL for the showcase video.
-`41` the "New! God rays" card (`harness/godrays-card-gif.py`; 2026-09-27): left, god rays off then on in the game's own frames (the lossless panes of the showcase video `docs/media/god-rays-off-vs-on.mp4`, runs `gv-room-*` and `gv-fog-*`: a Rosewood diner at 17:00, the church lot in morning fog at 08:00); right, what it draws and the frame time it adds (12 us, 0.3 % of a 240 fps frame; `docs/findings-god-rays-2026-09-27.md`). The installation card `40` lost its "New!" heading (its image stays).
+`41` the "New! God rays" card (`harness/godrays-card-gif.py`; 2026-09-27): left, god rays off then on in the game's own frames (the lossless panes of the showcase video `docs/media/god-rays-off-vs-on.mp4`, runs `gv-room-*` and `gv-fog-*`: a Rosewood diner at 17:00, the church lot in morning fog at 08:00); right, what it draws and the frame time it adds (12 us, 0.3 % of a 240 fps frame; `docs/findings-god-rays-2026-09-27.md`). The installation card `40` is pinned under the "Install" heading instead (the maintainer, 2026-09-27: it stays on top of the install instructions whatever "New!" section comes next).
 
 ### Animated thumbnail
 
