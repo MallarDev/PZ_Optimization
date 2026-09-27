@@ -1641,6 +1641,7 @@ public final class PixelLight {
                // the game's ShaderProgram renumbers every sampler2D to units 0, 1, 2... after the link (layout(binding) lost;
                // the sampler2DArray ones keep theirs): the mask's unit again (the program is bound here)
                GL20.glUniform1i(loc[15], MASK_UNIT);
+               Shaders.stockSamplerUnits(program, "pixel light"); // and the game's DIFFUSE / DEPTH on 0 / 1 whatever order the driver lists them in
             }
          }
 

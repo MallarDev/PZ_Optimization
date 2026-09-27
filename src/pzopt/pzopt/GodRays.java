@@ -3302,6 +3302,13 @@ public final class GodRays {
          uAS = GL20.glGetUniformLocation(prog, "pzGrAS");
          uSLow = GL20.glGetUniformLocation(prog, "pzGrLow");
          uSAp = GL20.glGetUniformLocation(prog, "pzGrAp");
+         Shaders.stockSamplerUnits(prog, "god rays"); // the game's renumbering in the driver's order may have moved DIFFUSE off unit 0
+         if (uSLow >= 0) {
+            GL20.glUniform1i(uSLow, VOL_UNIT); // ours off the game's units also while the tap is off
+         }
+         if (uSAp >= 0) {
+            GL20.glUniform1i(uSAp, AUX_UNIT);
+         }
       }
       if (uP < 0) {
          return;
@@ -3527,6 +3534,7 @@ public final class GodRays {
    private static final java.util.HashMap<Integer, int[]> CHUNK_LOC = new java.util.HashMap<>();
    private static final java.util.HashMap<Integer, Integer> CHUNK_APPLIED = new java.util.HashMap<>();
    static final int HAZE_UNIT = 29;
+   private static final java.util.Set<String> STOCK_LOGGED = java.util.concurrent.ConcurrentHashMap.newKeySet(); // (pixelLight compiles a composite per variant: one line a file)
 
    /**
     * ShaderUnit hook, after the cloud shadows' patch and before the reflections' (which renames our main in turn): the
@@ -3542,6 +3550,14 @@ public final class GodRays {
       }
       String f = fileName.replace('\\', '/');
       if (!(f.endsWith("/chunkShader.frag") || f.endsWith("/pzopt_chunkBase.frag") || f.endsWith("/pzopt_chunkStock.frag"))) {
+         return code;
+      }
+      if (!Config.GOD_RAYS) {
+         // off at launch: the game's composite stays stock (AMD on Windows drew the whole world black with the patch in and
+         // god rays off, 2026-09-27); turned on later, the haze joins the composite at the next launch
+         if (STOCK_LOGGED.add(f)) {
+            Log.info("god rays: off at launch, " + fileName + " stays stock");
+         }
          return code;
       }
       int nl = code.indexOf('\n');
@@ -3729,6 +3745,15 @@ public final class GodRays {
       }
       String f = fileName.replace('\\', '/');
       if (!f.endsWith("/screen.frag")) {
+         return code;
+      }
+      if (!Config.GOD_RAYS) {
+         // off at launch: the world composite stays stock (the whole world drew black on AMD / Windows with the patch in,
+         // 2026-09-27; likely its two extra sampler2Ds moving the game's DIFFUSE off unit 0, see Shaders.stockSamplerUnits);
+         // turned on later, the composite's tap comes at the next launch
+         if (STOCK_LOGGED.add(f)) {
+            Log.info("god rays: off at launch, " + fileName + " stays stock");
+         }
          return code;
       }
       String sig = "vec4 textureBicubic(sampler2D sampler, vec2 texCoords)";
