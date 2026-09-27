@@ -21,7 +21,9 @@
 --  shows is its section's `clip`, overridden per key in KEY_CLIP.
 --  Upscaling, HDR output and ambient occlusion (ENHANCEMENT_SECTIONS) have their own "Enhancements" tab right after
 --  it, and the performance overlay and its game-thread profiler (PROFILER_SECTIONS) a "Profiler" tab after that, both
---  built the same way (buildSettingsPage) without the master switch and the profile buttons.
+--  built the same way (buildSettingsPage) without the profile buttons; each has its own master switch at the top
+--  (2026-09-28: `enhancementsEnabled`, `profilerEnabled`; off, Java reads the tab's feature switches as off and keeps
+--  the choices saved; both live).
 -- Installed by scripts/pzopt.sh into <game dir>/media/lua/client/pzopt/ (loose game-dir Lua is
 -- loaded like any other, no mod to enable).
 
@@ -34,6 +36,14 @@ local LIVE_NOTE = "Applies as soon as you press Apply; no restart needed."
 -- The master switch, drawn before the sections with the two buttons.
 local MASTER = { key = "enabled", label = "Optimizations enabled (master switch)",
   tip = "Off = the game runs stock: every override takes its original code path and the settings below are ignored. On = the settings below apply. The Profiler tab is not affected: the performance overlay works either way." }
+-- The Enhancements and Profiler tabs' master switches (2026-09-28): off, Java reads every feature of the tab as off
+-- (Config's GATED list) while the choices below stay saved for when it is on again. Both apply at once; the features
+-- that pick their shaders or window at start-up (NEXT_LAUNCH_ONLY) follow on the next launch.
+local ENHANCEMENTS_MASTER = { key = "enhancementsEnabled", label = "Enhancements enabled (master switch)", live = true,
+  restartKeys = { "hdr", "hdrAuto", "pixelLight", "reflections" },
+  tip = "Off = the picture is the stock game's: upscaling, sprite filtering, HDR output, ambient occlusion, sun shadows, reflections, the darkness floor, remembered places, colour grading, per-pixel lighting and god rays are all off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply. HDR output, per-pixel lighting and reflections switch on the next launch." }
+local PROFILER_MASTER = { key = "profilerEnabled", label = "Profiler enabled (master switch)", live = true,
+  tip = "Off = no performance overlay, no measuring and no frame log: the overlay's samplers never start and the toggle key only says the profiler is off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply." }
 
 -- Colour names pzopt.Overlay.color knows (a RRGGBB hex typed into options.ini also works).
 local FPS_COLOURS = { "blue", "green", "yellow", "red", "white", "cyan", "lime", "orange", "magenta", "purple" }
@@ -1028,6 +1038,20 @@ local function afterStore(option, entry, value)
     if not entry.live then
         option:restartRequired(perf():getPzoptOption(entry.key), value)
     end
+end
+
+-- A tab master switch's start-up features (entry.restartKeys: they pick the window or patch shaders when the game
+-- starts) as the next launch will read them, so switching the master asks for a restart only when one of them moves.
+local function startupSignature(master)
+    local p = perf()
+    local off = nextValue(master) == "false"
+    local t = {}
+    for _, key in ipairs(master.restartKeys) do
+        local v = nextValue({ key = key })
+        if off and p:getPzoptOptionPinnedBy(key) == "" then v = "false" end
+        table.insert(t, key .. "=" .. v)
+    end
+    return table.concat(t, ",")
 end
 
 local function tooltipFor(entry, pinnedBy)
@@ -2289,8 +2313,12 @@ local function addBoolOption(self, entry, splitpoint, y, BUTTON_HGT)
     function option.apply(self)
         if pinnedBy ~= "" then return end
         local value = tostring(self.control:isSelected(1))
+        local before = entry.restartKeys and startupSignature(entry)
         store(entry, value)
         afterStore(self, entry, value)
+        if before then
+            self:restartRequired(before, startupSignature(entry))
+        end
     end
     -- the "Enable all" button puts the control back to the build's default
     function option.pzoptReset(self)
@@ -2651,7 +2679,13 @@ local function applyProfile(self, profile)
         option:invokeOnChangeEvent()
     end
     -- the upscaler keys live on the Enhancements tab: build it if it was never shown, then set them the same way
+    -- (a profile that picks an upscaler also turns that tab's master switch on)
     ensurePageBuilt(self, ENHANCEMENTS_TAB)
+    local enhancements = self.pzoptEnhancementMaster
+    if profile.values.upscaler and enhancements and enhancements.control.enable then
+        enhancements.control:setSelected(1, true)
+        enhancements:invokeOnChangeEvent()
+    end
     for _, option in ipairs(self.pzoptEnhancementOptions or {}) do
         if option.pzoptProfile then
             option:pzoptSet(profile.values[option.pzoptKey])
@@ -2835,13 +2869,19 @@ local function addAllButtons(self, splitpoint, y)
 end
 
 -- The Enhancements and Profiler tabs' reset button: that tab's settings back to the build's defaults (the
--- Optimizations tab's Enable all leaves them alone). `options` names the MainOptions field holding the page's options.
+-- Optimizations tab's Enable all leaves them alone). `options` names the MainOptions field holding the page's options,
+-- `masterField` the one holding its master switch (back on as well).
 local PAGE_RESET = "Reset to defaults"
-local function addResetButton(self, splitpoint, y, options, note)
+local function addResetButton(self, splitpoint, y, options, note, masterField)
     local b = self:addButton(splitpoint, y, PAGE_RESET)
-    b.tooltip = "Puts every setting on this tab back to the build's default. " .. note
+    b.tooltip = "Puts every setting on this tab back to the build's default, the master switch on. " .. note
     b.target = self
     b.onclick = function(target)
+        local master = target[masterField]
+        if master then
+            master:pzoptReset()
+            master:invokeOnChangeEvent()
+        end
         for _, option in ipairs(target[options] or {}) do
             option:pzoptReset()
             option:invokeOnChangeEvent()
@@ -2850,7 +2890,7 @@ local function addResetButton(self, splitpoint, y, options, note)
     return b
 end
 local function addProfilerButtons(self, splitpoint, y)
-    addResetButton(self, splitpoint, y, "pzoptProfilerOptions", LIVE_NOTE)
+    addResetButton(self, splitpoint, y, "pzoptProfilerOptions", LIVE_NOTE, "pzoptProfilerMaster")
 end
 
 -- "Install DLSS files": the natives DLSS needs that a release does not carry (pzopt.UpscalerDeps, Linux x86-64 with
@@ -2916,7 +2956,10 @@ end
 local function layout(self, comboWidth)
     local W = self:getWidth()
     local gap, margin, sbar = 40, 16, 13
-    local labelW = getTextManager():MeasureStringX(UIFont.Small, MASTER.label)
+    local labelW = 0
+    for _, master in ipairs({ MASTER, ENHANCEMENTS_MASTER, PROFILER_MASTER }) do
+        labelW = math.max(labelW, getTextManager():MeasureStringX(UIFont.Small, master.label))
+    end
     for _, sections in ipairs({ SECTIONS, ENHANCEMENT_SECTIONS, PROFILER_SECTIONS }) do
         for _, section in ipairs(sections) do
             for _, entry in ipairs(section.entries) do
@@ -2949,7 +2992,7 @@ end
 -- `panel` / `options` / `search` / `preview` name the MainOptions fields that hold the page's parts.
 local PAGES = {
     {
-        tab = TAB, sections = SECTIONS, master = MASTER, buttons = addAllButtons,
+        tab = TAB, sections = SECTIONS, master = MASTER, masterField = "pzoptMaster", masterClip = "drive", buttons = addAllButtons,
         panel = "pzoptPanel", options = "pzoptOptions", search = "pzoptSearch", preview = "pzoptPreview",
         footer = "Changes take effect on the next launch. File: Zomboid/pzopt/options.ini",
         headline = function(p)
@@ -2958,8 +3001,9 @@ local PAGES = {
     },
     {
         tab = ENHANCEMENTS_TAB, sections = ENHANCEMENT_SECTIONS,
+        master = ENHANCEMENTS_MASTER, masterField = "pzoptEnhancementMaster", masterClip = "upscale",
         buttons = function(o, splitpoint, y)
-            addResetButton(o, splitpoint, y, "pzoptEnhancementOptions", "Applies as soon as you press Apply; the two HDR output switches on the next launch.")
+            addResetButton(o, splitpoint, y, "pzoptEnhancementOptions", "Applies as soon as you press Apply; HDR output, per-pixel lighting and reflections on the next launch.", "pzoptEnhancementMaster")
             addUpscalerDepsButton(o, splitpoint, y)
         end,
         panel = "pzoptEnhancementPanel", options = "pzoptEnhancementOptions", search = "pzoptEnhancementSearch",
@@ -2973,6 +3017,7 @@ local PAGES = {
     },
     {
         tab = PROFILER_TAB, sections = PROFILER_SECTIONS, buttons = addProfilerButtons,
+        master = PROFILER_MASTER, masterField = "pzoptProfilerMaster", masterClip = "overlay",
         panel = "pzoptProfilerPanel", options = "pzoptProfilerOptions", search = "pzoptProfilerSearch",
         preview = "pzoptProfilerPreview",
         footer = "Changes apply as soon as you press Apply, no restart needed. File: Zomboid/pzopt/options.ini",
@@ -3018,10 +3063,10 @@ local function buildSettingsPage(self, page)
     end
     addSectionLine(self, y, page.headline(p), L.x0, L.lineW)
     if page.master then
-        self.pzoptMaster = nil
+        self[page.masterField] = nil
         if p:isPzoptOptionKnown(page.master.key) then
-            self.pzoptMaster = addBoolOption(self, page.master, splitpoint, y, BUTTON_HGT)
-            addRow(page.master, self.pzoptMaster, "drive")
+            self[page.masterField] = addBoolOption(self, page.master, splitpoint, y, BUTTON_HGT)
+            addRow(page.master, self[page.masterField], page.masterClip)
             if p:getPzoptOptionPinnedBy(page.master.key) ~= "" then pinned = pinned + 1 end
         end
     end

@@ -20,6 +20,13 @@ import java.util.Properties;
  *                            "Disable all (stock)" / "Enable all" buttons of the Optimizations tab set it (default true).
  *                            The overlay and its profiler (the Profiler tab's keys) keep working with it off
  *                            (Overlay needs only Overrides.buildMatches(), 2026-09-24)
+ *   enhancementsEnabled true/false  the Enhancements tab's master switch (2026-09-28): false reads every enhancement's
+ *                            own switch (upscaler, spriteFilter, hdr, hdrAuto, ambientOcclusion, sunShadows, reflections,
+ *                            darknessFloorPct, memoryTint, colorGrading, pixelLight, godRays) as off unless -D / pzopt.properties
+ *                            pins it; the tab's choices stay saved. Live, except what hdr / hdrAuto / pixelLight /
+ *                            reflections pick at start-up (default true)
+ *   profilerEnabled true/false  the Profiler tab's master switch: false reads overlaySampling, overlay and overlayLog as
+ *                            false (no overlay, samplers or frame log; harness runs still measure). Live (default true)
  *   parallel    true/false   kill switch: false forces the stock single-threaded pass (default true)
  *   workers     int          recalc pool width; clamped to [1, availableProcessors - 1] (default: min(4, cores - 1), 1 on
  *                            4 cores or fewer: there the three workers took the game thread's core, Dell i5-6300HQ 2026-09-21)
@@ -342,6 +349,12 @@ public final class Config {
    /** The keys that apply while the game runs (registered by {@link #loadLive}): the Profiler tab's. */
    private static final java.util.HashSet<String> LIVE = new java.util.HashSet<>();
    private static boolean loadingLive;
+   /**
+    * The Enhancements and Profiler tabs' master switches (2026-09-28): key -> {master, value while the master is off}.
+    * Off, these keys read as their off value unless -D or pzopt.properties pins them (harness runs keep their props);
+    * the player's own choices stay in options.ini for when the master is on again. Declared before the first read.
+    */
+   private static final java.util.Map<String, String[]> GATED = gated();
    private static final Properties props = load();
    /** The player's Options > Optimizations choices (Zomboid/pzopt/options.ini), below props and -D. */
    private static final Properties userProps = UserOptions.load();
@@ -1099,6 +1112,8 @@ public final class Config {
    public static volatile boolean SPRITE_FILTER_SHARP_MIPS; // sharp, zoomed out 2x and more: mip level 1 of each baked chunk texture is a Lanczos-2 downsample instead of the 2x2 box (pzopt.SpriteMips)
    public static volatile boolean SPRITE_FILTER_LINEAR_LIGHT; // sharp, zoomed out: the taps (and the sharp mip level) averaged in linear light (gamma 2), so thin bright lines keep their brightness; stock filters the encoded values
    public static volatile boolean SPRITE_FILTER_SKIP_EMPTY; // sharp, zoomed out: one coarse probe skips the taps where the texture is empty
+   public static volatile boolean ENHANCEMENTS_ENABLED; // Enhancements tab master switch: false = every enhancement off (GATED), the tab's choices kept
+   public static volatile boolean PROFILER_ENABLED; // Profiler tab master switch: false = no overlay, sampling or frame log outside harness runs (GATED)
    public static volatile boolean OVERLAY_SAMPLING; // measure at all (ring, GL timer queries, sampler thread); off by default since 2026-09-21
    public static volatile boolean OVERLAY;
    public static volatile boolean OVERLAY_LOG;
@@ -1135,6 +1150,9 @@ public final class Config {
 
    private static void loadLive() {
       loadingLive = true;
+      // the two tabs' master switches (2026-09-28): off, their feature keys read as off (GATED, raw)
+      ENHANCEMENTS_ENABLED = bool("enhancementsEnabled", true);
+      PROFILER_ENABLED = bool("profilerEnabled", true);
       // The Enhancements tab's keys (2026-09-25): upscaling, the HDR sliders (not hdr / hdrAuto: on Linux they pick the
       // window the game starts with), ambient occlusion; pzopt.Enhancements applies a change (UserOptions.set)
       UPSCALER = string("upscaler", "off").trim().toLowerCase(java.util.Locale.ROOT);
@@ -1270,7 +1288,52 @@ public final class Config {
       if (v == null) {
          v = props.getProperty(key);
       }
-      return v != null ? v : userProps.getProperty(key);
+      if (v != null) {
+         return v;
+      }
+      String[] gate = GATED.get(key);
+      if (gate != null && !masterOn(gate[0])) {
+         return gate[1];
+      }
+      return userProps.getProperty(key);
+   }
+
+   /** A tab master switch (enhancementsEnabled / profilerEnabled), read through the usual order; on unless "false". */
+   private static boolean masterOn(String master) {
+      String v = raw(master);
+      return v == null || !v.trim().equalsIgnoreCase("false");
+   }
+
+   private static java.util.Map<String, String[]> gated() {
+      java.util.Map<String, String[]> m = new java.util.HashMap<>();
+      String[][] groups = {
+         // the switch of each feature on the Enhancements tab; the rest of each section only tunes it
+         {"enhancementsEnabled", "upscaler", "off", "spriteFilter", "stock", "hdr", "false", "hdrAuto", "false",
+            "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "darknessFloorPct", "0",
+            "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false"},
+         // everything that makes the overlay measure or show (Overlay.configure; harness runs still measure)
+         {"profilerEnabled", "overlaySampling", "false", "overlay", "false", "overlayLog", "false"},
+      };
+      for (String[] g : groups) {
+         for (int i = 1; i < g.length; i += 2) {
+            m.put(g[i], new String[] {g[0], g[i + 1]});
+         }
+      }
+      return m;
+   }
+
+   /** The keys a tab master switch turns off, or null when {@code key} is not one. */
+   static java.util.List<String> gatedBy(String key) {
+      java.util.List<String> keys = null;
+      for (java.util.Map.Entry<String, String[]> e : GATED.entrySet()) {
+         if (e.getValue()[0].equals(key)) {
+            if (keys == null) {
+               keys = new java.util.ArrayList<>();
+            }
+            keys.add(e.getKey());
+         }
+      }
+      return keys;
    }
 
    private static <T> T register(String key, T effective, T def) {

@@ -96,6 +96,16 @@ public final class Overlay {
       "Tick \"Sample frame times and utilization\" under Options > Profiler > Performance overlay,",
       "apply, then toggle the overlay again (no restart needed)."
    };
+   /** The same with the Profiler tab's master switch off (profilerEnabled=false, 2026-09-28). */
+   private static final String[] NOTICE_MASTER = {
+      "Performance overlay: the profiler is switched off.",
+      "Tick \"Profiler enabled (master switch)\" at the top of Options > Profiler,",
+      "apply, then toggle the overlay again (no restart needed)."
+   };
+
+   private static String[] notice() {
+      return Config.PROFILER_ENABLED ? NOTICE : NOTICE_MASTER;
+   }
    private static long noticeUntilNs;
    private static final long WINDOW_NS = 5_000_000_000L;
    private static long refreshNs;
@@ -464,7 +474,9 @@ public final class Overlay {
          Log.info("overlay: " + (visible ? "shown" : "hidden"));
       } else {
          noticeUntilNs = System.nanoTime() + NOTICE_NS;
-         Log.info("overlay: sampling is off (overlaySampling=false); " + NOTICE[1] + " " + NOTICE[2]);
+         String[] notice = notice();
+         Log.info("overlay: sampling is off (" + (Config.PROFILER_ENABLED ? "overlaySampling" : "profilerEnabled") + "=false); "
+               + notice[1] + " " + notice[2]);
       }
    }
 
@@ -868,24 +880,25 @@ public final class Overlay {
 
    /** The toggle key with sampling off: {@link #NOTICE} in the overlay's corner for {@link #NOTICE_NS}. */
    private static void renderNotice() {
+      String[] lines = notice();
       TextManager tm = TextManager.instance;
       UIFont font = font();
       int lineH = tm.getFontHeight(font);
       int pad = 8;
       int textW = 0;
-      for (String line : NOTICE) {
+      for (String line : lines) {
          textW = Math.max(textW, tm.MeasureStringX(font, line));
       }
       int w = textW + pad * 2;
-      int h = NOTICE.length * lineH + pad * 2;
+      int h = lines.length * lineH + pad * 2;
       String corner = Config.OVERLAY_CORNER;
       int x = corner.endsWith("r") ? Core.getInstance().getScreenWidth() - w - 10 : 10;
       int y = corner.startsWith("b") ? Core.getInstance().getScreenHeight() - h - 10 : 10;
       SpriteRenderer.instance.renderi(null, x, y, w, h, 0f, 0f, 0f, 0.65f, null);
       int ty = y + pad;
-      for (int i = 0; i < NOTICE.length; i++) {
+      for (int i = 0; i < lines.length; i++) {
          float[] c = i == 0 ? AMBER : WHITE;
-         tm.DrawString(font, x + pad, ty, NOTICE[i], c[0], c[1], c[2], 1.0);
+         tm.DrawString(font, x + pad, ty, lines[i], c[0], c[1], c[2], 1.0);
          ty += lineH;
       }
    }

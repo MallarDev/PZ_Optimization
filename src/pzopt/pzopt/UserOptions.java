@@ -87,8 +87,32 @@ public final class UserOptions {
          }
          live.setProperty(key, value);
       }
+      // a tab master switch: every key it gates whose value in force moved is applied as if set on its own
+      java.util.List<String> gated = Config.gatedBy(key);
+      String[] before = null;
+      if (gated != null) {
+         before = new String[gated.size()];
+         for (int i = 0; i < before.length; i++) {
+            before[i] = Config.value(gated.get(i));
+         }
+      }
       boolean now = Config.reloadLive(key);
-      if (now && Enhancements.owns(key)) {
+      if (now && gated != null) {
+         boolean overlay = false;
+         for (int i = 0; i < before.length; i++) {
+            String k = gated.get(i);
+            if (Config.isLive(k) && !java.util.Objects.equals(before[i], Config.value(k))) {
+               if (Enhancements.owns(k)) {
+                  Enhancements.apply(k);
+               } else {
+                  overlay = true;
+               }
+            }
+         }
+         if (overlay) {
+            Overlay.reconfigure();
+         }
+      } else if (now && Enhancements.owns(key)) {
          Enhancements.apply(key);
       } else if (now) {
          Overlay.reconfigure();
