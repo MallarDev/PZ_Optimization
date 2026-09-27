@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Runs and videos to the cold-storage bucket (2026-09-27, the disk was full): gs://diegov-videos-coldline (Coldline,
-private), objects at the path the file has under the home directory of the main checkout
+public read: anyone can play a linked video), objects at the path the file has under the home directory of the main checkout
 (home/diegov/Documents/ZedProjects/PZ_Optimization/<path in the checkout>; a worktree's files go to the main checkout's
 path: run folder names are unique). Every run video uploaded is linked in the Grafana DBs (local and remote, table
 run_videos: the Runs table's "video" column and the Run dashboard's video panel).
@@ -14,8 +14,8 @@ run_videos: the Runs table's "video" column and the Run dashboard's video panel)
                                                     (git-tracked files are never deleted); --min-age-h skips files newer
     harness/cold-store.py link <run> <object>       record one run's video by hand
 
-The bucket is private (public access prevention on): a link opens for an account with access to project diegov, not
-for anonymous visitors of the public dashboard. Progress and every upload go to ~/.cache/pzopt-cold-store/log.txt;
+The bucket is public (allUsers read, since 2026-09-27; personal videos moved to the private
+gs://diegov-videos-coldline-private): the links play for everyone, and every read is billed (Coldline retrieval + egress). Progress and every upload go to ~/.cache/pzopt-cold-store/log.txt;
 finished run folders to ~/.cache/pzopt-cold-store/done-runs.txt (a rerun skips them).
 """
 import argparse
@@ -59,7 +59,7 @@ def object_of(path):
 
 
 def url_of(obj):
-    return f"https://storage.cloud.google.com/{BUCKET}/{urllib.parse.quote(obj)}"
+    return f"https://storage.googleapis.com/{BUCKET}/{urllib.parse.quote(obj)}"
 
 
 def listing(prefix):

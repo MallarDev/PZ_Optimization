@@ -619,15 +619,16 @@ EUR 5 budget alert (20 / 50 / 100 %) on that label; `harness/grafana/cloud.sh de
 
 ## Cold storage of runs and videos (GCP, 2026-09-27)
 
-`gs://diegov-videos-coldline` (project diegov, Coldline, private: public access prevention on) holds run folders and
+`gs://diegov-videos-coldline` (project diegov, Coldline, public read since 2026-09-27: `allUsers` objectViewer; personal
+videos that were in it live in the private `gs://diegov-videos-coldline-private`) holds run folders and
 videos at the path they have under the home directory of the main checkout
 (`home/diegov/Documents/ZedProjects/PZ_Optimization/harness/runs/<run>/...`; a worktree's runs go to the main checkout's
 path). `harness/cold-store.py runs <runs dir>...` uploads whole run folders except the raw dev dumps (`*.f16`, `*.f32`,
 `*.bin`, `capture/frames.rgba|gray`); `harness/cold-store.py videos --delete [--min-age-h H] <dir>...` moves video files
 (uploads, checks the bucket's size, deletes the local copy; git-tracked files are never deleted). Every run video is
 linked in both Grafana DBs (table `run_videos`, its own table so a re-import keeps it): the Runs table's `video` column
-and the Run dashboard's Recording panel. The links (`storage.cloud.google.com`) open for an account with access to the
-project, not for anonymous visitors. Log: `~/.cache/pzopt-cold-store/log.txt`. The desktop's uplink is ~6 MB/s
+and the Run dashboard's Recording panel. The links (`storage.googleapis.com`) play for everyone; every read is billed
+(Coldline retrieval + egress), so never put anything but PZ run data in this bucket. Log: `~/.cache/pzopt-cold-store/log.txt`. The desktop's uplink is ~6 MB/s
 (parallel uploads do not help): ~6 minutes a GB. Coldline: 90-day minimum storage, a retrieval fee per GB read.
 
 ## Pitfalls that already cost runs

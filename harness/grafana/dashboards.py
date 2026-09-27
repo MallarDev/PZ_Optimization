@@ -530,8 +530,7 @@ SELECT started, run, CASE WHEN v.url IS NOT NULL THEN 'video' END AS video, v.ur
 FROM runs LEFT JOIN run_videos v USING (run) WHERE {where} ORDER BY started DESC""",
         desc="Frame times in ms over the route window (pzopt-frames.out); CPU / GPU from sysmon, game thread from pzopt-threads.out. "
              "Click a run for its dashboard, 'previous' to compare with the last run of the same label, 'video' for its recording "
-             "(the cold-storage bucket gs://diegov-videos-coldline, private: opens for an account with access to the project; "
-             "harness/cold-store.py uploads and links them).",
+             "(the cold-storage bucket gs://diegov-videos-coldline; harness/cold-store.py uploads and links them).",
         overrides=[
             ov("run", link=[("Run dashboard", "/d/pzopt-run/run?var-run=${__value.raw}")], width=300),
             ov("previous", link=[("Compare with this run", "/d/pzopt-compare/compare?var-runs=${__data.fields.previous}&var-runs=${__data.fields.run}&var-base=${__data.fields.previous}")], width=260),
@@ -607,8 +606,8 @@ SELECT k AS fact, v AS value FROM runs, LATERAL (VALUES
 ) AS x(k, v) WHERE run = {RUN} AND v IS NOT NULL""", overrides=[ov("fact", width=130)]), 24, 11)
     L.add(table_panel("Recording", f"""
 SELECT 'open the recording' AS video, url, pg_size_pretty(bytes) AS size, uploaded FROM run_videos WHERE run = {RUN}""",
-        desc="The run's video in the cold-storage bucket gs://diegov-videos-coldline (Coldline, private: opens for an account with "
-             "access to the project). harness/cold-store.py uploads run videos and links them here; no row: the run has no video.",
+        desc="The run's video in the cold-storage bucket gs://diegov-videos-coldline (Coldline, public). harness/cold-store.py "
+             "uploads run videos and links them here; no row: the run has no video.",
         overrides=[ov("video", link=[("The run's recording (cold storage)", "${__data.fields.url}")], width=200), ov("url", hidden=True),
                    ov("uploaded", unit="dateTimeAsIso", width=180)]), 24, 3)
 

@@ -3118,7 +3118,7 @@
   {
    "type": "table",
    "title": "Runs",
-   "description": "Frame times in ms over the route window (pzopt-frames.out); CPU / GPU from sysmon, game thread from pzopt-threads.out. Click a run for its dashboard, 'previous' to compare with the last run of the same label, 'video' for its recording (the cold-storage bucket gs://diegov-videos-coldline, private: opens for an account with access to the project; harness/cold-store.py uploads and links them).",
+   "description": "Frame times in ms over the route window (pzopt-frames.out); CPU / GPU from sysmon, game thread from pzopt-threads.out. Click a run for its dashboard, 'previous' to compare with the last run of the same label, 'video' for its recording (the cold-storage bucket gs://diegov-videos-coldline; harness/cold-store.py uploads and links them).",
    "datasource": {
     "type": "grafana-postgresql-datasource",
     "uid": "pzopt-pg"
