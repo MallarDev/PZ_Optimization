@@ -26,7 +26,7 @@ for name in ('water', 'water_hq'):
     anchor = "fragColor.a = min(levelf, 1.0);"
     c = src.replace("gl_FragColor", "gl_FragData[0]")
     c = c.replace("void mainImage(", const('SURFACE_GLSL') + "\nvoid mainImage(")
-    c = c.replace(anchor, anchor + "\n    pzGlint = pzHdrWaterGlint(gm, pzWindowPx()) * fragColor.a;")
+    c = c.replace(anchor, anchor + "\n    pzGlint = pzHdrWaterGlint(gm, pzWindowPx(), uv) * fragColor.a;")
     c = c.replace("void main()", "void pzWaterMain()")
     c += "\nvoid main() {\n  pzWaterMain();\n  gl_FragData[1] = vec4(pzGlint / (1.0 + pzGlint), pzSurfNow());\n}\n"
     open('/tmp/pz_%s_patched.frag' % name, 'w').write(c)
@@ -50,7 +50,7 @@ def units(path, patch_glsl=None):
 def patch_puddles(code):
     anchor = "fragColor.a = mix(fragColor.a, 0.5+muddyPuddles*0.3, alphaPuddlesReflection);"
     at = code.index("void mainImage("); an = code.index(anchor, at)
-    c = code[:an + len(anchor)] + "\n    pzGlint = pzHdrWaterGlint(normalize(gm), pzWindowPx()) * alphaPuddlesReflection;" + code[an + len(anchor):]
+    c = code[:an + len(anchor)] + "\n    pzGlint = pzHdrWaterGlint(normalize(gm), pzWindowPx(), uv) * alphaPuddlesReflection;" + code[an + len(anchor):]
     c = c.replace("gl_FragColor = fragCol;", "gl_FragData[0] = fragCol;\n    gl_FragData[1] = vec4(pzGlint / (1.0 + pzGlint), pzSurfNow());")
     first = c.index("vec2 SphereMap(")
     return c[:first] + const('SURFACE_GLSL') + "\n" + c[first:]

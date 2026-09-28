@@ -365,6 +365,22 @@ A lamp left on inside the darkened grocery rises 2.2x on the PR (stands out in t
 blew out a bloom blob in the lit grocery with every light on (max 912 vs 505 nits). Light back on: both return to the
 `on` picture. Jev over the numbers: issue in master 0.97, fixed 0.96, verdict fixed (0.98).
 
+## Sun glitter on water (2026-09-28, flip report "HDR glint on water is too strong")
+
+Rig: `--mode verify --source-save Sandbox/2026-09-26_03-37-09` (the maintainer's lake pier at 6417,5165, 16:30, clear)
+on the flip with `--prop hdr=true --prop hdrDumpAt=8,10 --prop hdrTune=<file>` and `[sweep]` sets, `tools/hdr/hdrframe.py`
+(runs `flip-glint-sweep-*`, `flip-glint-final-*`). The old glint was one Blinn-Phong lobe (exponent 150, 8x SDR white) on
+the resolved wave normal with the sun leaned 60 % toward the view's mirror: every wave crest facing the half vector lit,
+so half the lake was white pixel blobs pinned at the panel's peak (2.1 % of the frame above the UI white; with the
+physical sun, `sunLean=0`, none at all). Now (`Hdr.SURFACE_GLSL` `pzHdrWaterGlint`, `HdrGlint.glitterSlope`) each
+world-anchored pixel-sized cell (power-of-two in the wave uv, stable while panning) is one sub-pixel facet: resolved slope
++ a Gaussian slope of the Cox-Munk width for the wind (`0.003 + 0.00512 U`, x `glintRough` 0.8), lit only inside a narrow
+lobe (`glintLobe` 1200) for one wave phase (`glintTwinkle` 3 per s, sin² envelope, frozen while paused: `WTime`), x the
+facet's Fresnel relative to the steep camera's 3 % (a low sun in front glitters harder), plus a faint sheen (`glintSheen`
+0.1: the facets' Beckmann lobe on the resolved normal). Same frame: 0.14 % above the UI white, isolated pinpoints at the
+peak over a soft sheen; `sunLean` 0.45 / 0.3 leave almost nothing at that hour, so 0.6 stays. Lamp glints at night and
+the car speculars are unchanged (`glintShine` only drives those now).
+
 ## State (2026-09-24 10:10)
 
 `hdr=true` on KDE Plasma 6 with HDR on gives: UI at the desktop's white, the world as SDR in daylight, lamp / torch /

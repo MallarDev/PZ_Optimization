@@ -18,10 +18,17 @@ import zombie.iso.weather.ClimateManager;
  * Speculars and sky for the HDR output (Hdr, tune {@code glint}): what daylight lacked. PZ draws water and puddles with
  * their own shaders, which know the surface normal (the water's animated waves, the puddles' rain ripples) but cap
  * everything at the 8-bit world buffer. Those shaders get a second output here (ShaderUnit hook, Hdr.patchShader): the
- * HDR part the surface would reflect - a sun glint (Blinn-Phong on the wave normal, the sun from the time of day),
- * the sky (Fresnel, bright at grazing angles, tinted by the hour and dimmed by clouds and rain), and at night the lamps,
+ * HDR part the surface would reflect - the sun's glitter (below), the sky (Fresnel, bright at grazing angles, tinted by
+ * the hour and dimmed by clouds and rain), and at night the lamps,
  * torches and headlights over the water (the light map at the pixel) - into an RGBA8 target attached to the world
  * framebuffer as colour attachment 1: rgb = g / (1 + g) (the glint, reversible), a = the finished pixel's luminance.
+ *
+ * Sun glitter (2026-09-28, the flip report "HDR glint on water is too strong"): a wide Blinn-Phong lobe on the resolved
+ * wave normal lit half the lake with pixel blobs at the panel's peak. Now each world-anchored pixel-sized cell is one
+ * sub-pixel wave facet: the resolved slope plus a Gaussian slope of the Cox-Munk width for the wind (glitterSlope), lit
+ * only while it mirrors the sun within a narrow lobe (Tune.glintLobe), for one short wave phase (Tune.glintTwinkle), x the
+ * facet's Fresnel; plus a faint sheen, the facets' Beckmann lobe on the resolved normal. Glitter is dense only where the
+ * sun (leaned toward the view's mirror by Tune.sunLean) and the wind put it, sparse pinpoints elsewhere.
  *
  * The attachment is only a draw buffer during a glint-only pass that draws the water and the puddles once more after the
  * moving objects (colour writes off; unpatched shaders would broadcast gl_FragColor into it) and for each car body draw.
@@ -40,6 +47,8 @@ public final class HdrGlint {
    private static boolean needClear = true, drawnSinceComposite;
    /** sun direction in the water shaders' frame (y up, x screen right, z screen down) + strength; sky colour + strength */
    static final float[] sun = new float[4], sky = new float[4];
+   /** sub-pixel wave slope width of the sun glitter (per axis): Cox-Munk for the wind now, x Tune.glintRough */
+   static volatile float glitterSlope = 0.1F;
    /** how strong the sun is now: daylight x clear sky x above the horizon (0 at night, in rain, under cloud) */
    static volatile float sunStrength;
    /** the climate's daylight strength (0 night .. 1 noon): caps the frame-average night key (Hdr.pzHdrNight) */
@@ -65,6 +74,9 @@ public final class HdrGlint {
       float day = cm != null ? Math.max(0F, Math.min(1F, cm.getDayLightStrength())) : 1F;
       float cloud = cm != null ? Math.max(0F, Math.min(1F, cm.getCloudIntensity())) : 0F;
       float rain = cm != null ? Math.max(0F, Math.min(1F, cm.getPrecipitationIntensity())) : 0F;
+      // Cox & Munk (1954): mean square slope of a wind-roughened sea 0.003 + 0.00512 x wind (m/s), split over two axes
+      double wind = cm != null ? Math.max(0F, cm.getWindspeedKph()) / 3.6 : 3.0;
+      glitterSlope = t.glintRough * (float)Math.sqrt((0.003 + 0.00512 * wind) / 2.0);
       // the sun's path: east at 6 h, south at noon, west at 18 h; in the water frame east is screen right-down,
       // south screen left-down (PZ: +x east, +y south)
       double a = Math.PI * (hour - 6.0) / 12.0;
@@ -199,7 +211,7 @@ public final class HdrGlint {
       if (now - lastLogMs > 10_000L) {
          lastLogMs = now;
          Log.info("hdr glint: on " + onCalls + " (other framebuffer " + onOtherFbo + "), clears " + clears + ", composites " + compositesValid + "/" + composites
-               + ", sun " + String.format("%.2f,%.2f,%.2f x%.2f", sun[0], sun[1], sun[2], sun[3]) + ", sky x" + String.format("%.2f", sky[3]));
+               + ", sun " + String.format("%.2f,%.2f,%.2f x%.2f", sun[0], sun[1], sun[2], sun[3]) + ", sky x" + String.format("%.2f", sky[3]) + ", glitter slope " + String.format("%.3f", glitterSlope));
       }
       TextureFBO world = Core.getInstance().getOffscreenBuffer();
       if (world == null || world.getTexture() == null) {
@@ -326,6 +338,7 @@ public final class HdrGlint {
       GL20.glUniform4f(GL20.glGetUniformLocation(prog, "pzHdrSky"), sky[0], sky[1], sky[2], sky[3]);
       Hdr.Tune t = Hdr.tune;
       GL20.glUniform4f(GL20.glGetUniformLocation(prog, "pzHdrGlintP"), t.glintShine, t.glint > 0F ? 1F : 0F, t.glint * t.lampGlint, 0F);
+      GL20.glUniform4f(GL20.glGetUniformLocation(prog, "pzHdrGlintQ"), glitterSlope, t.glintTwinkle, t.glintLobe, t.glintSheen);
       GL20.glUniform1i(GL20.glGetUniformLocation(prog, "pzHdrNow"), NOW_UNIT);
       GL20.glUniform4f(GL20.glGetUniformLocation(prog, "pzHdrNowP"), glintOnly ? 1F : 0F, 0F, nowInv[0], nowInv[1]);
       Hdr.surfaceLightUniforms(prog);

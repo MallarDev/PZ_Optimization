@@ -112,14 +112,18 @@ public final class Hdr {
       float lightTint = 0.6F; // how much the light's own colour tints its gain (fire warm, lamps white)
       float lightReach = 0.6F; // levels: vertical surfaces take the light of the floor in front of them (down-screen samples)
       float glint = 1F; // speculars and sky reflections of water / puddles (HdrGlint), overall strength (0 = off)
-      float sunGlint = 8F; // sun glint peak (x SDR white) on a clear day (4 peaked near the UI white, hdr28-riverday)
+      float sunGlint = 8F; // sun glitter peak (x SDR white) on a clear day, per facet (4 peaked near the UI white, hdr28-riverday)
       float skyReflect = 0.6F; // sky reflection strength (Fresnel), x the sky colour
-      float glintShine = 150F; // specular exponent of the sun glint
+      float glintShine = 150F; // specular exponent of the car speculars (x0.5) and the lamp glints on water (x0.4)
       float lampGlint = 1.5F; // lamps / torches / headlights glittering on water at night
       float carGlass = 3F, carPaint = 0.8F; // car speculars (the game's own five model lights): windows, paint (x SDR white)
       float vehLamp = 4F; // active headlights / taillights as emitters (x their SDR colour)
       float sunMax = 1.6F; // sunlit outdoors on a clear day (x the SDR picture): what the sun adds over the shade
       float sunLean = 0.6F; // 0 = the physical sun, 1 = the mirror of the view (glitter everywhere)
+      float glintRough = 0.8F; // sub-pixel wave slopes of the sun glitter, x the Cox-Munk width of the wind (more = more, fainter-lobed facets)
+      float glintLobe = 1200F; // how exactly a glitter facet must mirror the sun (specular exponent: the sun disk + the facet's curvature)
+      float glintTwinkle = 3F; // glitter facet lifetimes a second (wave phases)
+      float glintSheen = 0.1F; // the dense glitter seen as a whole (the facet lobe's average on the resolved wave normal)
 
       Tune copy() {
          Tune t = new Tune();
@@ -154,6 +158,10 @@ public final class Hdr {
          t.glintShine = glintShine;
          t.lampGlint = lampGlint;
          t.sunLean = sunLean;
+         t.glintRough = glintRough;
+         t.glintLobe = glintLobe;
+         t.glintTwinkle = glintTwinkle;
+         t.glintSheen = glintSheen;
          t.sunMax = sunMax;
          t.carGlass = carGlass;
          t.carPaint = carPaint;
@@ -194,6 +202,10 @@ public final class Hdr {
             case "glintShine" -> glintShine = v;
             case "lampGlint" -> lampGlint = v;
             case "sunLean" -> sunLean = v;
+            case "glintRough" -> glintRough = v;
+            case "glintLobe" -> glintLobe = v;
+            case "glintTwinkle" -> glintTwinkle = v;
+            case "glintSheen" -> glintSheen = v;
             case "sunMax" -> sunMax = v;
             case "carGlass" -> carGlass = v;
             case "carPaint" -> carPaint = v;
@@ -205,8 +217,8 @@ public final class Hdr {
       @Override
       public String toString() {
          return String.format("uiNits=%.0f paperPct=%.0f peakNits=%.0f itm=%.2f thresholdDay=%.2f thresholdNight=%.2f curve=%.2f chroma=%.2f"
-               + " saturation=%.2f knee=%.2f blackLift=%.2f gamma=%.2f nightLo=%.3f nightHi=%.3f bloom=%.2f light=%.2f lightCurve=%.2f lightFlipY=%.0f debugView=%.0f lightMax=%.2f itmDay=%.2f flashMax=%.2f lightReach=%.2f lightHot=%.2f lightTint=%.2f glint=%.2f sunGlint=%.2f skyReflect=%.2f glintShine=%.0f lampGlint=%.2f sunLean=%.2f sunMax=%.2f carGlass=%.2f carPaint=%.2f vehLamp=%.2f", uiNits, paperPct, peakNits, itm,
-               thresholdDay, thresholdNight, curve, chroma, saturation, knee, blackLift, gamma, nightLo, nightHi, bloom, light, lightCurve, lightFlipY, debugView, lightMax, itmDay, flashMax, lightReach, lightHot, lightTint, glint, sunGlint, skyReflect, glintShine, lampGlint, sunLean, sunMax, carGlass, carPaint, vehLamp);
+               + " saturation=%.2f knee=%.2f blackLift=%.2f gamma=%.2f nightLo=%.3f nightHi=%.3f bloom=%.2f light=%.2f lightCurve=%.2f lightFlipY=%.0f debugView=%.0f lightMax=%.2f itmDay=%.2f flashMax=%.2f lightReach=%.2f lightHot=%.2f lightTint=%.2f glint=%.2f sunGlint=%.2f skyReflect=%.2f glintShine=%.0f lampGlint=%.2f sunLean=%.2f glintRough=%.2f glintLobe=%.0f glintTwinkle=%.1f glintSheen=%.2f sunMax=%.2f carGlass=%.2f carPaint=%.2f vehLamp=%.2f", uiNits, paperPct, peakNits, itm,
+               thresholdDay, thresholdNight, curve, chroma, saturation, knee, blackLift, gamma, nightLo, nightHi, bloom, light, lightCurve, lightFlipY, debugView, lightMax, itmDay, flashMax, lightReach, lightHot, lightTint, glint, sunGlint, skyReflect, glintShine, lampGlint, sunLean, glintRough, glintLobe, glintTwinkle, glintSheen, sunMax, carGlass, carPaint, vehLamp);
       }
    }
 
@@ -540,7 +552,7 @@ public final class Hdr {
       }
       String c = code.replace("gl_FragColor", "gl_FragData[0]");
       c = c.replace("void mainImage(", SURFACE_GLSL + "\nvoid mainImage(");
-      c = c.replace(anchor, anchor + "\n    pzGlint = pzHdrWaterGlint(gm, pzWindowPx()) * fragColor.a;");
+      c = c.replace(anchor, anchor + "\n    pzGlint = pzHdrWaterGlint(gm, pzWindowPx(), uv) * fragColor.a;");
       c = c.replace("void main()", "void pzWaterMain()");
       // the square's light (vertColour) scales the glint as it scales the water: unseen water (the visibility darkening) has none
       return c + "\nvoid main() {\n  pzWaterMain();\n  pzGlint *= vertColour.rgb;\n  gl_FragData[1] = vec4(pzGlint / (1.0 + pzGlint), pzSurfNow());\n}\n";
@@ -560,7 +572,7 @@ public final class Hdr {
          return null;
       }
       String c = code.substring(0, an + anchor.length())
-            + "\n    pzGlint = pzHdrWaterGlint(normalize(gm), pzWindowPx()) * alphaPuddlesReflection;"
+            + "\n    pzGlint = pzHdrWaterGlint(normalize(gm), pzWindowPx(), uv) * alphaPuddlesReflection;"
             + code.substring(an + anchor.length());
       c = c.replace("gl_FragColor = fragCol;", "gl_FragData[0] = fragCol;\n    pzGlint *= vertColour.rgb;\n    gl_FragData[1] = vec4(pzGlint / (1.0 + pzGlint), pzSurfNow());");
       int first = c.indexOf("vec2 SphereMap(");
@@ -628,6 +640,7 @@ public final class Hdr {
          "uniform vec4 pzHdrSun; // sun direction (y up, x screen right, z screen down), strength",
          "uniform vec4 pzHdrSky; // sky colour, reflection strength",
          "uniform vec4 pzHdrGlintP; // x shininess, y on, z lamp glint strength",
+         "uniform vec4 pzHdrGlintQ; // sun glitter: x sub-pixel slope width, y facet lifetimes / s, z facet lobe exponent, w sheen",
          "uniform vec4 pzHdrE; // screen rect in window px",
          "uniform vec4 pzHdrW; // world rect in world-framebuffer px",
          "uniform sampler2D pzHdrNow; // glint-only pass: the world colour as it is now (texture barrier, colour writes off)",
@@ -641,15 +654,42 @@ public final class Hdr {
          "vec2 pzWindowPx() {",
          "  return pzHdrE.xy + (gl_FragCoord.xy - pzHdrW.xy) * pzHdrE.zw / pzHdrW.zw;",
          "}",
-         "vec3 pzHdrWaterGlint(vec3 n, vec2 windowPx) {",
+         "float pzHash12(vec2 p) {",
+         "  vec3 q = fract(p.xyx * 0.1031);",
+         "  q += dot(q, q.yzx + 33.33);",
+         "  return fract((q.x + q.y) * q.z);",
+         "}",
+         "// wuv: the shader's world-anchored wave coordinate (uv), for the glitter cells",
+         "vec3 pzHdrWaterGlint(vec3 n, vec2 windowPx, vec2 wuv) {",
          "  if (pzHdrGlintP.y < 0.5) return vec3(0.0);",
          "  vec3 V = normalize(vec3(0.0, 0.62, 0.78)); // toward the iso camera",
          "  vec3 L = normalize(pzHdrSun.xyz);",
          "  vec3 H = normalize(L + V);",
-         "  float spec = pow(max(dot(n, H), 0.0), pzHdrGlintP.x) * pzHdrSun.w;",
+         "  // sun glitter: waves smaller than a pixel. Each cell (world-anchored, about a pixel, power-of-two sizes so panning",
+         "  // keeps them) is one facet: the resolved wave slope plus a random sub-pixel slope (Gaussian, the Cox-Munk width of",
+         "  // this wind, pzHdrGlintQ.x). It flashes only while it mirrors the sun into the camera, for one short wave phase.",
+         "  vec2 fw = fwidth(wuv);",
+         "  float cs = exp2(ceil(log2(max(max(fw.x, fw.y), 1e-7))));",
+         "  vec2 cell = floor(wuv / cs);",
+         "  float tt = WTime * pzHdrGlintQ.y + pzHash12(cell + 17.0);",
+         "  float ph = floor(tt);",
+         "  float u1 = max(pzHash12(cell + ph * 1.618), 1e-6);",
+         "  float u2 = pzHash12(cell.yx - ph * 2.414);",
+         "  vec2 s = pzHdrGlintQ.x * sqrt(-2.0 * log(u1)) * vec2(cos(6.2831853 * u2), sin(6.2831853 * u2));",
+         "  float ny = max(n.y, 0.2);",
+         "  vec3 mf = normalize(vec3(n.x / ny + s.x, 1.0, n.z / ny + s.y));",
+         "  float env = sin(3.1415927 * fract(tt));",
+         "  float spark = pow(max(dot(mf, H), 0.0), pzHdrGlintQ.z) * env * env;",
+         "  // dense glitter seen as a whole: the facets' Beckmann lobe on the resolved normal",
+         "  float nh = max(dot(n, H), 1e-3);",
+         "  float t2 = (1.0 - nh * nh) / (nh * nh);",
+         "  float sheen = exp(-t2 / (2.0 * pzHdrGlintQ.x * pzHdrGlintQ.x + 1e-4)) * pzHdrGlintQ.w;",
+         "  // Fresnel of the facet (relative to the ~3 % of the camera's steep view): a low sun in front glitters harder",
+         "  float vh = max(dot(V, H), 0.0);",
+         "  float fr = min((0.02 + 0.98 * pow(1.0 - vh, 5.0)) / 0.03, 3.0);",
          "  float nv = max(dot(n, V), 0.0);",
          "  float F = 0.02 + 0.98 * pow(1.0 - nv, 5.0);",
-         "  vec3 g = vec3(1.0, 0.96, 0.88) * spec + pzHdrSky.rgb * (F * pzHdrSky.a);",
+         "  vec3 g = vec3(1.0, 0.96, 0.88) * ((spark + sheen) * fr * pzHdrSun.w) + pzHdrSky.rgb * (F * pzHdrSky.a);",
          "  if (pzHdrF.z > 0.5 && pzHdrGlintP.z > 0.0) {",
          "    vec4 m = pzHdrLightAt(windowPx);",
          "    vec3 Hl = normalize(normalize(vec3(0.0, 1.0, -0.35)) + V);",
