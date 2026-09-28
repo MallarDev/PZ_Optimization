@@ -41,7 +41,7 @@ local MASTER = { key = "enabled", label = "Optimizations enabled (master switch)
 -- that pick their shaders or window at start-up (NEXT_LAUNCH_ONLY) follow on the next launch.
 local ENHANCEMENTS_MASTER = { key = "enhancementsEnabled", label = "Enhancements enabled (master switch)", live = true,
   restartKeys = { "hdr", "hdrAuto", "pixelLight", "reflections" },
-  tip = "Off = the picture is the stock game's: upscaling, sprite filtering, HDR output, ambient occlusion, sun shadows, reflections, the darkness floor, remembered places, colour grading, per-pixel lighting and god rays are all off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply. HDR output, per-pixel lighting and reflections switch on the next launch." }
+  tip = "Off = the picture is the stock game's: upscaling, sprite filtering, HDR output, ambient occlusion, sun shadows, reflections, the darkness floor, remembered places, colour grading, per-pixel lighting, god rays and foliage sway are all off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply. HDR output, per-pixel lighting and reflections switch on the next launch." }
 local PROFILER_MASTER = { key = "profilerEnabled", label = "Profiler enabled (master switch)", live = true,
   tip = "Off = no performance overlay, no measuring and no frame log: the overlay's samplers never start and the toggle key only says the profiler is off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply." }
 

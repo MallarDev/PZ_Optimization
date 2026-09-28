@@ -101,6 +101,15 @@ Keep every plant baked and move its pixels where the chunk textures are composit
   declaration. The sprite filter's composite reads `gl_FragColor` after writing it: with the motion output every use is
   renamed to `gl_FragData[0]` (a mixed use compiles but does not link).
 - RG8_SNORM is not colour-renderable on NVIDIA (the writes were dropped silently): the motion texture is RG16F.
+- After release (2026-09-28, the maintainer on the flip: "flashes white while walking with the flashlight on, every
+  enhancement off" past the Riverside Main St creek bridge): whole presented frames pure white (HUD too), in bursts of 1-5
+  frames, ~15-23 per 30 s walk east from 6270,5283 (runs `flash-*`, devCapture + a luma scan). Stock and sway off: 0. The
+  torch, invisibility and debug mode did not matter; the Enhancements master switch did not turn sway off (foliageSway was
+  missing from Config's GATED list, added). Bisect: `treeBakePass=false` -> 0, so `Sway.drawTrees` (trees baked with their
+  sway attributes): it bound its tree program with a raw glUseProgram and left the default shader bound behind
+  ShaderHelper's cache, which still named the program bound before. Rebinding through ShaderHelper (forget + bind 0, as
+  ChunkAo / FogPass do) -> 0 white frames on the same walk (run `flash-fix-sway`, 19 before). Not seen on the desktop
+  (NVIDIA).
 
 ## Cost
 

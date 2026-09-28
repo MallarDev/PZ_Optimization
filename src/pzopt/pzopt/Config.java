@@ -22,9 +22,9 @@ import java.util.Properties;
  *                            (Overlay needs only Overrides.buildMatches(), 2026-09-24)
  *   enhancementsEnabled true/false  the Enhancements tab's master switch (2026-09-28): false reads every enhancement's
  *                            own switch (upscaler, spriteFilter, hdr, hdrAuto, ambientOcclusion, sunShadows, reflections,
- *                            darknessFloorPct, memoryTint, colorGrading, pixelLight, godRays) as off unless -D / pzopt.properties
- *                            pins it; the tab's choices stay saved. Live, except what hdr / hdrAuto / pixelLight /
- *                            reflections pick at start-up (default true)
+ *                            darknessFloorPct, memoryTint, colorGrading, pixelLight, godRays, foliageSway) as off unless
+ *                            -D / pzopt.properties pins it; the tab's choices stay saved. Live, except what hdr / hdrAuto /
+ *                            pixelLight / reflections pick at start-up (default true)
  *   profilerEnabled true/false  the Profiler tab's master switch: false reads overlaySampling, overlay and overlayLog as
  *                            false (no overlay, samplers or frame log; harness runs still measure). Live (default true)
  *   parallel    true/false   kill switch: false forces the stock single-threaded pass (default true)
@@ -1348,7 +1348,7 @@ public final class Config {
          // the switch of each feature on the Enhancements tab; the rest of each section only tunes it
          {"enhancementsEnabled", "upscaler", "off", "spriteFilter", "stock", "hdr", "false", "hdrAuto", "false",
             "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "darknessFloorPct", "0",
-            "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false"},
+            "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false"},
          // everything that makes the overlay measure or show (Overlay.configure; harness runs still measure)
          {"profilerEnabled", "overlaySampling", "false", "overlay", "false", "overlayLog", "false"},
       };

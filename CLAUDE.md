@@ -198,7 +198,7 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   "Enable all (recommended defaults)". `--prop enabled=false` is a stock run without a reinstall.
   The Enhancements and Profiler tabs have their own master switches (2026-09-28, live, default on): `enhancementsEnabled`
   / `profilerEnabled`; off, Config reads the tab's feature switches (`GATED`: upscaler, spriteFilter, hdr, hdrAuto, AO,
-  sunShadows, reflections, darknessFloorPct, memoryTint, colorGrading, pixelLight, godRays / overlaySampling, overlay, overlayLog)
+  sunShadows, reflections, darknessFloorPct, memoryTint, colorGrading, pixelLight, godRays, foliageSway / overlaySampling, overlay, overlayLog)
   as off, the saved choices stay; a -D / pzopt.properties pin wins, and harness runs measure regardless.
   Preview panel (2026-09-21 night): the whole page area right of the controls, fixed while the list scrolls, every
   element in a fixed slot (description slot = the longest description wrapped; the clips take the height left, spare

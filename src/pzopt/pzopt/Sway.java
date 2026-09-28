@@ -2354,7 +2354,11 @@ public final class Sway {
          first = last;
       }
       GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
-      GL20.glUseProgram(zombie.core.SceneShaderStore.defaultShaderId); // what VBORenderer.flush leaves bound (ShaderProgram.End)
+      // what VBORenderer.flush leaves bound (ShaderProgram.End), through the game's cache: the raw glUseProgram here left
+      // ShaderHelper naming the program bound before the trees (its next start skipped, its uniform locations used on
+      // the default shader); with it the flip drew whole white frames while walking past trees (2026-09-28)
+      zombie.core.ShaderHelper.forgetCurrentlyBound();
+      zombie.core.ShaderHelper.glUseProgramObjectARB(0);
       SpriteRenderer.ringBuffer.restoreVbos = true;
       SpriteRenderer.ringBuffer.restoreBoundTextures = true;
       auxOff(); // (the next patched draw turns it back on)
