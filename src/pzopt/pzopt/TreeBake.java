@@ -151,6 +151,25 @@ public final class TreeBake {
       return ix0 < own.x0 || ix1 > own.x1 || iy0 < own.y0 || iy1 > own.y1;
    }
 
+   /** Depth step between neighbouring trees of one iso row ({@link #rowStagger}): ~6.5 DEPTH16 steps, a seventh of a square. */
+   public static final float ROW_STAGGER_STEP = 1.0E-4F;
+
+   /**
+    * Depth offset of a baked tree on square (x, y). The depth model only knows x + y and the height, so two trees on one
+    * iso row (same x + y, side by side on screen) get identical depth ramps; where their crowns overlap, the DEPTH16
+    * rounding picked the winner row by row under GL_LEQUAL, and a tree behind an out-of-sight neighbour (baked black,
+    * invisible on the black ground) showed as horizontal stripes (2026-09-29, flip, runs stripe-*). Stock staggers its
+    * per-frame billboards the same way (DepthStagger, 2e-4 per step, first come first served each frame); a baked crown
+    * copied into several textures needs the same answer in each, so the step comes from the screen column: seven
+    * steps, 3..-3, distinct for trees up to three columns apart (a jumbo crown is about seven tiles wide), 3e-4 at most,
+    * a fifth of the 1.44e-3 between two rows, so the order against other rows is kept. Two trees of one row are equally
+    * far, so which one is in front is arbitrary (stock's is too, by draw order); the one further right on screen is
+    * nearer, except across the wrap every seventh column (stock drew the yellow crown of the stripe-* spot in front).
+    */
+   public static float rowStagger(int x, int y) {
+      return (3 - Math.floorMod((x - y) >> 1, 7)) * ROW_STAGGER_STEP;
+   }
+
    /** Depth of a sprite row: the base depth at the ground row, one level's depth nearer per level of height. */
    public static float depthAtRow(float base, float ground, float row, int tileScale) {
       return base + (row - ground) * (DEPTH_PER_LEVEL / (96 * tileScale));

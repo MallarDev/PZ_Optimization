@@ -5299,3 +5299,20 @@ runs `w41h-*`).
   cache on / off: 132.6 / 133.0 fps; the samples moved to `ShaderUniformSetter.uniform1f` (safepoint bias). What remains of
   the per-frame path is a draw per sprite and `IsoTree.countObscuredSeenSquaresOriginal` asking the lighting native per
   square (~7 %), both in classes we do not override.
+
+## Baked trees of one iso row never tie in depth (`treeBakePass`, 2026-09-29)
+
+Found during issue #41: at the edge of the out-of-sight area a yellow tree's crown showed horizontal black stripes (flip,
+deep forest `start=9300,12900`, max zoom; runs `stripe-*`). Stock and `treesInChunkTexture=false` draw it whole;
+`treeBakePass=false` hides most of it. The tree pass's depth only knows x + y and the height, so a tree beside it on
+the same iso row (out of sight, baked black, invisible on the black ground) had the identical depth ramp, and the
+DEPTH16 rounding picked the winner row by row under GL_LEQUAL. Stock staggers its per-frame billboards
+(`DepthStagger`, per frame, by draw order); a baked crown copied into several textures needs the same answer in each.
+
+### zombie.iso.fboRenderChunk.FBORenderCell
+
+- `pzoptBakeTrees` and the `treeAppend` path add `pzopt.TreeBake.rowStagger(x, y)` to the tree's base depth after the
+  "below this texture's range" check: `(3 - floorMod((x - y) >> 1, 7)) * 1e-4`, distinct for trees up to three
+  columns apart, at most 3e-4 (a fifth of a row's 1.44e-3). Of two trees on one row the one further right is in front
+  (stock showed the same at that spot; the choice is arbitrary for equally far trees). The issue #5 spot
+  (`start=11023,6720`) is unchanged against `treesInChunkTexture=false`.

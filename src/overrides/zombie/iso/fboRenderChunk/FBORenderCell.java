@@ -3437,6 +3437,7 @@ public final class FBORenderCell {
                if (base < 0.0F) {
                   continue; // a nearer chunk's tree: below this texture's depth range, its own and nearer textures hold it
                }
+               base += pzopt.TreeBake.rowStagger(square.x, square.y); // pzopt: trees on one iso row never tie in depth (the striped crowns)
                ColorInfo light = this.sanitizeLightInfo(playerIndex, square);
                boolean unlit = tree.getSprite().getProperties().has(IsoFlagType.unlit) || pzopt.PixelLight.ACTIVE; // pzopt: pixelLight, trees bake unlit like the rest of the texture
                float cr = unlit ? 1.0F : light.r;
@@ -3544,6 +3545,7 @@ public final class FBORenderCell {
             if (base < 0.0F) {
                continue;
             }
+            base += pzopt.TreeBake.rowStagger(square.x, square.y); // pzopt: as in pzoptBakeTrees, the same offset in every texture
             ColorInfo light = this.sanitizeLightInfo(playerIndex, square);
             boolean unlit = tree.getSprite().getProperties().has(IsoFlagType.unlit) || pzopt.PixelLight.ACTIVE; // pzopt: pixelLight, trees bake unlit like the rest of the texture
             float cr = unlit ? 1.0F : light.r;
