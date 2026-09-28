@@ -3512,6 +3512,15 @@ balanced power profile as close to 12 W as the game can get. Findings in `docs/f
   `coreHoldMs`). Hooked from `FrameCap.stepDone`.
 - `GpuPstate` (`gpuPstate=auto|off|standard|min_sclk|min_mclk|peak`, `gpuPstateFitPct`): `AMDGPU_CTX_OP_SET_STABLE_PSTATE`
   on a context of its own on the render node (no root; released by the kernel when the context closes).
+  2026-09-28 (Steam Deck player log, 135 switches in 400 s): the step-down estimate was the flip's clock guess
+  (min_sclk 1.28x standard) while the Deck's min_sclk was 4.9x, the lower rung's failed measurement was cleared on the
+  next check, the back-off reset whenever the upper rung had headroom, and the first window after a switch still held
+  the old level's frames (min_sclk's 22.5 ms pushed standard up to automatic too). Now `GpuPstate.Governor` measures
+  each rung's slowdown on its first window after a step down and uses it for the next step-down estimate, judges only
+  frames submitted after the switch, and resets the back-off only after a level held a minute; a slowdown is only
+  learned from an upper window of at least 1 ms and clamped to 1-8x, and a world is judged from 3 s in (the flip's first
+  run stepped down on the 0.26 ms loading frames and learned 148x from the 38.7 ms storm behind them); `GpuPstateTest`
+  simulates the Deck (one min_sclk try, then standard) and the flip (down to min_sclk and stays).
 - `GcChoice` also writes `jitSteady` (`-XX:PerMethodTrapLimit=0 -XX:PerBytecodeTrapLimit=0`, marker
   `-Dpzopt.jit=steady`) into the launcher JSON; scripts/pzopt.sh, install.sh and install.ps1 remove them with the G1 switch.
 

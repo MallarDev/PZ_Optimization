@@ -25,9 +25,9 @@ import org.lwjgl.opengl.GL33;
  * <p>Modes: off | auto | standard | min_sclk | min_mclk | peak. {@code auto} holds the lowest level of the ladder
  * min_sclk -> standard -> automatic whose GPU time per frame fits the frame cap: the frame's GPU time comes from two
  * GL_TIMESTAMP queries around the render thread's sprite replay (read a few frames late, no stall); a level whose p90
- * passes {@code gpuPstateFitPct} of the frame interval steps up one rung, and the governor steps back down when the time
- * measured last at the lower rung (else this one's, scaled by half the clock ratio: the work is mostly memory-bound)
- * fits again, with a back-off that doubles each time a lower rung did not hold. min_mclk (the lowest memory clock too)
+ * passes {@code gpuPstateFitPct} of the frame interval steps up one rung, and the governor steps back down when this
+ * rung's time times the slowdown measured on the last visit of the lower rung (else half the clock ratio: the work is
+ * mostly memory-bound) fits again, with a back-off that doubles each time a lower rung did not hold ({@link Governor}). min_mclk (the lowest memory clock too)
  * is never picked by auto: it halved the frame rate on the flip. Uncapped frames and the loading screen run automatic.
  * The level is device-wide (the compositor draws at it too) while the game runs.
  */
@@ -52,8 +52,10 @@ public final class GpuPstate {
    private static int gpuCount;
 
    // governor state (render thread)
-   private static long windowStart, holdUntil, backoffNs = 5_000_000_000L;
-   private static final float[] learnedMs = new float[5]; // p90 GPU ms last measured at each level
+   private static long windowStart;
+   private static boolean settled;
+   private static int levelSince; // gpuCount from which the samples are this level's (the ones in flight at a switch are not)
+   private static final Governor GOV = new Governor();
    private static int budgetFps = 60;
    private static boolean uncapped, inWorld;
    public static long levelMs[] = new long[5];
@@ -166,12 +168,19 @@ public final class GpuPstate {
       // auto
       if (!inWorld || uncapped) {
          set(NONE, !inWorld ? "no world" : "uncapped");
+         settled = false;
          return;
+      }
+      if (!settled) {
+         // the first frames of a world are near-empty (0.3 ms on the flip, then 14-39 ms of storm): judge from 3 s in
+         settled = true;
+         levelSince = gpuCount + pendingQueries();
+         windowStart = now + 2_500_000_000L;
       }
       if (now - windowStart < 500_000_000L) {
          return;
       }
-      int n = Math.min(gpuCount, 60);
+      int n = Math.min(gpuCount - levelSince, 60);
       windowStart = now;
       if (n < 20) {
          return;
@@ -182,35 +191,73 @@ public final class GpuPstate {
       }
       Arrays.sort(v);
       float p90 = v[(int) (n * 0.9F)];
-      float budget = 1000.0F / budgetFps;
-      float fit = budget * Config.GPU_PSTATE_FIT_PCT / 100.0F;
-      if (level >= 0) {
-         learnedMs[level] = p90;
+      int l = GOV.next(level, now, p90, 1000.0F / budgetFps, Config.GPU_PSTATE_FIT_PCT);
+      if (l != level) {
+         set(l, GOV.why);
       }
-      // the ladder, slowest first: min_sclk (~640 MHz), standard (~1 GHz), automatic. The frame's GPU work on the flip is
-      // mostly memory-bound (at a fixed 1 GHz it took 4.2 ms against 3.4 at automatic clocks, not 2.7x), so the low
-      // levels hold the cap far more often than the clock ratio suggests: the step-down estimate is the time last
-      // measured at the lower level, else this level's time scaled by half the clock ratio.
-      int rung = rung(level);
-      if (rung > 0 && p90 > fit) {
-         int up = LADDER[rung - 1];
-         set(up, String.format(Locale.ROOT, "GPU p90 %.2f ms of %.2f at %s", p90, budget, name(level)));
-         holdUntil = now + backoffNs;
-         backoffNs = Math.min(backoffNs * 2, 120_000_000_000L);
-      } else if (rung >= 0 && rung + 1 < LADDER.length && now > holdUntil) {
-         int down = LADDER[rung + 1];
-         float ratio = clockGhz(level) / clockGhz(down);
-         float est = learnedMs[down] > 0 ? Math.max(learnedMs[down], p90) : p90 * (1.0F + (ratio - 1.0F) * 0.5F);
-         if (est <= fit * 0.9F) {
-            set(down, String.format(Locale.ROOT, "GPU p90 %.2f ms at %s, ~%.2f expected at %s, of %.2f", p90, name(level), est, name(down), budget));
-            holdUntil = now + 2_000_000_000L;
-         } else {
-            holdUntil = now + 2_000_000_000L;
-            learnedMs[down] = 0; // re-estimate from this level next time
+   }
+
+   /**
+    * gpuPstate=auto's decisions, one per 500 ms window of the current level's frames (no GL, no ioctl: GpuPstateTest).
+    *
+    * <p>A rung whose p90 passes {@code fitPct} of the frame interval steps up one, and the next try of a lower rung waits a
+    * back-off that doubles each time (reset once a level has held a minute). A step down needs the time expected at the
+    * lower rung to fit: this rung's p90 times the slowdown measured on the last visit (the first window after stepping
+    * down, against the window before it), else guessed from half the clock ratio. The guess is the flip's (640 MHz /
+    * 1 GHz, mostly memory-bound work); the Steam Deck's min_sclk was 4.9x slower than its standard, not 1.3x, and
+    * before the measured slowdown the Deck walked min_sclk -> standard -> automatic every few seconds (135 switches in
+    * 400 s, a 22-36 ms frame each time; 2026-09-28 player log). A too-high measurement only keeps a faster clock.
+    */
+   static final class Governor {
+      static final long BACKOFF_MIN_NS = 5_000_000_000L, BACKOFF_MAX_NS = 120_000_000_000L, STABLE_NS = 60_000_000_000L;
+      /** Below this the frame is fixed overhead and a ratio says nothing about the clock (the flip "learned" 148x from 0.26 ms). */
+      static final float MIN_MEASURE_MS = 1.0F;
+      /** A clock step cannot slow the work more than the clock range (the Deck's 1600 / 200 MHz); more is a scene change. */
+      static final float MAX_SLOWDOWN = 8.0F;
+      final float[] learnedMs = new float[5]; // p90 GPU ms last measured at each level (harness summary)
+      final float[] slowdown = new float[5]; // p90 at a level / p90 at the rung above it, measured after a step down
+      long holdUntil, backoffNs = BACKOFF_MIN_NS, sinceNs;
+      float p90Above;
+      int measuring = -1;
+      String why = "";
+
+      /** The level to hold after a window with {@code p90} ms of GPU time per frame at {@code level}. */
+      int next(int level, long now, float p90, float budgetMs, int fitPct) {
+         float fit = budgetMs * fitPct / 100.0F;
+         if (level >= 0) {
+            learnedMs[level] = p90;
          }
-         if (p90 < fit * 0.7F) {
-            backoffNs = 5_000_000_000L;
+         if (measuring >= 0 && measuring == level && p90Above >= MIN_MEASURE_MS) {
+            slowdown[level] = Math.max(1.0F, Math.min(MAX_SLOWDOWN, p90 / p90Above));
          }
+         measuring = -1;
+         if (now - sinceNs > STABLE_NS) {
+            backoffNs = BACKOFF_MIN_NS;
+         }
+         int rung = rung(level);
+         if (rung > 0 && p90 > fit) {
+            why = String.format(Locale.ROOT, "GPU p90 %.2f ms of %.2f at %s", p90, budgetMs, name(level));
+            holdUntil = now + backoffNs;
+            backoffNs = Math.min(backoffNs * 2, BACKOFF_MAX_NS);
+            sinceNs = now;
+            return LADDER[rung - 1];
+         }
+         if (rung >= 0 && rung + 1 < LADDER.length && now > holdUntil) {
+            int down = LADDER[rung + 1];
+            boolean measured = slowdown[down] > 0;
+            float factor = measured ? slowdown[down] : 1.0F + (clockGhz(level) / clockGhz(down) - 1.0F) * 0.5F;
+            float est = p90 * factor;
+            holdUntil = now + 2_000_000_000L;
+            if (est <= fit * 0.9F) {
+               why = String.format(Locale.ROOT, "GPU p90 %.2f ms at %s, ~%.2f expected at %s (x%.2f %s), of %.2f", p90, name(level), est,
+                     name(down), factor, measured ? "measured" : "guessed", budgetMs);
+               p90Above = p90;
+               measuring = down;
+               sinceNs = now;
+               return down;
+            }
+         }
+         return level;
       }
    }
 
@@ -240,8 +287,19 @@ public final class GpuPstate {
          return;
       }
       level = l;
+      levelSince = gpuCount + pendingQueries(); // frames already submitted ran at the old level
       changes++;
       Log.info("gpuPstate: " + name(l) + " (" + why + ")");
+   }
+
+   private static int pendingQueries() {
+      int p = 0;
+      for (long i : issued) {
+         if (i != 0L) {
+            p++;
+         }
+      }
+      return p;
    }
 
    private static String name(int l) {
@@ -323,6 +381,7 @@ public final class GpuPstate {
          return "gpu_pstate=" + MODE + " (not started)";
       }
       return "gpu_pstate=" + MODE + (broken ? " (off)" : "") + " level=" + name(Math.max(level, 0)) + " changes=" + changes + " ms[auto,standard,min_sclk,min_mclk,peak]="
-            + Arrays.toString(levelMs) + String.format(Locale.ROOT, " p90ms@auto=%.2f p90ms@standard=%.2f", learnedMs[NONE], learnedMs[STANDARD]);
+            + Arrays.toString(levelMs) + String.format(Locale.ROOT, " p90ms@auto=%.2f p90ms@standard=%.2f slowdown@standard=%.2f slowdown@min_sclk=%.2f",
+            GOV.learnedMs[NONE], GOV.learnedMs[STANDARD], GOV.slowdown[STANDARD], GOV.slowdown[MIN_SCLK]);
    }
 }

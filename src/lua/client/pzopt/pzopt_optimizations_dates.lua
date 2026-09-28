@@ -222,6 +222,7 @@ PzoptOptionDates = {
     devWeatherFxOff = "2026-09-20",
     devWorldSoundCleanupCheck = "2026-09-24",
     devWorldSoundTiming = "2026-09-22",
+    devXxlTreeLog = "2026-09-28",
     dlssAutoExposure = "2026-09-24",
     dlssDepthInverted = "2026-09-22",
     dlssDirectColor = "2026-09-24",
