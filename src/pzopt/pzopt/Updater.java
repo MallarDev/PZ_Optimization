@@ -29,7 +29,7 @@ import org.json.JSONObject;
  *
  * Once per boot a daemon thread lists the GitHub releases of {@link #REPO_SLUG} and picks the newest one that carries
  * {@code pzopt-<revision>-classes.zip} for the running game revision (the assets are per revision: the runtime guard
- * would disable any other build). That release is an update when its tag's commit ({@code win-<revision>-<commit>})
+ * would disable any other build). That release is an update when its tag's commit ({@code <version>-<yyyymmdd>-<hhmm>-<commit>}, before 2026-09-29 {@code win-<revision>-<commit>})
  * is not the commit this build was made from and it was published after this build ({@code commit=} and
  * {@code built=} in build-info.properties; a from-source build newer than the last release stays quiet).
  *
@@ -351,13 +351,17 @@ public final class Updater {
          throw new IOException("the release page answered HTTP " + resp.statusCode());
       }
       String tag = loc.substring(i + 5);
-      if (!tag.startsWith("win-" + rev + "-")) {
+      if (tag.startsWith("win-") && !tag.startsWith("win-" + rev + "-")) {
          return null;
       }
+      // tags since 2026-09-29 are <version>-<yyyymmdd>-<hhmm>-<commit> and name no revision: the asset decides
       String url = RELEASES_PAGE + "/download/" + tag + "/pzopt-" + rev + "-classes.zip";
       HttpRequest probe = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(30))
             .header("User-Agent", "PZ_Optimization-updater").header("Range", "bytes=0-0").GET().build();
       HttpResponse<byte[]> pr = client().send(probe, HttpResponse.BodyHandlers.ofByteArray());
+      if (pr.statusCode() == 404) {
+         return null;
+      }
       String cr = pr.headers().firstValue("Content-Range").orElse("");
       if (pr.statusCode() != 206 || !cr.contains("/")) {
          throw new IOException("release asset probe answered HTTP " + pr.statusCode());
@@ -565,7 +569,7 @@ public final class Updater {
       return best;
    }
 
-   /** The commit part of a {@code win-<revision>-<commit>} tag. */
+   /** The commit part of a release tag: {@code <version>-<yyyymmdd>-<hhmm>-<commit>} or the old {@code win-<revision>-<commit>}. */
    static String tagCommit(String tag) {
       int i = tag.lastIndexOf('-');
       return i < 0 ? tag : tag.substring(i + 1);

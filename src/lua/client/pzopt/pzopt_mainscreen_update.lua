@@ -366,7 +366,7 @@ local function onItemClick(item, x, y)
 end
 
 -- The version line under the item: the installed build's commit, and "-> <commit>" of the offered
--- release (tag win-<revision>-<commit>) while one is offered, downloading, installed or failed.
+-- release (tag <version>-<yyyymmdd>-<hhmm>-<commit>) while one is offered, downloading, installed or failed.
 local function versionText()
     local p = perf()
     local text = "Version " .. p:getPzoptUpdateInstalledCommit()

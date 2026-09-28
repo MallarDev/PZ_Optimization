@@ -11,7 +11,7 @@ ZIPS=/tmp/pzopt-updater-bench
 OUT="$REPO/build/updater-bench"
 [[ -d "$REPO/build/classes" ]] || { echo "run scripts/build.sh first" >&2; exit 1; }
 mkdir -p "$ZIPS"
-for t in win-b0bbce05d5-ab4b22b win-b0bbce05d5-b70f234 win-b0bbce05d5-f837467; do
+for t in 42.20.4-20260925-2055-ab4b22b 42.20.4-20260925-2046-b70f234 42.20.4-20260925-0040-f837467; do
   [[ -f "$ZIPS/$t.zip" ]] || gh release download "$t" --repo xD3I/PZ_Optimization -p 'pzopt-*-classes.zip' -O "$ZIPS/$t.zip"
 done
 rm -rf "$OUT"; mkdir -p "$OUT"

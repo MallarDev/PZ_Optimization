@@ -71,7 +71,7 @@ cl /nologo /O2 /EHsc /std:c++17 /MT /LD /DNDEBUG /DWIN32_LEAN_AND_MEAN /DNOMINMA
 
 ## 4. Test it in the game
 
-1. Install PZ_Optimization on Windows the usual way (the newest `win-*` release: `install.ps1`, or the Workshop item
+1. Install PZ_Optimization on Windows the usual way (the newest release: `install.ps1`, or the Workshop item
    plus its installer) and start the game once so the install is complete.
 2. Next to `ProjectZomboid64.exe` (the game folder, e.g. `C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid`)
    create a folder `natives` if there is none, and copy into it:

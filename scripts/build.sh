@@ -77,7 +77,7 @@ fi
 if [[ -d "$SRC/lua" ]]; then
   # the Optimizations tab's search index of which Java classes read each Config key
   python3 "$REPO/scripts/option-classes.py"
-  # ...and the release date of each key (the "Release date" sort), from the win-* release tags
+  # ...and the release date of each key (the "Release date" sort), from the release tags
   python3 "$REPO/scripts/option-dates.py"
   mkdir -p "$OUT/media/lua"
   cp -r "$SRC/lua/." "$OUT/media/lua/"
@@ -202,7 +202,7 @@ jar_sha=$(sha256sum "$JAR" | cut -d' ' -f1)
   echo "jar.size=$(stat -c %s "$JAR")"
   echo "release=$RELEASE"
   # what this build is, for the in-game updater (pzopt.Updater): the short commit the release tag
-  # win-<revision>-<commit> carries ("-dirty" when src/ has uncommitted changes) and the build time
+  # <version>-<yyyymmdd>-<hhmm>-<commit> carries ("-dirty" when src/ has uncommitted changes) and the build time
   echo "commit=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)$( [[ -n "$(git -C "$REPO" status --porcelain -- src scripts/build.sh 2>/dev/null)" ]] && echo -dirty )"
   echo "built=$(date -u +%s)"
   echo "overrides=$(IFS=,; echo "${OVERRIDES[*]}")"

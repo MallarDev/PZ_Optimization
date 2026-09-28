@@ -3,7 +3,8 @@
 # GitHub release asset.
 #
 #   scripts/release.sh            # build + test + zip into build/pzopt-<rev>-classes.zip
-#   scripts/release.sh --publish  # ...and gh release create win-<rev>-<commit> with the zip + install.sh/.ps1
+#   scripts/release.sh --publish  # ...and gh release create <version>-<yyyymmdd>-<hhmm>-<commit> (UTC) with the zip +
+#                                 # install.sh/.ps1; GitHub lists releases by creation day, then by tag name
 #   scripts/release.sh --publish --notes "extra sentence for the release body"
 #
 # The zip is the flat content of build/classes/ (class files, media/lua, pzopt/build-info)
@@ -72,15 +73,17 @@ echo "sha256 $sha"
 
 short=$(git rev-parse --short HEAD)
 full=$(git rev-parse HEAD)
-tag="win-${rev}-${short}"
 version=$(sed -n 's/.*Build \(42\.[0-9.]*\).*/\1/p' docs/windows-test.md | head -1)
-if gh release view "$tag" >/dev/null 2>&1; then
-  echo "release $tag already exists; delete it or commit first" >&2
+[[ -n "$version" ]] || { echo "no 'Build 42.x' target line in docs/windows-test.md" >&2; exit 1; }
+# the game version, then the UTC time: within one creation day GitHub's list is by tag name, newest first
+tag="${version}-$(date -u +%Y%m%d-%H%M)-${short}"
+if gh release list --limit 1000 --json tagName -q '.[].tagName' | grep -q -- "-${short}\$"; then
+  echo "a release of $short already exists; delete it or commit first" >&2
   exit 1
 fi
 notes="Prebuilt class overrides for Windows, Linux and macOS, built $(date -u +%Y-%m-%d) from $short for game revision $rev${version:+ (Build $version)}."
 [[ -n "$extra_notes" ]] && notes="$notes $extra_notes"
 notes="$notes Install with install.ps1 (Windows) or install.sh (Linux, macOS) from this release, or unpack the zip into the game folder by hand (README; $nfiles manifest entries). sha256 $sha"
 gh release create "$tag" "$zipname" install.sh install.ps1 --target "$full" \
-  --title "Windows build${version:+ ($version / $rev)} from $short" --notes "$notes"
+  --title "Build $version ($rev) from $short" --notes "$notes"
 gh release view "$tag" --json url,assets -q '.url, (.assets[] | .name + " " + (.size|tostring))'

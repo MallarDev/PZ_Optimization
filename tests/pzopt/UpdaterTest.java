@@ -65,6 +65,7 @@ public class UpdaterTest {
       check(r != null && r.zipUrl.endsWith("pzopt-aaaa-classes.zip"), "zip url");
       check(Updater.pickRelease(rels, "cccc") == null, "no release for an unknown revision");
       check("2222222".equals(Updater.tagCommit("win-aaaa-2222222")), "tagCommit");
+      check("aa5b92d".equals(Updater.tagCommit("42.21-20260928-2114-aa5b92d")), "tagCommit of a version tag");
    }
 
    static void newer() {

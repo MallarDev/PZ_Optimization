@@ -868,7 +868,7 @@ Main-menu update item (added 2026-09-22): eleven more one-line forwards to
 `pzoptUpdateInstall()`. The check lists the GitHub releases on a daemon thread
 and picks the newest one (publish date) that carries
 `pzopt-<revision>-classes.zip` for the running game; it is an update when the
-tag's commit (`win-<revision>-<commit>`) differs from build-info's `commit=` and
+tag's commit (`<version>-<yyyymmdd>-<hhmm>-<commit>`, before 2026-09-29 `win-<revision>-<commit>`) differs from build-info's `commit=` and
 its publish date is after build-info's `built=` (both stamped by `build.sh` since
 this change, so a from-source build newer than the last release stays quiet).
 The install downloads the zip next to the game folder, checks the zip's
