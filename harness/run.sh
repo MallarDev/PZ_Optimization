@@ -425,6 +425,10 @@ if (( ${#game_options[@]} )); then
   if [[ -f "$ZOMBOID/pzopt/framecap.ini" ]]; then
     cp "$ZOMBOID/pzopt/framecap.ini" "$ZOMBOID/pzopt/framecap.ini.pzopt-orig"
     sed -i '/^restore=/d' "$ZOMBOID/pzopt/framecap.ini"
+    # a cap above 244 (gameFps=) wins over options.ini frameRate in an optimized run: a forced frameRate clears it
+    if printf '%s\n' "${game_options[@]}" | grep -q '^frameRate='; then
+      sed -i 's/^gameFps=.*/gameFps=0/' "$ZOMBOID/pzopt/framecap.ini"
+    fi
   fi
   # the game writes no newline after the last option: an append would glue the key onto that line
   [[ -z "$(tail -c1 "$ZOMBOID/options.ini")" ]] || echo >> "$ZOMBOID/options.ini"

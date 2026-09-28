@@ -80,4 +80,39 @@ final class Shaders {
          Log.info(what + ": the game's samplers back on their stock units in program " + program + " (" + moved + ")");
       }
    }
+
+   /**
+    * A game program we patched, bound, whose shader class sets its own sampler units (ChunkRenderShader.onCompileSuccess:
+    * DIFFUSE 0, DEPTH 1): its sampler2Ds back on the units the game's ShaderProgram has cached for them. The driver-order
+    * numbering of {@link #stockSamplerUnits} is wrong there: NVIDIA lists DEPTH before DIFFUSE in the pixel light's shadow
+    * mask variants, so it put DEPTH on 0 and DIFFUSE on 1 behind the game's cache, and the composite drew the chunk depth as
+    * its colour (a flat pale grey world with pixelLight + pplShadows + hdr, 2026-09-28).
+    */
+   static void gameSamplerUnits(zombie.core.opengl.ShaderProgram sp, String what) {
+      int program = sp.getShaderID();
+      int n = GL20.glGetProgrami(program, GL20.GL_ACTIVE_UNIFORMS);
+      StringBuilder moved = null;
+      try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
+         java.nio.IntBuffer size = stack.mallocInt(1), type = stack.mallocInt(1);
+         for (int i = 0; i < n; i++) {
+            String name = GL20.glGetActiveUniform(program, i, 255, size, type);
+            if (type.get(0) != GL20.GL_SAMPLER_2D || name.startsWith("pz") || name.startsWith("ppl")) {
+               continue;
+            }
+            zombie.core.opengl.ShaderProgram.Uniform u = sp.getUniform(name, GL20.GL_SAMPLER_2D, false);
+            int loc = GL20.glGetUniformLocation(program, name);
+            if (u == null || loc < 0) {
+               continue;
+            }
+            int was = GL20.glGetUniformi(program, loc);
+            if (was != u.sampler) {
+               GL20.glUniform1i(loc, u.sampler);
+               moved = (moved == null ? new StringBuilder() : moved.append(", ")).append(name).append(' ').append(was).append(" -> ").append(u.sampler);
+            }
+         }
+      }
+      if (moved != null) {
+         Log.info(what + ": the game's samplers back on the units the game set in program " + program + " (" + moved + ")");
+      }
+   }
 }

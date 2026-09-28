@@ -522,7 +522,7 @@ public final class PixelLight {
          Integer applied = GL.appliedSerials.get(program);
          if (applied == null || applied != Gl.serial) {
             GL.appliedSerials.put(program, Gl.serial);
-            GL.setChunkUniforms(program);
+            GL.setChunkUniforms(program, shader.getProgram());
             if (Config.DEV_PPL_TRACE) {
                Integer k = GL.chunkIndex.get(texd.tex1);
                Log.info(String.format(java.util.Locale.ROOT, "ppl rtrace: ms=%d serial=%d o=%d,%d d0=%.6f chunk=%s chunkDepth=%.6f", System.currentTimeMillis(), Gl.serial,
@@ -1866,7 +1866,7 @@ public final class PixelLight {
       private final float[] map = new float[6];
 
       /** The chunk composite program is bound: its light uniforms for this frame (or off). */
-      void setChunkUniforms(int program) {
+      void setChunkUniforms(int program, zombie.core.opengl.ShaderProgram sp) {
          int[] loc = this.chunkUniforms.get(program);
          if (loc == null) {
             loc = new int[] {GL20.glGetUniformLocation(program, "pplOn"), GL20.glGetUniformLocation(program, "pplClear"), GL20.glGetUniformLocation(program, "pplMapA"),
@@ -1880,7 +1880,7 @@ public final class PixelLight {
                // the game's ShaderProgram renumbers every sampler2D to units 0, 1, 2... after the link (layout(binding) lost;
                // the sampler2DArray ones keep theirs): the mask's unit again (the program is bound here)
                GL20.glUniform1i(loc[15], MASK_UNIT);
-               Shaders.stockSamplerUnits(program, "pixel light"); // and the game's DIFFUSE / DEPTH on 0 / 1 whatever order the driver lists them in
+               Shaders.gameSamplerUnits(sp, "pixel light"); // and the game's DIFFUSE / DEPTH on the units it set (0 / 1), whatever order the driver lists them in
             }
          }
 
