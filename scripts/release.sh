@@ -3,7 +3,7 @@
 # GitHub release asset.
 #
 #   scripts/release.sh            # build + test + zip into build/pzopt-<rev>-classes.zip
-#   scripts/release.sh --publish  # ...and gh release create <version>-<yyyymmdd>-<hhmm>-<commit> (UTC) with the zip +
+#   scripts/release.sh --publish  # ...and gh release create b<version>-<yyyymmdd>-<hhmm>-<commit> (UTC) with the zip +
 #                                 # install.sh/.ps1; GitHub lists releases by creation day, then by tag name
 #   scripts/release.sh --publish --notes "extra sentence for the release body"
 #
@@ -75,8 +75,9 @@ short=$(git rev-parse --short HEAD)
 full=$(git rev-parse HEAD)
 version=$(sed -n 's/.*Build \(42\.[0-9.]*\).*/\1/p' docs/windows-test.md | head -1)
 [[ -n "$version" ]] || { echo "no 'Build 42.x' target line in docs/windows-test.md" >&2; exit 1; }
-# the game version, then the UTC time: within one creation day GitHub's list is by tag name, newest first
-tag="${version}-$(date -u +%Y%m%d-%H%M)-${short}"
+# b + the game version, then the UTC time: within one creation day GitHub's list is by tag name, newest first,
+# except that names that parse as versions (42.20.4-...) rank above the rest; the b keeps every tag a plain name
+tag="b${version}-$(date -u +%Y%m%d-%H%M)-${short}"
 if gh release list --limit 1000 --json tagName -q '.[].tagName' | grep -q -- "-${short}\$"; then
   echo "a release of $short already exists; delete it or commit first" >&2
   exit 1

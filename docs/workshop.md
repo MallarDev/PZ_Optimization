@@ -52,7 +52,7 @@ checked by the script before the in-game screen has to refuse:
 
 1. Publish the GitHub release first (`scripts/release.sh --publish`, skill `release-windows`),
    so the item mirrors a tagged, pushed commit.
-2. Stage the published asset: `scripts/workshop.sh --tag <version>-<yyyymmdd>-<hhmm>-<commit>` (gh downloads
+2. Stage the published asset: `scripts/workshop.sh --tag b<version>-<yyyymmdd>-<hhmm>-<commit>` (gh downloads
    the zip into `build/workshop/<tag>/`, the commit for `modversion` comes from the tag).
    `--zip <file> [--commit <sha>]` stages a local zip; with neither, the script runs
    `scripts/release.sh` (build + test + zip) and stages that as HEAD.

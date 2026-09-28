@@ -2,7 +2,7 @@
 """When each pzopt.Config key was first released, for the options tabs' "Sort by: Release date".
 
 A key's commit is the first commit of src/pzopt/pzopt/Config.java that declares it (`bool|integer|string("key"`);
-its release is the earliest release tag (`42.*`, before 2026-09-29 `win-*`) containing that commit, dated by the tag. Keys in no release yet
+its release is the earliest release tag (`b42.*`, before 2026-09-29 `win-*`) containing that commit, dated by the tag. Keys in no release yet
 (committed after the newest tag, or not committed at all) are left out: the tab files them under "New in this
 version", which is what they are in the build being made (release.sh builds before it tags). Writes
 src/lua/client/pzopt/pzopt_optimizations_dates.lua (a global table key -> "YYYY-MM-DD"). build.sh runs it; without
@@ -29,7 +29,7 @@ def main():
             raise RuntimeError("shallow clone")
         log = git("log", "--reverse", "--format=@@%H", "-U0", "-p", "--", CONFIG)
         tags = git("for-each-ref", "--sort=creatordate", "--format=%(creatordate:short) %(refname:short)",
-                   "refs/tags/win-*", "refs/tags/4[0-9].*").split("\n")
+                   "refs/tags/win-*", "refs/tags/b4[0-9].*").split("\n")
     except (OSError, subprocess.CalledProcessError, RuntimeError) as e:
         print("option-dates: no git history (%s), %s left as it is" % (e, OUT.relative_to(ROOT)))
         return

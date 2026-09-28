@@ -202,7 +202,7 @@ jar_sha=$(sha256sum "$JAR" | cut -d' ' -f1)
   echo "jar.size=$(stat -c %s "$JAR")"
   echo "release=$RELEASE"
   # what this build is, for the in-game updater (pzopt.Updater): the short commit the release tag
-  # <version>-<yyyymmdd>-<hhmm>-<commit> carries ("-dirty" when src/ has uncommitted changes) and the build time
+  # b<version>-<yyyymmdd>-<hhmm>-<commit> carries ("-dirty" when src/ has uncommitted changes) and the build time
   echo "commit=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)$( [[ -n "$(git -C "$REPO" status --porcelain -- src scripts/build.sh 2>/dev/null)" ]] && echo -dirty )"
   echo "built=$(date -u +%s)"
   echo "overrides=$(IFS=,; echo "${OVERRIDES[*]}")"

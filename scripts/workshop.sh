@@ -7,10 +7,10 @@
 # that computer with a Copy button at the main menu.
 #
 #   scripts/workshop.sh                       # scripts/release.sh (build + test + zip), then stage
-#   scripts/workshop.sh --tag 42.21-20260928-2114-aa5b92d   # stage the asset of that GitHub release (exact mirror)
+#   scripts/workshop.sh --tag b42.21-20260928-2114-aa5b92d   # stage the asset of that GitHub release (exact mirror)
 #   scripts/workshop.sh --zip build/pzopt-b0bbce05d5-classes.zip [--commit cc99c05]
 #   scripts/workshop.sh --out /tmp/ws         # somewhere other than ~/Zomboid/Workshop/PZ_Optimization
-#   scripts/workshop.sh --tag <version>-<yyyymmdd>-<hhmm>-<commit> --upload "Release <commit> (Build <version>, game revision <rev>). ..."
+#   scripts/workshop.sh --tag b<version>-<yyyymmdd>-<hhmm>-<commit> --upload "Release <commit> (Build <version>, game revision <rev>). ..."
 #
 # --upload stages, then uploads with scripts/workshop-upload.py: the Steamworks API through the
 # game's libsteam_api.so and the running, logged-on Steam client, a few seconds, no game launch.
@@ -60,8 +60,8 @@ rev=$(unzip -p "$zip" pzopt/build-info.properties | sed -n 's/^revision=//p')
 commit="${commit:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
 [[ -n "$rev" ]] || { echo "$zip has no pzopt/build-info.properties" >&2; exit 1; }
 version=$(sed -n 's/.*Build \(42\.[0-9.]*\).*/\1/p' docs/windows-test.md | head -1)
-# a tagged release names its own game build: the tag starts with it (<version>-<yyyymmdd>-<hhmm>-<commit>)
-if [[ "$tag" =~ ^(42\.[0-9.]+)- ]]; then
+# a tagged release names its own game build: the tag starts with it (b<version>-<yyyymmdd>-<hhmm>-<commit>)
+if [[ "$tag" =~ ^b(42\.[0-9.]+)- ]]; then
   version="${BASH_REMATCH[1]}"
 fi
 nfiles=$(unzip -Z1 "$zip" | grep -vc '/$')

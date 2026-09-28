@@ -233,7 +233,7 @@ harness/queue.sh submit run      [--machine desktop|flip|dell|mac] [--install op
                                  [--goal "<what the change should do>"] [--against <run|baseline.json>]...
                                  [--parity-against <recorded run>] [--cap N] [--wait] -- <harness/run.sh args>
 harness/queue.sh submit mp       [--goal ...] [--against ...] [--wait] -- <label> [stock]   # desktop only
-harness/queue.sh submit workshop [--wait] --notes "<change notes>" -- --tag <version>-<yyyymmdd>-<hhmm>-<commit>   # desktop only
+harness/queue.sh submit workshop [--wait] --notes "<change notes>" -- --tag b<version>-<yyyymmdd>-<hhmm>-<commit>   # desktop only
 harness/queue.sh submit cmd      [--install ...] [--wait] --label <name> -- <showcase-record.sh ...>   # desktop only
 harness/queue.sh submit media    [--out <file>]... [--wait] --label <name> -- <encode-av1-hdr.sh | stitch-*.sh | ffmpeg ...>   # desktop only
 harness/queue.sh session [--name N] [--intent T] [--progress T]   # this session's context for Jev

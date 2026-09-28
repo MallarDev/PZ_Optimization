@@ -33,8 +33,8 @@ import org.json.JSONArray;
 public class UpdaterBench {
    static final String REPO = "https://github.com/xD3I/PZ_Optimization/releases/download/";
    static final String REV = "b0bbce05d5";
-   static final String NEW = "42.20.4-20260925-2055-ab4b22b";
-   static final String[] OLD = {"42.20.4-20260925-2046-b70f234", "42.20.4-20260925-0040-f837467"};
+   static final String NEW = "b42.20.4-20260925-2055-ab4b22b";
+   static final String[] OLD = {"b42.20.4-20260925-2046-b70f234", "b42.20.4-20260925-0040-f837467"};
    static Path zips;
    static int runs;
 

@@ -13,7 +13,7 @@
 #                                    [--goal "<what the change should do>"] [--against <run|baseline.json>]...
 #                                    [--parity-against <recorded run>] [--cap 240] [--size <secs>] [--wait] -- <harness/run.sh args>
 #   harness/queue.sh submit mp       [--goal ...] [--against ...] [--wait] -- <label> [stock]   # desktop only
-#   harness/queue.sh submit workshop [--wait] --notes "<change notes>" -- --tag <version>-<yyyymmdd>-<hhmm>-<commit> | --zip <zip>   # desktop only
+#   harness/queue.sh submit workshop [--wait] --notes "<change notes>" -- --tag b<version>-<yyyymmdd>-<hhmm>-<commit> | --zip <zip>   # desktop only
 #   harness/queue.sh submit cmd      [--install ...] [--wait] --label <name> -- <command>          # desktop only
 #   harness/queue.sh submit media    [--out <file>]... [--wait] --label <name> -- <encode / stitch command>   # desktop only
 #   harness/queue.sh session [--name N] [--intent T] [--progress T]   # this session's context (Jev reads it); no args = show

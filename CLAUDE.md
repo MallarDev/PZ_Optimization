@@ -81,8 +81,8 @@ saturated" is itself a finding. Chunk-latency wins are done; do not spend more o
 ## Releasing (GitHub + Steam Workshop), 2026-09-21
 
 Order, all hands-off except the login: commit + push → `scripts/release.sh --publish --notes "..."`
-(tag `<version>-<yyyymmdd>-<hhmm>-<commit>`, zip + installers) → note the release in `docs/windows-test.md` (manifest
-line count) → `scripts/workshop.sh --tag <version>-<yyyymmdd>-<hhmm>-<commit>` (stages item 3805285544 under
+(tag `b<version>-<yyyymmdd>-<hhmm>-<commit>`, zip + installers) → note the release in `docs/windows-test.md` (manifest
+line count) → `scripts/workshop.sh --tag b<version>-<yyyymmdd>-<hhmm>-<commit>` (stages item 3805285544 under
 `~/Zomboid/Workshop/PZ_Optimization/`, regenerates `workshop.txt`; copy it to `docs/workshop/workshop.txt`
 and commit "workshop: stage the <commit> release") → upload → verify. The upload is one Steamworks API call
 since 2026-09-24, no game and no OCR: `scripts/workshop.sh --tag <tag> --upload "<notes>"` stages and uploads in

@@ -7,7 +7,7 @@ description: Build the release zip of the class overrides (same zip for Windows 
 
 ```bash
 scripts/release.sh                        # build + test + build/pzopt-<rev>-classes.zip
-scripts/release.sh --publish              # ...then gh release create <version>-<yyyymmdd>-<hhmm>-<commit>
+scripts/release.sh --publish              # ...then gh release create b<version>-<yyyymmdd>-<hhmm>-<commit>
 scripts/release.sh --publish --notes "Adds X and Y over the previous build."
 ```
 
@@ -17,7 +17,7 @@ What the script does, in order:
 2. Zips the flat content of `build/classes/` (class files, `media/lua/...`,
    `pzopt/build-info.properties`) plus a manifest `pzopt-files.txt` listing every entry.
    Python `zipfile` is used because this machine has no `zip` binary.
-3. With `--publish`: tags the full SHA of HEAD as `<game version>-<yyyymmdd>-<hhmm>-<short commit>` (UTC; GitHub lists releases by creation day, then by tag name, so the time keeps them in order; `win-` tags until 2026-09-29) and
+3. With `--publish`: tags the full SHA of HEAD as `b<game version>-<yyyymmdd>-<hhmm>-<short commit>` (UTC; GitHub lists releases by creation day, then by tag name, so the time keeps them in order; the `b` stops GitHub from ranking names that parse as versions, `42.20.4-...`, above the rest of their day; `win-` tags until 2026-09-29) and
    uploads the zip plus the repo-root `install.sh` and `install.ps1` with notes carrying the build date, commit, revision, manifest count and
    sha256. One release per commit; an existing release of the commit makes it stop.
 
@@ -115,12 +115,12 @@ the submit (Steam session, fields, paths). Stage and upload in one command:
 
 ```bash
 tail -3 ~/.local/share/Steam/logs/connection_log.txt       # ends in "[Logged On", no "Session Replaced"
-scripts/workshop.sh --tag <version>-<yyyymmdd>-<hhmm>-<commit> --upload "<change notes>"
+scripts/workshop.sh --tag b<version>-<yyyymmdd>-<hhmm>-<commit> --upload "<change notes>"
 cp ~/Zomboid/Workshop/PZ_Optimization/workshop.txt docs/workshop/workshop.txt   # then commit it
 ```
 
 Queued form (a `result.txt` with the verification): `harness/queue.sh submit workshop --wait --notes "<change notes>"
--- --tag <version>-<yyyymmdd>-<hhmm>-<commit>`: Steam session check with one client restart, `workshop.sh`, `workshop-upload.py`,
+-- --tag b<version>-<yyyymmdd>-<hhmm>-<commit>`: Steam session check with one client restart, `workshop.sh`, `workshop-upload.py`,
 `workshop_log.txt` + change-notes page, `workshop.txt` copied to `docs/workshop/`. It skips the game / run / locked
 screen preflight, since the upload uses neither.
 
