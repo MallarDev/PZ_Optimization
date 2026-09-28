@@ -66,6 +66,9 @@ import zombie.vehicles.BaseVehicle;
  *                      touch Zomboid/pzopt-shot.now so run.sh can take a desktop capture too (artifact checks)
  *   find     curtains  dev: at route start list the curtains within 100 tiles (type, open state, attached window,
  *                      room) so a screenshot run can be started inside such a room with start=X,Y (issue #4)
+ *   find     translucent dev: at route start list the Translucent-flagged objects within 16 tiles (sprite, class, depth
+ *                      flags, the floor above); with find_box=x0,y0,x1,y1 every object in that box on levels 0-2, with its
+ *                      attached and overlay sprites (gas canopy lights, 2026-09-28)
  *   upstairs Z         dev: at route start move the player to the nearest loaded indoor square at level Z (issue #12)
  *   upstairs_at S      dev: with upstairs, make that move S seconds into the route instead (a Stats mark "upstairs")
  *   close_curtains true dev: at route start close every open curtain in that range through IsoCurtain.ToggleDoor
@@ -624,6 +627,9 @@ public final class Harness {
                }
                if ("shore".equals(HarnessFlags.get("find", ""))) {
                   goToShore(p); // dev: HDR water glint scenes, the player on dry land with the water in view
+               }
+               if ("translucent".equals(HarnessFlags.get("find", ""))) {
+                  findTranslucent(p); // dev: which Translucent-flagged tiles bake near the player (gas canopy lights)
                }
                int upstairs = Integer.parseInt(HarnessFlags.get("upstairs", "0").trim());
                upstairsAt = Float.parseFloat(HarnessFlags.get("upstairs_at", "0").trim());
@@ -1624,6 +1630,48 @@ public final class Harness {
          sb.append(' ').append(found.get(i)[0]).append(',').append(found.get(i)[1]);
       }
       Log.info("harness: find=water: " + n + " water squares within 120 tiles of " + px + "," + py + "; nearest:" + sb);
+   }
+
+   /**
+    * find=translucent: the objects within 16 tiles of the player whose sprite is flagged Translucent (depthFlags bit 2:
+    * drawn per frame by stock, baked with translucentTilesInChunkTexture), with the floor of the square above them.
+    * find_box=x0,y0,x1,y1 lists every object in that box instead, with its attached and overlay sprites.
+    */
+   private static void findTranslucent(IsoPlayer p) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = p.getXi(), py = p.getYi(), n = 0;
+      String[] box = HarnessFlags.get("find_box", "").split(",");
+      boolean all = box.length == 4;
+      int x0 = all ? Integer.parseInt(box[0].trim()) : px - 16, y0 = all ? Integer.parseInt(box[1].trim()) : py - 16;
+      int x1 = all ? Integer.parseInt(box[2].trim()) : px + 16, y1 = all ? Integer.parseInt(box[3].trim()) : py + 16;
+      for (int z = 0; z <= 2; z++) {
+         for (int y = y0; y <= y1; y++) {
+            for (int x = x0; x <= x1; x++) {
+               zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, z);
+               if (sq == null) continue;
+               for (int i = 0; i < sq.getObjects().size(); i++) {
+                  zombie.iso.IsoObject o = sq.getObjects().get(i);
+                  zombie.iso.sprite.IsoSprite s = o.getSprite();
+                  if (s == null || !all && (s.depthFlags & 2) == 0) continue;
+                  zombie.iso.IsoGridSquare up = cell.getGridSquare(x, y, z + 1);
+                  zombie.iso.IsoObject upFloor = up == null ? null : up.getFloor();
+                  StringBuilder extra = new StringBuilder();
+                  if (o.getAttachedAnimSprite() != null) {
+                     for (zombie.iso.sprite.IsoSpriteInstance a : o.getAttachedAnimSprite()) {
+                        if (a != null && a.parentSprite != null) extra.append(" +").append(a.parentSprite.getName()).append('/').append(a.parentSprite.depthFlags);
+                     }
+                  }
+                  if (o.getOverlaySprite() != null) extra.append(" overlay ").append(o.getOverlaySprite().getName()).append('/').append(o.getOverlaySprite().depthFlags);
+                  if (all || n < 80) {
+                     Log.info("harness: find=translucent: " + x + "," + y + "," + z + " " + s.getName() + " (" + o.getClass().getSimpleName()
+                           + ", depthFlags " + s.depthFlags + ", above: " + (upFloor == null || upFloor.getSprite() == null ? "-" : upFloor.getSprite().getName()) + ")" + extra);
+                  }
+                  n++;
+               }
+            }
+         }
+      }
+      Log.info("harness: find=translucent: " + n + " Translucent objects within 16 tiles of " + px + "," + py);
    }
 
    private static void findCurtains(IsoPlayer p, boolean close) {

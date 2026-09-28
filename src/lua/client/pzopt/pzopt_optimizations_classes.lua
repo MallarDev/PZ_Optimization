@@ -503,6 +503,7 @@ PzoptOptionClasses = {
     textureBufferMb = { "TextureIDAssetManager" },
     threadNice = { "pzopt.ThreadNice" },
     tileDefPreload = { "pzopt.TileDefPreload" },
+    translucentLightsPerFrame = { "FBORenderCell" },
     translucentOrderCache = { "pzopt.TranslucentOrder" },
     translucentTilesInChunkTexture = { "FBORenderCell" },
     treeAppend = { "FBORenderCell" },

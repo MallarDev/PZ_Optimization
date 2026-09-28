@@ -198,6 +198,27 @@ objects, chunks by lighting counter, translucent squares). Every fix is marked
    texture those tiles come out as opaque black one-tile rectangles on the
    floor (the maintainer's screenshot, walking, not only at speed). The per-frame
    pass draws about 20 of them per frame; not worth it.
+   Since 2026-09-28 the helper also keeps a Translucent light fixture with a lit
+   sprite (`IsoFlagType.HasLightOnSprite`) per frame while
+   `pzopt.Config.TRANSLUCENT_LIGHTS_PER_FRAME` (`translucentLightsPerFrame`,
+   default on) is set. Baked, such a fixture's "on" sprite (`<tileset>_on_<n>`)
+   is drawn by the per-frame animated-attachments pass, where
+   `IsoSprite.startTileDepthShader` pulls it 5e-5 towards the camera so it wins
+   over its own baked lamp; the top of a ceiling fixture lies in the plane of the
+   floor above, so the pull put the lit tubes of the Fossoil canopy
+   (`lighting_indoor_03_19..21` on level 1, roof `location_shop_fossoil_01_38/39`
+   on level 2, Riverside 6056-6063,5302-5308) on top of the roof as dashes that
+   moved with every zoom step (maintainer's save `Sandbox/2026-09-28_22-02-56`).
+   Per frame the fixture and its lit sprite go through the translucent pass with
+   no pull, as in stock. A depth nudge of the baked lamp changed nothing (the
+   baked lamp never showed; `_20` / `_21` have no tile geometry either), and a
+   bake that left every Translucent tile out still showed the dashes: the lit
+   sprite was the whole problem. Runs `canopy-*` (2026-09-28): white pixels on
+   the roof 70-270 per frame, jumping with the zoom, before; 5-45 and steady per
+   zoom level after, like `translucentTilesInChunkTexture=false` and stock. Rig:
+   harness `--flag find=translucent [--flag find_box=x0,y0,x1,y1]` lists the
+   objects (sprite, class, depth flags, attached / overlay sprites, the floor
+   above).
 5. **Dev counters** (only with `instrument=true`): `renderTranslucent(IsoObject)`
    and `renderTranslucent(IsoGridSquare)` count what the per-frame pass draws
    by kind (window, door, tree, Translucent-flagged tile with a per-tileset

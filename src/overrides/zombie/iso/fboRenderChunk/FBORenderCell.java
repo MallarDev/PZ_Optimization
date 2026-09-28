@@ -3103,9 +3103,21 @@ public final class FBORenderCell {
       return bTranslucent;
    }
 
-   /** pzopt: tiles whose definition says Translucent (depthFlags bit 2) are drawn per frame unless translucentTilesInChunkTexture bakes them. */
+   /**
+    * pzopt: tiles whose definition says Translucent (depthFlags bit 2) are drawn per frame unless translucentTilesInChunkTexture
+    * bakes them. Light fixtures with a lit sprite (HasLightOnSprite) stay per frame with translucentLightsPerFrame: baked, their
+    * "on" sprite moves to the animated-attachments pass, which pulls it 5e-5 towards the camera (IsoSprite.startTileDepthShader)
+    * to win over its own baked lamp, and a ceiling fixture's top lies in the plane of the floor above, so the lit tubes of the
+    * Fossoil canopy showed through its roof and flickered with the zoom (2026-09-28). Per frame, like stock, no pull.
+    */
    private static boolean pzoptPerFrameTranslucentTile(IsoSprite sprite) {
-      return sprite != null && (sprite.depthFlags & 2) != 0 && !(pzopt.Config.TRANSLUCENT_TILES_IN_CHUNK_TEXTURE && pzopt.Overrides.enabled());
+      if (sprite == null || (sprite.depthFlags & 2) == 0) {
+         return false;
+      }
+      if (!(pzopt.Config.TRANSLUCENT_TILES_IN_CHUNK_TEXTURE && pzopt.Overrides.enabled())) {
+         return true;
+      }
+      return pzopt.Config.TRANSLUCENT_LIGHTS_PER_FRAME && sprite.getProperties().has(IsoFlagType.HasLightOnSprite);
    }
 
    private boolean isObjectRenderLayer_Translucent(IsoObject object) {

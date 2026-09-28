@@ -961,6 +961,7 @@ Full list with comments: [`src/pzopt/pzopt/Config.java`](src/pzopt/pzopt/Config.
 | `treeAppend` | `true` | a newly loaded chunk's trees are drawn into the finished neighbour textures they reach instead of re-baking those textures (half the re-bakes while driving) |
 | `windowsInChunkTexture` | `true` | windows and glass doors bake |
 | `translucentTilesInChunkTexture` | `true` | `Translucent`-flagged tiles (fences, railings, decorations) bake |
+| `translucentLightsPerFrame` | `true` | Translucent light fixtures with a lit sprite stay per frame as in stock (baked, the lit tubes of a gas-station canopy showed through its roof) |
 | `curtainDepthNudgePct` | `5` | baked curtains drawn in front of the glass they cover, in % of a tile (issue #4) |
 | `bakeBudget` | `8` | chunk textures baked per frame (`0` = unlimited) |
 | `rebakeBudget` / `rebakeMaxFrames` | `4` / `3` | re-bakes of on-screen textures per frame; the previous image stays up to that many frames |

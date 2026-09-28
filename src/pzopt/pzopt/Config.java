@@ -90,6 +90,12 @@ import java.util.Properties;
  *   translucentTilesInChunkTexture true/false  tiles flagged Translucent in tileGeometry.txt (fences, railings, wall
  *                            decorations, overlays, crops: 16k definitions) bake instead of being drawn every frame
  *                            (default true)
+ *   translucentLightsPerFrame true/false  with translucentTilesInChunkTexture, Translucent light fixtures that have a lit
+ *                            sprite (HasLightOnSprite: ceiling lights, lamps, lamp posts) stay per frame as in stock
+ *                            (default true). Baked, the lit sprite is drawn by the animated-attachments pass pulled
+ *                            towards the camera to win over its own baked lamp; a ceiling fixture's top lies in the
+ *                            plane of the floor above, so the Fossoil canopy's lit tubes showed through its roof and
+ *                            flickered as the camera zoomed (2026-09-28)
  *   curtainDepthNudgePct int     a curtain hanging in front of a window on its own square draws this many hundredths of
  *                            a tile nearer the camera than its tile geometry says (default 5; 0 = off). The north
  *                            window glass sits 0.017 tile in front of the north curtain in tileGeometry.txt; stock
@@ -473,6 +479,7 @@ public final class Config {
    public static final boolean DEV_XXL_TREE_LOG = bool("devXxlTreeLog", false); // dev: every 10 s, how many XXL trees 42.21's cutaway rules made see-through (pzopt.XxlTreeFade)
    public static final boolean WINDOWS_IN_CHUNK_TEXTURE = bool("windowsInChunkTexture", true);
    public static final boolean TRANSLUCENT_TILES_IN_CHUNK_TEXTURE = bool("translucentTilesInChunkTexture", true);
+   public static final boolean TRANSLUCENT_LIGHTS_PER_FRAME = bool("translucentLightsPerFrame", true); // translucent light fixtures with a lit sprite stay per frame (gas canopy lights through the roof, 2026-09-28)
    public static final float CURTAIN_DEPTH_NUDGE = Math.max(0, integer("curtainDepthNudgePct", 5)) / 100.0F; // tiles; issue #4
    public static final int BAKE_BUDGET = integer("bakeBudget", 8);
    public static final int LIGHTING_BUDGET = integer("lightingBudget", 8);
