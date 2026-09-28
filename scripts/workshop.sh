@@ -10,7 +10,7 @@
 #   scripts/workshop.sh --tag win-b0bbce05d5-cc99c05   # stage the asset of that GitHub release (exact mirror)
 #   scripts/workshop.sh --zip build/pzopt-b0bbce05d5-classes.zip [--commit cc99c05]
 #   scripts/workshop.sh --out /tmp/ws         # somewhere other than ~/Zomboid/Workshop/PZ_Optimization
-#   scripts/workshop.sh --tag win-<rev>-<commit> --upload "Release <commit> (game revision <rev>). ..."
+#   scripts/workshop.sh --tag win-<rev>-<commit> --upload "Release <commit> (Build <version>, game revision <rev>). ..."
 #
 # --upload stages, then uploads with scripts/workshop-upload.py: the Steamworks API through the
 # game's libsteam_api.so and the running, logged-on Steam client, a few seconds, no game launch.
@@ -60,6 +60,11 @@ rev=$(unzip -p "$zip" pzopt/build-info.properties | sed -n 's/^revision=//p')
 commit="${commit:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
 [[ -n "$rev" ]] || { echo "$zip has no pzopt/build-info.properties" >&2; exit 1; }
 version=$(sed -n 's/.*Build \(42\.[0-9.]*\).*/\1/p' docs/windows-test.md | head -1)
+# a tagged release names its own game build in the title, "Windows build (42.21 / 4a0e9546ec) from <commit>"
+if [[ -n "$tag" ]]; then
+  tversion=$(gh release view "$tag" --json name -q .name | sed -n 's/.*(\(42\.[0-9.]*\) \/.*/\1/p')
+  version="${tversion:-$version}"
+fi
 nfiles=$(unzip -Z1 "$zip" | grep -vc '/$')
 noverrides=$(unzip -p "$zip" pzopt/build-info.properties | sed -n 's/^overrides=//p' | tr ',' '\n' | grep -c .)
 sha=$(sha256sum "$zip" | cut -d' ' -f1)
@@ -148,6 +153,15 @@ echo "  classes: $CLASSES ($nfiles files, revision $rev, from $zip)"
 echo "  id: ${id:-<none yet; the first in-game upload writes it into workshop.txt>}"
 if (( upload )); then
   [[ -n "$id" ]] || { echo "no item id in workshop.txt: the first upload of a new item goes through the game" >&2; exit 1; }
+  # every change note names the game build: "Release <commit> (Build <version>, game revision <rev>). ..."
+  if [[ -n "$version" && "$notes" != *"Build $version"* ]]; then
+    if [[ "$notes" == *"(game revision $rev)"* ]]; then
+      notes="${notes/"(game revision $rev)"/"(Build $version, game revision $rev)"}"
+    else
+      notes="Build $version (game revision $rev). $notes"
+    fi
+  fi
+  echo "  notes: ${notes:0:100}..."
   python3 scripts/workshop-upload.py --dir "$out" --notes "$notes"
 else
   echo "next: scripts/workshop-upload.py --dir $out --notes \"<change notes>\" (Steam running and logged on; no game)"

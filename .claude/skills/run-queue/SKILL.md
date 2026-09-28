@@ -84,7 +84,7 @@ harness/queue.sh submit run --install stock -- --label <name>-stock ...      # o
 
 # desktop-only kinds
 harness/queue.sh submit mp -- <label> [stock]                                   # 120 km/h drive against the stock dedicated server
-harness/queue.sh submit workshop --notes "Release <commit> (game revision <rev>). ..." -- --tag win-<rev>-<commit>
+harness/queue.sh submit workshop --notes "Release <commit> (Build <version>, game revision <rev>). ..." -- --tag win-<rev>-<commit>
 harness/queue.sh submit cmd --label <name> -- harness/showcase-record.sh storm120 opt
 
 # media: every encode, re-encode, stitch or GIF render (desktop only; shares the queue with the runs, so it

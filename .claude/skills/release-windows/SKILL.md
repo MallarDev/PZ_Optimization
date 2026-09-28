@@ -132,7 +132,7 @@ The game is only needed to *create* a new item (Main menu > Workshop > Create an
 into `workshop.txt`). The OCR-driven click sequence through the game's wizard (`ui-drive.py workshop`, 2026-09-21
 to 09-24) is gone; `git show c6c0ac1:harness/ui-drive.py` has it.
 
-Change notes: one paragraph, "Release <commit> (game revision <rev>). <what changed for users>.
+Change notes: one paragraph, "Release <commit> (Build <version>, game revision <rev>). <what changed for users>.
 Everything else is unchanged from the previous upload (...)". The upload is ~6 s.
 
 Verify the page too:

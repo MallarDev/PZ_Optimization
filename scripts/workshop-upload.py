@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Upload the staged Steam Workshop item straight through the Steamworks API: no game, no OCR.
 
-  scripts/workshop-upload.py --notes "Release <commit> (game revision <rev>). ..."
+  scripts/workshop-upload.py --notes "Release <commit> (Build <version>, game revision <rev>). ..."
   scripts/workshop-upload.py --check        # everything up to the submit: Steam logged on, fields, paths
   scripts/workshop-upload.py --notes "..." [--dir <staged item>] [--preview gif|png|<file>] [--timeout 600]
 
