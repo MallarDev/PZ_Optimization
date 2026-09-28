@@ -455,6 +455,7 @@ PzoptOptionDates = {
     pplTexelHeight = "2026-09-27",
     pplTexelPos = "2026-09-26",
     pplTorchCanSee = "2026-09-26",
+    pplTorchFeetGlow = "2026-09-28",
     pplTorchNearChunk = "2026-09-27",
     pplVariants = "2026-09-25",
     pplWetSpecular = "2026-09-25",

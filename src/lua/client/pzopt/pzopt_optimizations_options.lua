@@ -827,6 +827,19 @@ local ENHANCEMENT_SECTIONS = {
         },
     },
     {
+        title = "Foliage sway (grass, bushes and trees in the wind)", clip = "hdr",
+        entries = {
+            { key = "foliageSway", label = "Foliage sway",
+              tip = "Grass, bushes and trees bend and sway in the wind: they lean with it, gusts roll across fields and tree crowns, each plant swings at its own pace (grass quick, trees slow) and leaves flutter. The plants stay in the game's cached chunk pictures; the pass that puts those pictures on screen every frame moves each plant's pixels by the wind, so nothing extra is drawn. The game's own \"Wind sprite effects\" option (off by default) does this by drawing every plant every frame instead. Windows and Linux (not on macOS, OpenGL 2.1)." },
+            { key = "foliageSwayPct", label = "Foliage sway: strength (%)",
+              choices = { "50", "100", "150", "200" }, note = { ["100"] = "default" },
+              tip = "How far the plants bend in the wind." },
+            { key = "foliageSwayTaps", label = "Foliage sway: quality",
+              choices = { "1", "2", "3", "4" }, note = { ["1"] = "default", ["2"] = "plant edges move too" },
+              tip = "How the moving plants cover what is behind them: 1 moves each plant's pixels inside its own outline only (the cheapest); 2 to 4 also let the plant's edge move out over the ground behind it, looking 1 to 3 steps upwind." },
+        },
+    },
+    {
         title = "Darkness, remembered places and colour grading", clip = "darkness",
         entries = {
             { key = "darknessFloorPct", label = "Darkness floor (% of full light)",
@@ -1342,6 +1355,7 @@ local EFFECTS = {
     reflections = { gpu = 1, vram = 1 },
     godRays = { gpu = 1, vram = 1 },
     godRaysLocal = { gpu = 1 },
+    foliageSway = { gpu = 1, vram = 1 },
     darknessFloorPct = {},
     memoryTint = {},
     colorGrading = { gpu = -1 },

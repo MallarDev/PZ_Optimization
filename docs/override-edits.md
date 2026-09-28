@@ -5137,3 +5137,44 @@ instead, and the bytecode pins cover the rest of the method. No performance numb
 a per-entity list copy and adds one thread-local read per scratch object per call, and the reason to make it is
 that the alternative leaves an unknown number of zombies a frame walking somebody else's path with no signal at
 all.
+
+### Foliage sway (`foliageSway`, 2026-09-27; `pzopt.Sway`, `docs/findings-foliage-sway-2026-09-27.md`)
+
+Nothing below changes a pixel or a timing while `foliageSway` is off (the default): the hooks return at once, the tile
+programs' extra outputs go to no draw buffer, the game's chunk composite is never patched.
+
+- `zombie.core.opengl.ShaderUnit` (compile): the source passes through `pzopt.Sway.patchShader` last and
+  `pzopt.Sway.recordSource` records the chunk composites' final sources with their program. The bake's tile programs
+  (tileWithDepth, opaqueWithDepth, seamFix2, CutawayAttached) get a second output (the plant attribute: weight, class, phase,
+  four depth bits) and write their depth through `pzSwDepth`, which with sway on sets the lowest DEPTH16 bit on plant texels
+  and clears it on everything else (one depth step, 1.5e-5); with the uniform at its default (0) it returns the depth
+  unchanged. `chunkShader.vert` / `.frag` are recorded for the sway variant (`pzopt_swChunk`, placeholder files under
+  `src/media/shaders/`), never changed. Test-compiled; the source stays stock on failure.
+- `zombie.core.opengl.ShaderUniformSetter`: `pzoptNext()`, the chain's next link (the sway uniform is appended to a sprite's
+  chain).
+- `zombie.core.textures.TextureDraw`: both `StartShader` builders let `pzopt.Sway.startShader` append the plant's sway
+  uniforms to a patched tile program's chain while a plant bakes (a rigid draw resets them once after a plant used the
+  program) and tag the draw (`c`); `run()`: `StartShader` asks `pzopt.Sway.remap` for the program (the game's chunk composite
+  becomes the sway variant for a chunk texture that holds plants: its DEPTH is already on the draw) and tells
+  `pzopt.Sway.onProgram` which program is bound (both draw buffers while a patched tile program bakes into a texture with a
+  plant attribute texture; the DLSS motion attachment's colour mask during the composite); model / generic / water / particle /
+  terrain / ImGui ops first set one draw buffer again (`beforeOp`: they bind programs of their own, whose `gl_FragColor`
+  broadcast into the attribute); `FBORenderChunkStart` / `FBORenderChunkEnd` open and close the texture's attributes
+  (`chunkStart` clears them with a clearing bake, `chunkEnd` uploads the bake's tile mask carried on the end draw, frees the
+  attributes of a bake that drew no plant and sets one draw buffer while the chunk's FBO is still bound); the
+  `FBORenderChunkEnd` builder puts the bake's tile marks (`takeMask`) on the draw.
+- `zombie.core.textures.TextureFBO.destroy`: `pzopt.Sway.fboDestroyed` frees the attribute texture attached to that FBO.
+- `zombie.viewCone.ChunkRenderShader.startRenderThread`: `pzopt.Sway.chunkDraw(this, texd)`: the wind uniforms (once per
+  program per frame) and the texture's attribute / mask textures and mapping (per draw); for pixelLight's or the sprite
+  filter's composite, its sway twin is bound for a texture that holds plants.
+- `zombie.iso.fboRenderChunk.FBORenderCell`: `renderMinusFloor(IsoObject)` brackets `object.render` with `Sway.begin` /
+  `Sway.end` (a baked plant: `moveWithWind` or `isBush` sprites); `pzoptAddTreeTexture` adds each baked tree quad's sway
+  (its rows as fractions of the tree's height, amplitude, phase; one more parameter, the tree's square); the frame calls
+  `Sway.beforeComposite` (the wind) and `Sway.afterComposite` (the motion attachment's draw buffers) around the composite and
+  names the `composite` / `chunks` GPU sections by `devSwayAlternate`'s half.
+- `zombie.iso.fboRenderChunk.FBORenderTrees.addTree`: a tree the game draws per frame (faded near the player) without an
+  effect of its own gets the wind at its top as stock's corner offsets (`Sway.shearTop`, the composite's wind on the CPU).
+- `pzopt.TreeBake` (ours): the drawer carries each quad's sway and, while sway is on, draws the baked trees with
+  `Sway.drawTrees` (the same colour and depth as the VBO path, plus the attribute and the depth flag).
+- `pzopt.PixelLight.chunkDraw` (ours): a sway twin of its chosen variant counts as that variant (no switch back).
+- `pzopt.Dlss` (ours): after the object motion, one additive pass adds the sway's per-pixel motion (`Sway.motionTexture`).

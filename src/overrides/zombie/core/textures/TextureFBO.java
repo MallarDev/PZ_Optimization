@@ -301,6 +301,7 @@ public final class TextureFBO {
 
          IGLFramebufferObject funcs = getFuncs();
          if (this.id != 0) {
+            pzopt.Sway.fboDestroyed(this.id); // pzopt: foliage sway, the FBO's sway attribute texture goes with it
             funcs.glDeleteFramebuffers(this.id);
             this.id = 0;
          }

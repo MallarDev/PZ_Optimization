@@ -504,7 +504,10 @@ public final class PixelLight {
          }
          int bits = ACTIVE && Gl.wantOn && !failed ? GL.lightBits(texd.tex1) : -1;
          zombie.core.opengl.Shader want = bits == -1 ? null : GL.variantFor(bits);
-         if (want != null && want != shader) {
+         if (Config.SWAY_TWIN_REMAP) {
+            want = Sway.twinOrSelf(want, texd); // foliage sway: that variant's twin for a texture with swaying plants, bound once
+         }
+         if (want != null && want != shader && want != Sway.baseOf(shader)) { // (foliage sway's twin of that variant counts as it)
             zombie.core.ShaderHelper.glUseProgramObjectARB(want.getID()); // through the game's cache: its per-draw ModelViewProjection goes to the bound program
             ((zombie.viewCone.ChunkRenderShader)want).startRenderThread(texd); // DEPTH and chunkDepth on that program, then back here
             return;

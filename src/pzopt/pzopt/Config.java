@@ -936,6 +936,37 @@ public final class Config {
    public static final int DEV_CLOUD_SKIP = integer("devCloudSkip", 0); // dev (cost split): 1 = no kept-term tap (a constant share), 2 = no detail tap (no erosion), 4 = the kept term bound once a frame (wrong picture: the cost of per-draw binds); bits
    public static final int DEV_CLOUD_ALTERNATE = integer("devCloudAlternate", 0); // dev: ms; cloud shadows switch on and off every period (the frames' GPU time split by it)
    // god rays (pzopt.GodRays, docs/findings-god-rays-2026-09-27.md): light shafts in the haze and the dust of rooms, sun and moon
+   public static volatile boolean FOLIAGE_SWAY; // grass, bushes and trees sway in the wind while they stay baked in the chunk textures (the chunk composite looks each texel up through the wind's displacement; pzopt.Sway)
+   public static volatile int FOLIAGE_SWAY_PCT; // foliage sway: how far the plants bend, %
+   public static volatile int FOLIAGE_SWAY_TAPS; // foliage sway: 1 = texels move inside their plant's outline only, 2..4 = + 1..3 upwind probes so a plant's leading edge moves over what is behind it
+   public static volatile int DEV_SWAY_VIEW; // dev: foliage sway views (composite)
+   public static final int DEV_SWAY_ALTERNATE = integer("devSwayAlternate", 0); // dev: ms; the composite's sway switches on and off every period (frame-time A/B within one run; the bakes keep writing the attributes)
+   public static final boolean DEV_SWAY_ALTERNATE_ALL = bool("devSwayAlternateAll", false); // dev: the alternation's off half also bakes without sway attributes (the bake side's cost within one run)
+   public static final int DEV_SWAY_GAIN_PCT = integer("devSwayGainPct", 100); // dev: exaggerates the sway for inspection
+   public static final boolean DEV_SWAY_FLIP_Y = bool("devSwayFlipY", false); // dev: the bake's fragment rows counted from the FBO's top instead of its bottom
+   public static final String DEV_SWAY_DUMP_DIR = string("devSwayDumpDir", "").trim(); // dev: write each sway twin's sources there (tools/ShaderRegs.java compares the programs the driver builds)
+   public static final int DEV_SWAY_SKIP = integer("devSwaySkip", 0); // dev: composite cost bisection (compile time), bits: 4 no gust noise, 8 one fixed-point step inside plants, 32 DLSS motion written as zero (no motion math), 64 the sway function returns at once (a twin / variant that binds and fetches like the stock one)
+   public static final boolean DEV_SWAY_VARIANT_STOCK = bool("devSwayVariantStock", false); // dev: the sway variant program is a plain copy of the game's composite and gets no uniforms or textures (what switching programs costs)
+   public static final boolean SWAY_DEPTH_CHECK = bool("swayDepthCheck", true); // foliage sway: a texel's sway attribute counts only while its depth is still the plant's (something drawn over it later by a program that does not write the attribute)
+   public static final boolean SWAY_BINDLESS = bool("swayBindless", false); // foliage sway: the composite variant reads its attribute and mask textures through bindless handles (ARB_bindless_texture; launch)
+   public static final String SWAY_GUST = string("swayGust", "sines").trim().toLowerCase(java.util.Locale.ROOT); // foliage sway: the gust field, sines (two travelling waves, no fetch) | texture (32 x 32 periodic value noise)
+   public static final int SWAY_AUX_BUDGET_MB = integer("swayAuxBudgetMb", 160); // foliage sway: VRAM for the plants' attribute textures above which the ones not shown for 3 s are freed (their chunk re-bakes when it is shown again)
+   public static final boolean SWAY_MV = bool("swayMotionVectors", true); // foliage sway: with DLSS, the swaying pixels get their own motion vectors (without them DLSS's history damped the sway ~7x)
+   public static final boolean SWAY_MV_FOLD = bool("swayMvFold", true); // foliage sway: its DLSS motion added (and zeroed) in DLSS's own depth + motion pass instead of a full-screen pass of its own
+   public static final boolean SWAY_TWIN_REMAP = bool("swayTwinRemap", true); // foliage sway: pixelLight / the sprite filter bind the sway twin of their composite directly (one program start a draw, not two)
+   public static final boolean SWAY_MV_IMAGE = bool("swayMvImage", true); // foliage sway: the plant fragments store their DLSS motion in an image (only they write; no second render target in the composite)
+   public static final boolean SWAY_LIGHT_UNDISPLACED = bool("swayLightUndisplaced", false); // foliage sway: in pixelLight's composite only the colour and depth come from the moved texel, its light taps keep the pixel's own (no wait on the sway lookup)
+   public static final boolean SWAY_TWIN_ALL = bool("swayTwinAll", false); // foliage sway: every chunk draw goes through the twin while sway is on (textures without plants return at a uniform test): no program switch between plant and plain textures
+   public static final boolean SWAY_PREFETCH = bool("swayPrefetch", false); // foliage sway: the composite fetches colour and depth at the pixel's own texel with the plant flag; only a moved pixel fetches again (no dependent round trip for every pixel)
+   public static final boolean SWAY_AUX_EAGER = bool("swayAuxEager", false); // foliage sway: the attribute texel fetched beside the depth for every pixel of a plant texture (one dependent round trip less for plant pixels, more bandwidth)
+   public static final boolean SWAY_MV_NO_BLEND = bool("swayMvNoBlend", true); // foliage sway: the motion attachment is written, never blended (the composite's glEnable(GL_BLEND) covers every draw buffer)
+   public static final boolean SWAY_PUSH = bool("swayPush", true); // foliage sway: characters and cars bend the grass and bushes they move through (replaces stock's rustle: its per-frame draw and two re-bakes per bush)
+   public static final float DEV_SWAY_PUSH_ORBIT = (float)integer("devSwayPushOrbit", 0); // dev: squares; a pusher circles the camera's character at that radius
+   public static final int SWAY_ITERATIONS = integer("swayIterations", 1); // foliage sway: fixed-point steps of the inverse lookup inside a plant (2: the texel's own attribute re-read at the first guess; +1 dependent fetch)
+   public static final boolean SWAY_MASK = bool("swayMask", true); // foliage sway: a byte per 16 x 16 texels says whether a plant can reach it (the composite skips the rest with one cached tap)
+   public static final boolean DEV_SWAY_VARIANT_ALL = bool("devSwayVariantAll", false); // dev: every chunk composite draw uses the sway variant while sway is on (no program alternation; textures without plants skip the lookup by a uniform)
+   public static final boolean DEV_SWAY_NO_PATCH = bool("devSwayNoPatch", false); // dev: no shader patched (the off cost's reference)
+   public static final int DEV_SWAY_WIND = integer("devSwayWind", -1); // dev: pins the wind the sway sees (0..100), -1 = the climate's
    public static volatile boolean GOD_RAYS; // light shafts: the sun (or moon) through windows, doors, tree crowns and between buildings, lit in the haze and the dust of rooms (world composite)
    public static volatile int GOD_RAYS_STRENGTH_PCT; // how bright the shafts are, %
    public static volatile int GOD_RAYS_HAZE_PCT; // how hazy the open air is, % of the weather's own (fog, rain, morning mist add to it)
@@ -1194,6 +1225,10 @@ public final class Config {
       CLOUD_OPACITY_PCT = Math.max(0, Math.min(100, integer("cloudOpacityPct", 85)));
       CLOUD_SPEED_PCT = integer("cloudSpeedPct", 100);
       CLOUD_SCALE_PCT = Math.max(25, Math.min(400, integer("cloudScalePct", 100)));
+      FOLIAGE_SWAY = bool("foliageSway", false);
+      FOLIAGE_SWAY_PCT = Math.max(0, Math.min(400, integer("foliageSwayPct", 100)));
+      FOLIAGE_SWAY_TAPS = Math.max(1, Math.min(4, integer("foliageSwayTaps", 1)));
+      DEV_SWAY_VIEW = integer("devSwayView", 0);
       GOD_RAYS = bool("godRays", false);
       GOD_RAYS_STRENGTH_PCT = Math.max(0, Math.min(400, integer("godRaysStrengthPct", 100)));
       GOD_RAYS_HAZE_PCT = Math.max(0, Math.min(400, integer("godRaysHazePct", 100)));

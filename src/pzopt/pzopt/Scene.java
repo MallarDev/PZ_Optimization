@@ -72,6 +72,8 @@ public final class Scene {
    private static float timeOfDay = -1f;
    private static String weather = "";
    private static float fog = -1f;
+   private static float wind = -1f; // wind=0..1: the wind intensity pinned (foliage sway runs); -1 = the save's / the weather flag's
+   private static float windAngle = 0.7f; // wind_angle=-1..1: the climate's wind angle intensity (its sign is the downwind screen side)
    private static String torch = "";
    private static int fires; // fire=N: N fires lit near the player at the route start (HDR scenes)
    private static boolean headlights;
@@ -109,6 +111,8 @@ public final class Scene {
       timeOfDay = Float.parseFloat(HarnessFlags.get("time_of_day", "-1"));
       weather = HarnessFlags.get("weather", "").trim().toLowerCase(java.util.Locale.ROOT);
       fog = parseFog(HarnessFlags.get("fog", ""));
+      wind = Float.parseFloat(HarnessFlags.get("wind", "-1").trim());
+      windAngle = Float.parseFloat(HarnessFlags.get("wind_angle", "0.7").trim());
       fogTintDark = "dark".equalsIgnoreCase(HarnessFlags.get("fog_tint", "").trim());
       torch = HarnessFlags.get("torch", "").trim().toLowerCase(java.util.Locale.ROOT);
       thunderSecs = Float.parseFloat(HarnessFlags.get("thunder_secs", "6"));
@@ -210,6 +214,15 @@ public final class Scene {
          if (fogCycle > 1) {
             Log.warn("harness: sandbox FogCycle=" + fogCycle + " drives its own fog override; the pinned value may not hold");
          }
+      }
+      if (wind >= 0f) {
+         ClimateManager cm = ClimateManager.getInstance();
+         if (weather.isEmpty()) {
+            cm.stopWeatherAndThunder(); // a weather period pins its own wind
+            cm.setEnabledWeatherGeneration(false);
+         }
+         assertWind(cm);
+         Log.info("harness: wind forced to " + wind + " (angle intensity " + windAngle + ")");
       }
       if ("on".equals(torch) || "off".equals(torch)) {
          // strip every light the character already carries: the bench save's pistol has an always-on weapon light
@@ -468,12 +481,15 @@ public final class Scene {
                + " jniTorches=" + jniTorchCount() + " invisible=" + p.isInvisible() + " night=" + GameTime.getInstance().getNight()
                + " | square lighting (player, +3, +6 tiles ahead): " + squareLight(p, 0) + " " + squareLight(p, 3) + " " + squareLight(p, 6));
       }
-      if (weather.isEmpty() && fog < 0f) {
+      if (weather.isEmpty() && fog < 0f && wind < 0f) {
          return;
       }
       ClimateManager cm = ClimateManager.getInstance();
       if (!weather.isEmpty()) {
          assertWeather(cm);
+      }
+      if (wind >= 0f) {
+         assertWind(cm);
       }
       if (fog >= 0f) {
          assertFog(cm);
@@ -752,6 +768,11 @@ public final class Scene {
    private static boolean fogTintDark;
    private static final zombie.iso.weather.ClimateColorInfo DARK_FOG = new zombie.iso.weather.ClimateColorInfo(0.06f, 0.06f, 0.07f, 1.0f, 0.06f, 0.06f, 0.07f, 1.0f);
 
+   private static void assertWind(ClimateManager cm) {
+      set(cm, ClimateManager.FLOAT_WIND_INTENSITY, Math.max(0f, Math.min(1f, wind)));
+      set(cm, ClimateManager.FLOAT_WIND_ANGLE_INTENSITY, Math.max(-1f, Math.min(1f, windAngle)));
+   }
+
    private static void assertFog(ClimateManager cm) {
       set(cm, ClimateManager.FLOAT_FOG_INTENSITY, fog);
       if (fog > 0f && "storm".equals(weather)) {
@@ -781,7 +802,7 @@ public final class Scene {
    }
 
    static boolean requested() {
-      return timeOfDay >= 0f || !weather.isEmpty() || fog >= 0f || !torch.isEmpty() || visible || population >= 0f || carSpawn > 0 || seeAll || zombiesOff || soundRadius > 0 || helicopter || fires > 0 || !lights.isEmpty() || headlights || puddles >= 0F || SoundProbe.requested();
+      return timeOfDay >= 0f || !weather.isEmpty() || fog >= 0f || wind >= 0f || !torch.isEmpty() || visible || population >= 0f || carSpawn > 0 || seeAll || zombiesOff || soundRadius > 0 || helicopter || fires > 0 || !lights.isEmpty() || headlights || puddles >= 0F || SoundProbe.requested();
    }
 
    /** Flag see_all=true: read by the LightingJNI override on every player update (false until apply() ran). */

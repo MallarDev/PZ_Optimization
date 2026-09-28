@@ -21,6 +21,7 @@ import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL40;
 import zombie.ZomboidFileSystem;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
@@ -471,15 +472,70 @@ final class Dlss {
       }
       GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, inputsFbo);
       GL11.glViewport(0, 0, inW, inH);
-      GL20.glUseProgram(inputsProgram);
+      // foliage sway (swayMvFold): its motion added in this pass, each texel read zeroed by the same fragment (attachment 2)
+      int swayMv = Sway.motionTexture();
+      boolean swayImage = swayMv != 0 && Sway.motionIsImage() && inputsSwayImageProgram();
+      boolean swayFold = !swayImage && swayMv != 0 && Config.SWAY_MV_FOLD && r[0] == 0 && r[1] == 0 && org.lwjgl.opengl.GL.getCapabilities().OpenGL45
+         && inputsSwayProgram();
+      int[] fboState = INPUTS_STATE.computeIfAbsent(inputsFbo, k -> new int[]{0, 2});
+      if (swayFold) {
+         if (fboState[0] != swayMv) {
+            GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT2, GL11.GL_TEXTURE_2D, swayMv, 0);
+            fboState[0] = swayMv;
+         }
+         if (fboState[1] != 3) {
+            GL20.glDrawBuffers(INPUTS_BUFS3);
+            fboState[1] = 3;
+         }
+         org.lwjgl.opengl.GL45.glTextureBarrier(); // the composite's writes visible to this pass's reads of the same texture
+         GL13.glActiveTexture(GL13.GL_TEXTURE1);
+         GL11.glBindTexture(GL11.GL_TEXTURE_2D, swayMv);
+         GL13.glActiveTexture(GL13.GL_TEXTURE0);
+      } else {
+         if (fboState[1] != 2) {
+            GL20.glDrawBuffers(INPUTS_BUFS2);
+            fboState[1] = 2;
+         }
+         if (swayImage) {
+            // the composite's image stores visible to this pass's fetches; a texel counts only with this frame's epoch
+            org.lwjgl.opengl.GL42.glMemoryBarrier(org.lwjgl.opengl.GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
+            GL13.glActiveTexture(GL13.GL_TEXTURE1);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, swayMv);
+            GL13.glActiveTexture(GL13.GL_TEXTURE2);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, Sway.motionTiles());
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+         }
+      }
+      int[] iu = swayImage ? inputsSwayImageUniforms : swayFold ? inputsSwayUniforms : inputsUniforms;
+      GL20.glUseProgram(swayImage ? inputsSwayImageProgram : swayFold ? inputsSwayProgram : inputsProgram);
       GL11.glBindTexture(GL11.GL_TEXTURE_2D, sceneDepth);
-      GL20.glUniform1i(inputsUniforms[0], 0);
-      GL20.glUniform2i(inputsUniforms[1], r[0], r[1]);
-      GL20.glUniform1f(inputsUniforms[2], sceneDepth == 0 ? 0.5F : -1.0F);
-      GL20.glUniform3f(inputsUniforms[3], offX, offY, zoom);
-      GL20.glUniform3f(inputsUniforms[4], lastOffX, lastOffY, lastZoom);
-      GL20.glUniform4f(inputsUniforms[5], s, inH, Config.DLSS_MV_SIGN, 0.0F);
+      GL20.glUniform1i(iu[0], 0);
+      GL20.glUniform2i(iu[1], r[0], r[1]);
+      GL20.glUniform1f(iu[2], sceneDepth == 0 ? 0.5F : -1.0F);
+      GL20.glUniform3f(iu[3], offX, offY, zoom);
+      GL20.glUniform3f(iu[4], lastOffX, lastOffY, lastZoom);
+      GL20.glUniform4f(iu[5], s, inH, Config.DLSS_MV_SIGN, 0.0F);
+      if (swayFold || swayImage) {
+         GL20.glUniform1i(iu[6], 1);
+      }
+      if (swayImage) {
+         GL20.glUniform1f(iu[7], Sway.motionEpoch());
+         GL20.glUniform1i(iu[8], 2);
+      }
       GL11.glDrawArrays(GL11.GL_TRIANGLE_STRIP, 0, 4);
+      if (swayFold || swayImage) {
+         if (swayFold) {
+            Sway.motionConsumed();
+         }
+         swayMvFrames++;
+         GL13.glActiveTexture(GL13.GL_TEXTURE1);
+         GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+         if (swayImage) {
+            GL13.glActiveTexture(GL13.GL_TEXTURE2);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+         }
+         GL13.glActiveTexture(GL13.GL_TEXTURE0);
+      }
       GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, mvFbo); // the object rects below write the motion image alone
       lastOffX = offX;
       lastOffY = offY;
@@ -511,6 +567,56 @@ final class Dlss {
          }
          GL11.glDisable(GL11.GL_STENCIL_TEST);
          GL11.glStencilMask(0xFF);
+      }
+
+      // 2b'. foliage sway: the swaying pixels' own motion (pzopt.Sway writes it during the composite), added to the camera's
+      // (a pass of its own when it was not folded into the inputs pass above)
+      if (swayMv != 0 && !swayFold && !swayImage && swayProgram != -1) {
+         if (swayProgram == 0) {
+            swayProgram = Shaders.program("dlss sway motion", Upscaler.QUAD_VERT, SWAY_FRAG);
+            if (swayProgram == 0) {
+               swayProgram = -1;
+            } else {
+               swayUniforms[0] = GL20.glGetUniformLocation(swayProgram, "SwayMv");
+               swayUniforms[1] = GL20.glGetUniformLocation(swayProgram, "origin");
+            }
+         }
+         if (swayProgram > 0) {
+            GpuSections.markNow("dlss.swaymv", false);
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, mvFbo);
+            GL11.glViewport(0, 0, inW, inH);
+            GL11.glDisable(GL11.GL_STENCIL_TEST);
+            // the sway texture as mvFbo's second attachment (kept): each texel read is zeroed in the same fragment, so the
+            // composite never clears it (only possible when the low-res region starts at the framebuffer's origin)
+            boolean zero = r[0] == 0 && r[1] == 0 && org.lwjgl.opengl.GL.getCapabilities().OpenGL45;
+            if (zero && swayAttached != swayMv) {
+               GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1, GL11.GL_TEXTURE_2D, swayMv, 0);
+               swayAttached = swayMv;
+            }
+            if (zero) {
+               GL20.glDrawBuffers(SWAY_BUFS2);
+               org.lwjgl.opengl.GL45.glTextureBarrier(); // the composite's writes visible to this pass's reads of the same texture
+               GL30.glEnablei(GL11.GL_BLEND, 0);
+               GL40.glBlendFunci(0, GL11.GL_ONE, GL11.GL_ONE);
+               GL30.glDisablei(GL11.GL_BLEND, 1);
+            } else {
+               GL11.glEnable(GL11.GL_BLEND);
+               GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE);
+            }
+            GL20.glUseProgram(swayProgram);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, swayMv);
+            GL20.glUniform1i(swayUniforms[0], 0);
+            GL20.glUniform2i(swayUniforms[1], r[0], r[1]);
+            GL11.glDrawArrays(GL11.GL_TRIANGLE_STRIP, 0, 4);
+            GL11.glDisable(GL11.GL_BLEND);
+            if (zero) {
+               GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
+               Sway.motionConsumed();
+            }
+            swayMvFrames++;
+            GpuSections.markNow("dlss.swaymv", true);
+         }
       }
 
       // 2c. dlssWaterCurrent: the water's stencil id into this set's mask
@@ -986,6 +1092,8 @@ final class Dlss {
          store(k);
       }
       select(0);
+      INPUTS_STATE.clear(); // (the framebuffers are gone: a new one gets the sway texture attached again)
+      swayAttached = 0;
       sceneDepthFbo = -1;
       current = 0;
       pending = -1;
@@ -1118,7 +1226,78 @@ final class Dlss {
       "   frag = vec4(mix(d.rgb, c, m), d.a);",
       "}");
 
+   // swayMvFold: the inputs pass with the sway's motion added (compiled on first use; -1 = refused)
+   private static int inputsSwayProgram;
+   private static int[] inputsSwayUniforms;
+   /** inputs framebuffer -> {sway texture on attachment 2, draw buffers on (2 / 3)} */
+   private static final java.util.HashMap<Integer, int[]> INPUTS_STATE = new java.util.HashMap<>();
+   private static final java.nio.IntBuffer INPUTS_BUFS2 = org.lwjgl.BufferUtils.createIntBuffer(2).put(0, GL30.GL_COLOR_ATTACHMENT0).put(1, GL30.GL_COLOR_ATTACHMENT1);
+   private static final java.nio.IntBuffer INPUTS_BUFS3 = org.lwjgl.BufferUtils.createIntBuffer(3).put(0, GL30.GL_COLOR_ATTACHMENT0).put(1, GL30.GL_COLOR_ATTACHMENT1).put(2, GL30.GL_COLOR_ATTACHMENT2);
+
+   // swayMvImage: the inputs pass reading the sway's image (motion in rg, the frame's epoch in b; nothing to zero)
+   private static int inputsSwayImageProgram;
+   private static int[] inputsSwayImageUniforms;
+
+   private static boolean inputsSwayImageProgram() {
+      if (inputsSwayImageProgram == 0) {
+         String frag = INPUTS_FRAG
+            .replace("uniform vec4 params;", "uniform vec4 params;\nuniform usampler2D SwayMv;\nuniform usampler2D SwayTile;\nuniform float swayEpoch;")
+            // a tile the plants wrote into this frame (one small cached fetch elsewhere), then the pixel's own word
+            .replace("   fragMv = (prevP - p) * params.z;", "   fragMv = (prevP - p) * params.z;\n   ivec2 sp = ivec2(gl_FragCoord.xy) + origin;\n   uint se = uint(swayEpoch);\n"
+               + "   if (texelFetch(SwayTile, sp >> 4, 0).r == se) {\n      uint v = texelFetch(SwayMv, sp, 0).r;\n"
+               + "      if ((v >> 22u) == se) fragMv += (vec2(float((v >> 11u) & 2047u), float(v & 2047u)) - 1024.0) / 256.0;\n   }");
+         int prog = Shaders.program("dlss depth + motion + sway image", Upscaler.QUAD_VERT, frag);
+         if (prog == 0) {
+            inputsSwayImageProgram = -1;
+            return false;
+         }
+         inputsSwayImageProgram = prog;
+         inputsSwayImageUniforms = new int[]{GL20.glGetUniformLocation(prog, "SceneDepth"), GL20.glGetUniformLocation(prog, "origin"),
+            GL20.glGetUniformLocation(prog, "constantDepth"), GL20.glGetUniformLocation(prog, "cur"), GL20.glGetUniformLocation(prog, "prev"),
+            GL20.glGetUniformLocation(prog, "params"), GL20.glGetUniformLocation(prog, "SwayMv"), GL20.glGetUniformLocation(prog, "swayEpoch"), GL20.glGetUniformLocation(prog, "SwayTile")};
+      }
+      return inputsSwayImageProgram > 0;
+   }
+
+   private static boolean inputsSwayProgram() {
+      if (inputsSwayProgram == 0) {
+         String frag = INPUTS_FRAG
+            .replace("uniform vec4 params;", "uniform vec4 params;\nuniform sampler2D SwayMv;")
+            .replace("layout(location = 1) out vec2 fragMv;", "layout(location = 1) out vec2 fragMv;\nlayout(location = 2) out vec2 swayZeroed;")
+            .replace("   fragMv = (prevP - p) * params.z;", "   fragMv = (prevP - p) * params.z + texelFetch(SwayMv, ivec2(gl_FragCoord.xy), 0).xy * " + Sway.MV_RANGE + ";\n   swayZeroed = vec2(0.0);");
+         int prog = Shaders.program("dlss depth + motion + sway", Upscaler.QUAD_VERT, frag);
+         if (prog == 0) {
+            inputsSwayProgram = -1;
+            return false;
+         }
+         inputsSwayProgram = prog;
+         inputsSwayUniforms = new int[]{GL20.glGetUniformLocation(prog, "SceneDepth"), GL20.glGetUniformLocation(prog, "origin"),
+            GL20.glGetUniformLocation(prog, "constantDepth"), GL20.glGetUniformLocation(prog, "cur"), GL20.glGetUniformLocation(prog, "prev"),
+            GL20.glGetUniformLocation(prog, "params"), GL20.glGetUniformLocation(prog, "SwayMv")};
+      }
+      return inputsSwayProgram > 0;
+   }
+
    /** One object's motion over its stencil-masked rectangle. */
+   private static int swayProgram, swayAttached;
+   private static final java.nio.IntBuffer SWAY_BUFS2 = org.lwjgl.BufferUtils.createIntBuffer(2).put(0, GL30.GL_COLOR_ATTACHMENT0).put(1, GL30.GL_COLOR_ATTACHMENT1);
+   private static final int[] swayUniforms = new int[2];
+   static long swayMvFrames;
+
+   /** Foliage sway's motion (world framebuffer pixels, already in DLSS's units and sign), added where a plant moved. */
+   static final String SWAY_FRAG = String.join("\n",
+      "#version 330",
+      "uniform sampler2D SwayMv;",
+      "uniform ivec2 origin;",
+      "layout(location = 0) out vec2 fragMv;",
+      "layout(location = 1) out vec2 zeroed;", // the texel back to 0 for the next frame (when attached)
+      "void main() {",
+      "   vec2 m = texelFetch(SwayMv, ivec2(gl_FragCoord.xy) + origin, 0).xy;",
+      "   if (m.x == 0.0 && m.y == 0.0) discard;",
+      "   fragMv = m * " + Sway.MV_RANGE + ";", // RG8_SNORM: motion / MV_RANGE
+      "   zeroed = vec2(0.0);",
+      "}");
+
    static final String RECT_FRAG = String.join("\n",
       "#version 330",
       "uniform vec2 mv;",

@@ -756,13 +756,14 @@ implements Mover {
     }
 
     public float getGlobalMovementMod(boolean bDoNoises) {
+        boolean pzoptPush = pzopt.Sway.frameOn && pzopt.Sway.moved(this); // pzopt: foliage sway, this character bends the plants it walks through (instead of stock's rustle re-bakes)
         if (this.current != null && this.getZ() - (float)PZMath.fastfloor(this.getZ()) < 0.5f) {
             IsoGridSquare feeler;
             if (this.current.has(IsoObjectType.tree) || this.current.hasBush()) {
                 if (bDoNoises) {
                     this.doTreeNoises();
                 }
-                for (int i = 1; i < this.current.getObjects().size(); ++i) {
+                for (int i = 1; !pzoptPush && i < this.current.getObjects().size(); ++i) { // pzopt: foliage sway replaces the rustle
                     IsoObject obj = this.current.getObjects().get(i);
                     if (obj instanceof IsoTree) {
                         obj.setRenderEffect(RenderEffectType.Vegetation_Rustle);
@@ -776,7 +777,7 @@ implements Mover {
                 if (bDoNoises) {
                     this.doTreeNoises();
                 }
-                for (int i = 1; i < feeler.getObjects().size(); ++i) {
+                for (int i = 1; !pzoptPush && i < feeler.getObjects().size(); ++i) { // pzopt: foliage sway replaces the rustle
                     IsoObject obj = feeler.getObjects().get(i);
                     if (obj instanceof IsoTree) {
                         obj.setRenderEffect(RenderEffectType.Vegetation_Rustle);

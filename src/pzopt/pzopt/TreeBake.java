@@ -39,7 +39,7 @@ public final class TreeBake {
    /** Depth written by the stock depth model per level of height (IsoDepthHelper.calculateDepth's zOffset step). */
    public static final float DEPTH_PER_LEVEL = 0.0028867084F;
 
-   private static final int STRIDE = 12;
+   static final int STRIDE = 16; // pzopt foliage sway: 12..15 hold the quad's sway (fraction of the tree's height at the top / bottom row, amplitude, phase)
    private static final ArrayList<Drawer> pool = new ArrayList<>();
 
    public static long treesDrawn, copiesDrawn, quadsDrawn, passes, neighboursInvalidated, appendsQueued, appendsDrawn, appendsFellBack, appendsRefused;
@@ -200,7 +200,23 @@ public final class TreeBake {
          this.v[i + 7] = g;
          this.v[i + 8] = b;
          this.v[i + 9] = a;
+         this.v[i + 10] = 0F;
+         this.v[i + 11] = 0F;
+         this.v[i + 12] = 0F;
+         this.v[i + 13] = 0F;
          this.count++;
+      }
+
+      /** Foliage sway: the last quad's rows as fractions of the tree's height (1 = its top), its amplitude and phase. */
+      public void sway(float fracTop, float fracBottom, float amp, float phase) {
+         if (this.count == 0) {
+            return;
+         }
+         int i = (this.count - 1) * STRIDE;
+         this.v[i + 10] = fracTop;
+         this.v[i + 11] = fracBottom;
+         this.v[i + 12] = amp;
+         this.v[i + 13] = phase;
       }
 
       public boolean isEmpty() {
@@ -243,6 +259,10 @@ public final class TreeBake {
          GL11.glDepthMask(true);
          GL11.glEnable(3008);
          GL11.glAlphaFunc(516, 0.0F);
+         if (Sway.drawTrees(this.textures, this.v, this.count)) {
+            GLStateRenderThread.restore();
+            return; // foliage sway: drawn with the sway attributes into both attachments
+         }
          for (int n = 0; n < this.count; n++) {
             Texture texture = this.textures[n];
             if (texture == null || texture.getTextureId() == null) {

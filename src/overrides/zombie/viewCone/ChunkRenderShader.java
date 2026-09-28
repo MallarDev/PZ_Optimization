@@ -27,6 +27,7 @@ public class ChunkRenderShader extends Shader {
       pzopt.Ssr.chunkDraw(texd); // pzopt: reflections, the composite's scatter uniforms (once per program per frame)
       pzopt.CloudShadow.chunkDraw(texd); // pzopt: cloudShadows, the cloud uniforms (once per program per frame) and this texture's direct-sun share
       pzopt.GodRays.chunkDraw(); // pzopt: god rays, the haze uniforms (once per program per frame)
+      pzopt.Sway.chunkDraw(this, texd); // pzopt: foliage sway, the variant for a texture with swaying plants, the wind (once per program per frame) and its sway attributes
       pzopt.SpriteFilter.afterChunkStart(); // pzopt: sprite filter, the chunk texture's bind that follows takes the composite's magnification filter
    }
 

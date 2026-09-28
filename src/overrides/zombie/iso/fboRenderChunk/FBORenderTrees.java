@@ -448,6 +448,17 @@ public final class FBORenderTrees extends GenericDrawer {
          tree.oreY4 = (float)ore.y4;
       }
 
+      if (!tree.objectRenderEffects && pzopt.Sway.frameOn && texture != null) { // pzopt: foliage sway, a tree drawn per frame sways like the baked ones (its top corners sheared)
+         float pzoptH = texture.getHeightOrig(); // pzopt
+         float pzoptDx = pzopt.Sway.shearTop(x, y, z, pzopt.Sway.treeAmp(pzoptH), pzopt.Sway.phaseOf((int)x, (int)y, 7), 3) / 128.0F; // pzopt
+         if (pzoptDx != 0.0F) { // pzopt
+            tree.objectRenderEffects = true; // pzopt
+            tree.oreX1 = tree.oreX2 = pzoptDx; // pzopt
+            tree.oreY1 = tree.oreY2 = Math.abs(pzoptDx) * 0.08F * 0.5F; // pzopt: the top dips a little as it bends
+            tree.oreX3 = tree.oreY3 = tree.oreX4 = tree.oreY4 = 0.0F; // pzopt
+         } // pzopt
+      } // pzopt
+
       tree.useStencil = bUseStencil;
       tree.fadeAlpha = fadeAlpha;
       tree.transparent = transparent;

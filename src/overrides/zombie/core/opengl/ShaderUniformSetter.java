@@ -25,6 +25,10 @@ public final class ShaderUniformSetter extends GenericDrawer {
       return this;
    }
 
+   public ShaderUniformSetter pzoptNext() { // pzopt: foliage sway appends its uniform to a chain
+      return this.next; // pzopt
+   } // pzopt
+
    public ShaderUniformSetter setNext(ShaderUniformSetter next) {
       this.next = next;
       return next;

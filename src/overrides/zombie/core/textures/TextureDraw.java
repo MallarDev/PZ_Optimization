@@ -360,12 +360,17 @@ public final class TextureDraw {
    public static void StartShader(TextureDraw texd, int iD) {
       texd.type = TextureDraw.Type.StartShader;
       texd.a = iD;
+      if (pzopt.Sway.frameOn) { // pzopt: foliage sway, a patched bake program gets its sway uniform
+         ShaderUniformSetter pzoptU = pzopt.Sway.startShader(texd, iD, null); // pzopt
+         if (pzoptU != null) texd.drawer = pzoptU; // pzopt
+      } else texd.c = 0; // pzopt
    }
 
    public static void StartShader(TextureDraw texd, int iD, ShaderUniformSetter uniforms) {
       texd.type = TextureDraw.Type.StartShader;
       texd.a = iD;
-      texd.drawer = uniforms;
+      texd.drawer = pzopt.Sway.frameOn ? pzopt.Sway.startShader(texd, iD, uniforms) : uniforms; // pzopt: foliage sway, a patched bake program gets its sway uniform
+      if (!pzopt.Sway.frameOn) texd.c = 0; // pzopt
    }
 
    public static void ShaderUpdate1i(TextureDraw texd, int shaderID, int uniform, int uniformValue) {
@@ -422,6 +427,7 @@ public final class TextureDraw {
 
    public static void FBORenderChunkEnd(TextureDraw textureDraw) {
       textureDraw.type = TextureDraw.Type.FBORenderChunkEnd;
+      textureDraw.drawer = pzopt.Sway.takeMask(); // pzopt: foliage sway, the bake's tile marks ride on its end draw
    }
 
    public static void releaseFBORenderChunkLock(TextureDraw textureDraw) {
@@ -430,6 +436,7 @@ public final class TextureDraw {
 
    public void run() {
       if (pzopt.UniformCache.ON && this.type != TextureDraw.Type.StartShader) pzopt.UniformCache.reset(); // pzopt: uniformCache, any other command may touch uniforms
+      if (pzopt.Sway.mrt) pzopt.Sway.beforeOp(this); // pzopt: foliage sway, a model / generic drawer binds its own program: one draw buffer again
       switch (this.type) {
          case glBuffer:
             if (Core.getInstance().supportsFBO()) {
@@ -508,6 +515,7 @@ public final class TextureDraw {
             break;
          case glColorMask:
             GLStateRenderThread.ColorMask.set(this.a == 1, this.b == 1, this.c == 1, this.x0 == 1.0F);
+            if (pzopt.Sway.mrt) pzopt.Sway.afterColorMask(); // pzopt: foliage sway, the attribute attachment keeps its own mask
             break;
          case glStencilMask:
             GLStateRenderThread.StencilMask.set(this.a);
@@ -536,9 +544,10 @@ public final class TextureDraw {
             IndieGL.glTexParameteriActual(this.a, this.b, this.c);
             break;
          case StartShader:
-            int pzoptProgram = pzopt.SpriteFilter.remap(this.a); // pzopt: sprite filter, the chunk composite runs this frame's zoom variant
+            int pzoptProgram = pzopt.Sway.remap(pzopt.SpriteFilter.remap(this.a), this); // pzopt: sprite filter, the chunk composite runs this frame's zoom variant; foliage sway, its variant for a texture with swaying plants
             if (pzopt.DrawStats.ON) pzopt.DrawStats.shaderStart(pzoptProgram); // pzopt: instrumented runs, draw-call census
             ShaderHelper.glUseProgramObjectARB(pzoptProgram); // pzopt: sprite filter
+            pzopt.Sway.onProgram(pzoptProgram, this); // pzopt: foliage sway, both draw buffers while a patched program bakes into a texture with sway attributes
             boolean pzoptSame = pzopt.UniformCache.ON && pzopt.UniformCache.startProgram(pzoptProgram); // pzopt: uniformCache
             if (Shader.ShaderMap.containsKey(pzoptProgram)) { // pzopt: sprite filter
                Shader pzoptShader = (Shader)Shader.ShaderMap.get(pzoptProgram); // pzopt
@@ -711,11 +720,13 @@ public final class TextureDraw {
             break;
          case FBORenderChunkEnd:
             if (pzopt.DrawStats.ON) pzopt.DrawStats.bakeEnd(); // pzopt: instrumented runs, draw-call census
+            pzopt.Sway.chunkEnd(this); // pzopt: foliage sway, the bake's tile marks, back to one draw buffer while the chunk's FBO is still bound
             FBORenderChunkManager.instance.renderThreadChunkEnd();
             break;
          case FBORenderChunkStart:
             if (pzopt.DrawStats.ON) pzopt.DrawStats.bakeStart(); // pzopt: instrumented runs, draw-call census
             FBORenderChunkManager.instance.renderThreadChunkStart(this.a, this.b == 1);
+            pzopt.Sway.chunkStart(this.b == 1); // pzopt: foliage sway, this texture's sway attributes (cleared with the bake)
             break;
          case glDoStartFrameNoZoom:
             Core.getInstance().DoStartFrameNoZoom(this.a, this.b, this.f1, this.c, false, false, false);

@@ -1572,7 +1572,7 @@ public final class FBORenderCell {
       perPlayerData1.chunksWithTranslucentFloor.clear();
       perPlayerData1.chunksWithTranslucentNonFloor.clear();
 
-      pzopt.GpuSections.begin("chunks"); // pzopt: GPU section (every on-screen chunk: bakes and per-chunk passes)
+      pzopt.GpuSections.begin(pzopt.Sway.section("chunks")); // pzopt: GPU section (every on-screen chunk: bakes and per-chunk passes); foliage sway's alternation splits it
       for (int i = 0; i < perPlayerData1.onScreenChunks.size(); i++) {
          IsoChunk c = perPlayerData1.onScreenChunks.get(i);
          AbstractPerformanceProfileProbe var10 = renderOneChunk.profile();
@@ -1596,7 +1596,7 @@ public final class FBORenderCell {
          }
       }
 
-      pzopt.GpuSections.end("chunks"); // pzopt: GPU section
+      pzopt.GpuSections.end(pzopt.Sway.section("chunks")); // pzopt: GPU section; foliage sway's alternation splits it
       if (pzoptZoomRetain) {
          this.pzoptZoomSettle(playerIndex); // pzopt: zoomRetain, a credit nothing consumed is not carried to the next plan
       }
@@ -1615,16 +1615,18 @@ public final class FBORenderCell {
       pzopt.SpriteFilter.beforeComposite(playerIndex); // pzopt: sprite filter, this frame's composite program for the zoom
       pzopt.CloudShadow.beforeComposite(playerIndex); // pzopt: cloudShadows, the drift and the camera of this frame, ahead of the chunk composite
       pzopt.GodRays.beforeComposite(playerIndex); // pzopt: god rays, the camera of this frame for the haze in the chunk composite
+      pzopt.Sway.beforeComposite(playerIndex); // pzopt: foliage sway, this frame's wind for the chunk composite
       pzopt.RenderPrep.start(); // pzopt: renderPrepParallel, the characters' sun share and water search on the frame workers while the composite and the players go
-      pzopt.GpuSections.begin(pzopt.SpriteFilter.section("composite")); /* pzopt: GPU section: chunk textures into the combined FBO and onto the screen */
+      pzopt.GpuSections.begin(pzopt.Sway.section(pzopt.SpriteFilter.section("composite"))); /* pzopt: GPU section: chunk textures into the combined FBO and onto the screen; foliage sway's alternation splits it */
       if (pzopt.Config.COMPOSITE_SHADER_RUN && pzopt.Overrides.enabled() && !DebugOptions.instance.fboRenderChunk.combinedFbo.getValue()
             && DebugOptions.instance.fboRenderChunk.renderChunkTextures.getValue()) { // pzopt: compositeShaderRun
          this.pzoptCompositeChunks(); // pzopt
       } else { // pzopt
          FBORenderChunkManager.instance.endFrame();
       } // pzopt
-      pzopt.GpuSections.end(pzopt.SpriteFilter.section("composite")); // pzopt: sprite filter, devSpriteFilterAlternate splits the section
+      pzopt.GpuSections.end(pzopt.Sway.section(pzopt.SpriteFilter.section("composite"))); // pzopt: sprite filter, devSpriteFilterAlternate splits the section; foliage sway, devSwayAlternate too
       pzopt.Ssr.afterComposite(); // pzopt: reflections, dev timing of the composite with its scatter
+      pzopt.Sway.afterComposite(); // pzopt: foliage sway, the motion-vector attachment off the world framebuffer
       pzopt.CloudShadow.afterComposite(); // pzopt: cloudShadows, dev timing of the composite
       pzopt.AmbientOcclusion.queue(playerIndex); // pzopt: ambient occlusion on the static world, before anything else is drawn over it
       pzopt.PixelLight.afterComposite(playerIndex); // pzopt: pixelLight, the per-pixel light pass (pass mode) and the dev dumps, before anything else is drawn over the static world
@@ -3423,11 +3425,11 @@ public final class FBORenderCell {
                }
                IsoDirections dir = tree.getForwardIsoDirection();
                // sprite.x0 / y0 is the origin the sprite path would use; each texture adds its own trim offsets
-               this.pzoptAddTreeTexture(drawer, tree.getSprite().getTextureForCurrentFrame(dir, tree), sprite.x0, sprite.y0, sprite.ground, base, cr, cg, cb, tileScale);
+               this.pzoptAddTreeTexture(drawer, tree.getSprite().getTextureForCurrentFrame(dir, tree), sprite.x0, sprite.y0, sprite.ground, base, cr, cg, cb, tileScale, square);
                if (tree.attachedAnimSprite != null) {
                   for (int k = 0; k < tree.attachedAnimSprite.size(); k++) {
                      IsoSpriteInstance inst = tree.attachedAnimSprite.get(k);
-                     this.pzoptAddTreeTexture(drawer, inst.parentSprite.getTextureForCurrentFrame(dir, tree), sprite.x0, sprite.y0, sprite.ground, base, cr, cg, cb, tileScale);
+                     this.pzoptAddTreeTexture(drawer, inst.parentSprite.getTextureForCurrentFrame(dir, tree), sprite.x0, sprite.y0, sprite.ground, base, cr, cg, cb, tileScale, square);
                   }
                }
                pzopt.TreeBake.treesDrawn++;
@@ -3529,11 +3531,11 @@ public final class FBORenderCell {
                drawer = pzopt.TreeBake.alloc();
             }
             IsoDirections dir = tree.getForwardIsoDirection();
-            this.pzoptAddTreeTexture(drawer, tree.getSprite().getTextureForCurrentFrame(dir, tree), sprite.x0, sprite.y0, sprite.ground, base, cr, cg, cb, tileScale);
+            this.pzoptAddTreeTexture(drawer, tree.getSprite().getTextureForCurrentFrame(dir, tree), sprite.x0, sprite.y0, sprite.ground, base, cr, cg, cb, tileScale, square);
             if (tree.attachedAnimSprite != null) {
                for (int k = 0; k < tree.attachedAnimSprite.size(); k++) {
                   IsoSpriteInstance inst = tree.attachedAnimSprite.get(k);
-                  this.pzoptAddTreeTexture(drawer, inst.parentSprite.getTextureForCurrentFrame(dir, tree), sprite.x0, sprite.y0, sprite.ground, base, cr, cg, cb, tileScale);
+                  this.pzoptAddTreeTexture(drawer, inst.parentSprite.getTextureForCurrentFrame(dir, tree), sprite.x0, sprite.y0, sprite.ground, base, cr, cg, cb, tileScale, square);
                }
             }
          }
@@ -3589,7 +3591,7 @@ public final class FBORenderCell {
 
    /** One texture of a tree (main sprite or foliage overlay) placed like IsoSprite.performRenderFrame would. */
    private void pzoptAddTreeTexture(pzopt.TreeBake.Drawer drawer, Texture texture, float sx, float sy, float ground, float base,
-                                    float r, float g, float b, int tileScale) {
+                                    float r, float g, float b, int tileScale, IsoGridSquare swaySquare) {
       if (texture == null || !texture.isReady() || texture.getTextureId() == null) {
          return;
       }
@@ -3600,6 +3602,10 @@ public final class FBORenderCell {
       float y1 = y0 + texture.getHeight() * scale;
       drawer.add(texture, x0, y0, x1, y1, pzopt.TreeBake.depthAtRow(base, ground, y0, tileScale),
          pzopt.TreeBake.depthAtRow(base, ground, y1, tileScale), r, g, b, 1.0F);
+      if (pzopt.Sway.frameOn && swaySquare != null) { // pzopt: foliage sway, the quad's rows as fractions of the tree's height
+         float h = Math.max(1.0F, ground - sy);
+         drawer.sway((ground - y0) / h, (ground - y1) / h, pzopt.Sway.treeAmp(h), pzopt.Sway.phaseOf(swaySquare.x, swaySquare.y, 7));
+      }
    }
 
    /** JUMBO trees do not come out of the chunk-texture tree batch (missing at game load, 2026-09-19); they stay per frame. */
@@ -4371,7 +4377,9 @@ public final class FBORenderCell {
          return;
       }
 
+      boolean pzoptSway = pzopt.Sway.begin(object, this.renderTranslucentOnly); // pzopt: foliage sway, a baked plant writes its sway attributes
       object.render(square.x, square.y, square.z, lightInfo, true, false, null);
+      if (pzoptSway) pzopt.Sway.end(); // pzopt
    }
 
    /**
