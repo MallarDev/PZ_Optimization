@@ -41,13 +41,16 @@ public final class UpscalerDeps {
    private UpscalerDeps() {
    }
 
-   /** What one platform downloads: the release asset, the shim's file name, the prefix of NVIDIA's DLSS library. */
-   record Platform(String asset, String shim, String dlssPrefix) {
+   /**
+    * What one platform downloads: the release asset, the shim's file name, the prefix of NVIDIA's DLSS library, and the
+    * tag prefix of the releases that carry the asset (scripts/dlss-natives.sh tags them dlss-<os>-<commit>).
+    */
+   record Platform(String asset, String shim, String dlssPrefix, String tagPrefix) {
    }
 
-   static final Platform LINUX = new Platform("pzopt-dlss-linux-x64.zip", "libpzopt_ngx64.so", "libnvidia-ngx-dlss.so.");
+   static final Platform LINUX = new Platform("pzopt-dlss-linux-x64.zip", "libpzopt_ngx64.so", "libnvidia-ngx-dlss.so.", "dlss-linux-");
    /** Windows: the shim DLL is built with MSVC (docs/dlss-windows-build.md), NVIDIA's DLL is nvngx_dlss.dll. */
-   static final Platform WINDOWS = new Platform("pzopt-dlss-windows-x64.zip", "pzopt_ngx64.dll", "nvngx_dlss");
+   static final Platform WINDOWS = new Platform("pzopt-dlss-windows-x64.zip", "pzopt_ngx64.dll", "nvngx_dlss", "dlss-windows-");
    static final Platform PLATFORM = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? WINDOWS : LINUX;
    public static final String ASSET = LINUX.asset();
    static final String FILE_LIST = "pzopt-dlss-files.txt";
@@ -193,8 +196,7 @@ public final class UpscalerDeps {
       Path zip = natives.resolve("pzopt-dlss.tmp.zip");
       try {
          Files.createDirectories(natives);
-         JSONObject asset = findAsset(PLATFORM, new JSONArray(Updater.get("https://api.github.com/repos/" + Updater.REPO_SLUG + "/releases?per_page=50",
-               "application/vnd.github+json")));
+         JSONObject asset = findAsset(PLATFORM, platformReleases(PLATFORM));
          if (asset == null) {
             throw new IOException("no release carries " + PLATFORM.asset());
          }
@@ -223,6 +225,26 @@ public final class UpscalerDeps {
          }
          installing = false;
       }
+   }
+
+   /**
+    * The releases tagged for the platform, found by their tag prefix: the release list is ordered by creation day and
+    * tag name, and a page of it held no DLSS release once the class-override releases had filled it (2026-09-29).
+    */
+   static JSONArray platformReleases(Platform platform) throws Exception {
+      String repo = "https://api.github.com/repos/" + Updater.REPO_SLUG;
+      String json = "application/vnd.github+json";
+      JSONArray refs = new JSONArray(Updater.get(repo + "/git/matching-refs/tags/" + platform.tagPrefix(), json));
+      JSONArray releases = new JSONArray();
+      for (int i = 0; i < refs.length(); i++) {
+         String tag = refs.getJSONObject(i).optString("ref", "").replaceFirst("^refs/tags/", "");
+         try {
+            releases.put(new JSONObject(Updater.get(repo + "/releases/tags/" + tag, json)));
+         } catch (IOException e) {
+            Log.info("upscaler deps: tag " + tag + " has no release (" + e.getMessage() + ")");
+         }
+      }
+      return releases;
    }
 
    /** The platform's asset of the newest (by publish date) non-draft release that has it, with the tag added as pzoptTag. */
