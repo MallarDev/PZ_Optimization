@@ -117,6 +117,6 @@ description=[h1]How it works[/h1]
 description=The launcher (ProjectZomboid64.json) searches the game folder before projectzomboid.jar, so a loose .class file with the same name as one in the jar replaces it. The item holds those files (772 files: 114 shadowed game classes, the pzopt package, Lua, preview clips, a manifest) under [b]pzopt-classes[/b]; projectzomboid.jar is never modified. A guard checks the game revision and the sha256 of every shadowed stock class at start-up; on any difference its changes switch off (one log line).
 description=
 description=[h1]This build[/h1]
-description=Game revision 4a0e9546ec (Build 42.21), repository commit aa5b92d, 772 files, zip sha256 b019da08f7dae4cb28b119d1ab97f84ab796187734fcc83458830b34c1c5a544.
+description=Game revision 4a0e9546ec (Build 42.21), repository commit 8d68485, 772 files, zip sha256 cc848add746dbd573f47be5b555c8153302ee9b574424c67f7e62aeb2e00f7a2.
 tags=Build 42;
 visibility=public
