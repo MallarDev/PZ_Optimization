@@ -69,9 +69,41 @@ public final class Sway {
       return Overrides.enabled() && tilePatched && compositePatched && !System.getProperty("os.name", "").contains("OS X");
    }
 
-   /** The key as the player set it (and the shaders are patched). */
+   /** The key as the player set it, or the game's wind option handed over to sway (and the shaders are patched). */
    public static boolean wanted() {
-      return Config.FOLIAGE_SWAY && supported();
+      return (Config.FOLIAGE_SWAY || windHandoff) && supported();
+   }
+
+   // ------------------------------------------------------------------------------------------------ the game's wind option
+
+   /** The game's "Wind sprite effects" option is on and sway draws it this frame (Config.WIND_SPRITE_SWAY). */
+   private static boolean windHandoff;
+
+   /**
+    * Game thread, at the top of the world render (FBORenderCell.renderInternal); issue #41. With the game's own "Wind
+    * sprite effects" option on, stock takes every tree and every wind-moved sprite out of the chunk textures and draws
+    * each one per frame with its top corners sheared: in a forest that undoes the tree bake and costs more than the rest
+    * of the frame (flip, max zoom: 244 -> 154 fps). With {@code windSpriteSway} the option reads off while the world
+    * renders, so every stock and pzopt decision (the render layer, the bake, the tree pass, the object highlight, the
+    * effect applied to a sprite) takes its option-off path and the plants stay baked, and sway moves them instead.
+    * Outside the world render (the options screen, options.ini, Lua, the wind effects' own update) the option keeps the
+    * player's value. Returns whether the option was switched; pass it to {@link #windHandoffEnd}.
+    */
+   public static boolean windHandoffBegin() {
+      Core core = Core.getInstance();
+      boolean wind = core.getOptionDoWindSpriteEffects();
+      windHandoff = wind && Config.WIND_SPRITE_SWAY && supported();
+      if (windHandoff) {
+         core.setOptionDoWindSpriteEffects(false);
+      }
+      return windHandoff;
+   }
+
+   /** Game thread, the end of the world render: the player's value back. */
+   public static void windHandoffEnd(boolean switched) {
+      if (switched) {
+         Core.getInstance().setOptionDoWindSpriteEffects(true);
+      }
    }
 
    // ------------------------------------------------------------------------------------------------ bake (game thread)

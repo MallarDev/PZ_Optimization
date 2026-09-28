@@ -5273,3 +5273,29 @@ one decompiler fix below); the edited methods 42.21 touched were checked line by
 - `pzopt.ActionEval.PURE_CALLBACKS`: 42.21's new `nearWallCrouching` variable (a field getter); `hitDir` is an enum
   getter now, still a field read.
 
+
+## The game's wind option handed to foliage sway (`windSpriteSway`, 2026-09-29, issue #41)
+
+The stock "Wind sprite effects" display option (`doWindSpriteEffects`, off by default) takes every tree and every
+wind-moved sprite out of the chunk textures and draws each one per frame with its top corners sheared. With our tree bake
+that undid one of the biggest wins: in a forest at max zoom on the flip, 244 (cap) -> 154 fps with the option (stock:
+151 -> 106; runs `w41z-*`). The per-frame path itself was not dearer than stock (3.6 vs 5.1 ms of translucent work for the
+same objects). With the handoff, uncapped on the flip: wind off 372 fps, wind on 369 (the stock per-frame path: 133;
+runs `w41h-*`).
+
+### zombie.iso.fboRenderChunk.FBORenderCell
+
+- `renderInternal` is a wrapper now: `pzopt.Sway.windHandoffBegin()` (with `windSpriteSway` and the option on, the option
+  reads off: `Core.setOptionDoWindSpriteEffects(false)`), then stock's body (moved unchanged into `pzoptRenderInternal`),
+  and in a `finally` `windHandoffEnd` sets the player's value back. Everything that reads the option inside the world
+  render takes its option-off path: the render layer (`isObjectRenderLayer_*`), `checkTreeTranslucency`, the tree pass,
+  `IsoObject.getObjectRenderEffectsToApply` (no wind shear on a baked plant), `ObjectRenderEffects` on a rustling plant,
+  `FBORenderObjectHighlight.isRenderedEveryFrame`. The options screen, `Core.saveOptions` (never called during the
+  render), Lua and the wind effects' own update see the player's value. `pzopt.Sway.wanted()` is `foliageSway || handoff`,
+  so sway moves the plants that stay baked. Sway is not supported on macOS (GL 2.1): there the option keeps the stock
+  per-frame path.
+- Dead end, not kept: a per-frame identity cache for `ShaderUniformSetter`'s uniform-by-name lookups (four per sprite in
+  `IsoSprite.startTileDepthShader`, ~4.5 % of the game thread in the sampler with the stock per-frame path). Same run,
+  cache on / off: 132.6 / 133.0 fps; the samples moved to `ShaderUniformSetter.uniform1f` (safepoint bias). What remains of
+  the per-frame path is a draw per sprite and `IsoTree.countObscuredSeenSquaresOriginal` asking the lighting native per
+  square (~7 %), both in classes we do not override.

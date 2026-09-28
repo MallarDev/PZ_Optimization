@@ -197,6 +197,15 @@ public final class FBORenderCell {
    private static int pzoptDevRedrawFrames = -1;
 
    public void renderInternal() {
+      boolean pzoptWind = pzopt.Sway.windHandoffBegin(); // pzopt: windSpriteSway (issue #41), the game's wind option reads off while the world renders; sway moves the baked plants
+      try { // pzopt
+         this.pzoptRenderInternal(); // pzopt
+      } finally { // pzopt
+         pzopt.Sway.windHandoffEnd(pzoptWind); // pzopt: the player's value back for the menus, options.ini and Lua
+      } // pzopt
+   } // pzopt
+
+   private void pzoptRenderInternal() { // pzopt: stock renderInternal's body
       if (pzopt.Config.INSTRUMENT) pzoptTlFrame();
       if (pzopt.Config.DEV_REDRAW_FRAME > 0) {
          // dev: force a full redraw of every on-screen chunk level N frames after the first render

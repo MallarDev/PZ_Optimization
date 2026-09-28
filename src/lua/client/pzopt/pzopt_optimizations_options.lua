@@ -56,6 +56,8 @@ local SECTIONS = {
         entries = {
             { key = "treesInChunkTexture", label = "Trees: bake into chunk textures",
               tip = "Static trees are drawn once into the chunk textures instead of every frame; only fading trees stay per-frame. Off = stock (every tree every frame)." },
+            { key = "windSpriteSway", label = "Wind sprite effects: sway the baked plants",
+              tip = "With the game's own \"Wind sprite effects\" display option on, grass, bushes and trees stay in the chunk textures and bend in the wind through Foliage sway, instead of the option drawing every plant one by one every frame (a forest at max zoom on a laptop: 133 fps with the stock option, 369 with this, 372 without wind). Nothing changes while the game option is off. Off = the stock option's per-frame drawing. Not on macOS (no Foliage sway there)." },
             { key = "treeBakeMaxChunksPerSec", label = "Trees: bake only below this chunk rate (chunks/s)",
               choices = { "0", "12", "24", "48" }, note = { ["0"] = "always bake" },
               tip = "While chunks stream in faster than this (walking loads about 9 a second, driving at 60 km/h about 32, at 120 km/h about 72) new chunk textures are baked without their trees and the trees are drawn per frame instead: a texture that lives a second or two while driving costs more to bake its trees into than to draw them. Textures already baked keep their trees until they re-bake anyway." },
@@ -1201,7 +1203,7 @@ local KEY_CLIP = {
     bakeBudget = "drive", rebakeBudget = "drive", rebakeMaxFrames = "drive", treeBakeMaxChunksPerSec = "drive",
     bakeScheduler = "drive", bakeFrameBudget = "drive", bakeBudgetAdaptive = "drive", occlusionGrantedOnly = "drive", bakeMipLevels = "drive",
     renderChunkTopUp = "drive", fliesToggleFix = "drive",
-    translucentLightsPerFrame = "spin", curtainDepthNudgePct = "spin", treeBakePass = "spin", treeBakeDirect = "spin", roofHideDebounceFrames = "spin",
+    translucentLightsPerFrame = "spin", curtainDepthNudgePct = "spin", treeBakePass = "spin", windSpriteSway = "drive", treeBakeDirect = "spin", roofHideDebounceFrames = "spin",
     overlaySampling = "overlay", overlay = "overlay", overlayLog = "overlay", overlayCorner = "overlay", overlayFont = "overlay", overlayTexture = "overlay", overlayRefreshMs = "overlay", overlayGraphHz = "ovgraph",
     gameThreadProfileHz = "ovtree", overlayStats = "ovstats", overlayPower = "ovstats", overlayTree = "ovtree", overlayVerdict = "ovverdict",
     overlayGraph = "ovgraph", overlayFlame = "ovflame", overlayFlameDepth = "ovflame",
@@ -1244,6 +1246,7 @@ local EFFECTS = {
     enabled = { cpu = -3, render = -3, gpu = -1, cores = 2, ram = 1, disk = 1, load = -3, chunks = -2 },
     -- chunk textures
     treesInChunkTexture = { cpu = -3, render = -2, gpu = -1 },
+    windSpriteSway = { cpu = -3, render = -3, gpu = 1 },
     treeBakeMaxChunksPerSec = { cpu = -1 },
     treeBakeDirect = {},
     treeBakePass = { cpu = 1 },
