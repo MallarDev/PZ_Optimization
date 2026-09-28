@@ -661,6 +661,7 @@ PzoptOptionDates = {
     weatherNoGlGet = "2026-09-23",
     weatherParticlesParallel = "2026-09-27",
     windowsInChunkTexture = "2026-09-19",
+    windSpriteSway = "2026-09-29",
     workers = "2026-09-19",
     worldSoundCleanupFast = "2026-09-24",
     worldSoundFast = "2026-09-22",
