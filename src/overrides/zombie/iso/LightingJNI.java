@@ -1407,6 +1407,10 @@ public final class LightingJNI {
       // pzopt: darkness floor / remembered places (pzopt.Darkness). The native's values as read (8 corners, light info rgb
       // packed, fade multiplier bits) while a square-level feature is on; the cached ones are derived from them.
       private int[] pzoptDarkRaw; // pzopt
+      // pzopt: darkness floor. The native's flat light as read, handed to everything but the world render (zombie sight,
+      // stealth, to-hit and every other gameplay reader of lightInfo see the stock light); pzoptFloored: the floor lifted it.
+      private final ColorInfo pzoptNative = new ColorInfo(); // pzopt
+      private boolean pzoptFloored; // pzopt
       public JNILighting(int playerIndex, IsoGridSquare square) {
          this.playerIndex = playerIndex;
          this.square = square;
@@ -1474,6 +1478,7 @@ public final class LightingJNI {
          int[] raw = this.pzoptDarkRaw; // pzopt: [0..7] corners, [8] info rgb, [9] fade bits (native); [10..19] the same derived; [20] settings + vis key
          int key = ds.generation << 3 | this.vis & 7; // pzopt
          if (raw == null || fresh) { // pzopt
+            this.pzoptNative.set(li); // pzopt: the native's own floats (fresh, or the caches before any floor)
             int info = Math.round(li.r * 255.0F) | Math.round(li.g * 255.0F) << 8 | Math.round(li.b * 255.0F) << 16; // pzopt
             int darkBits = Float.floatToRawIntBits(this.cacheDarkMulti); // pzopt
             if (raw == null) { // pzopt
@@ -1487,6 +1492,7 @@ public final class LightingJNI {
                li.g = (raw[18] >> 8 & 0xFF) / 255.0F; // pzopt
                li.b = (raw[18] >> 16 & 0xFF) / 255.0F; // pzopt
                this.cacheDarkMulti = Float.intBitsToFloat(raw[19]); // pzopt
+               this.pzoptFloored = raw[18] != raw[8]; // pzopt
                pzopt.Darkness.repeated++; // pzopt
                return; // pzopt
             } // pzopt
@@ -1509,6 +1515,7 @@ public final class LightingJNI {
          raw[18] = info; // pzopt
          raw[19] = Float.floatToRawIntBits(this.cacheDarkMulti); // pzopt
          raw[20] = key; // pzopt
+         this.pzoptFloored = info != raw[8]; // pzopt
          if (f > 0.0F) { // pzopt
             pzopt.Darkness.floored++; // pzopt
          } // pzopt
@@ -1528,6 +1535,7 @@ public final class LightingJNI {
          li.b = (raw[8] >> 16 & 0xFF) / 255.0F; // pzopt
          this.cacheDarkMulti = Float.intBitsToFloat(raw[9]); // pzopt
          this.pzoptDarkRaw = null; // pzopt
+         this.pzoptFloored = false; // pzopt
       } // pzopt
 
       public float lampostTotalR() {
@@ -1567,6 +1575,9 @@ public final class LightingJNI {
 
       public ColorInfo lightInfo() {
          this.update();
+         if (this.pzoptFloored && Thread.currentThread() != pzopt.Darkness.drawThread) { // pzopt: darkness floor, gameplay reads the native's light
+            return this.pzoptNative; // pzopt
+         } // pzopt
          return this.lightInfo;
       }
 
@@ -1883,6 +1894,7 @@ public final class LightingJNI {
                            } // pzopt
                         } else if (this.pzoptDarkRaw != null) { // pzopt
                            this.pzoptDarkRaw = null; // pzopt: the fresh values are the native's own
+                           this.pzoptFloored = false; // pzopt
                         } // pzopt
 
                         int isLightInfoR = (int)(this.lightInfo.r * 255.0F);

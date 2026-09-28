@@ -2770,10 +2770,13 @@ public final class IsoWorld {
 
       try {
          pzopt.Darkness.frame(); // pzopt: darkness floor / remembered places / colour grading: live settings, grade weights, this frame's render switches
+         pzopt.Darkness.drawThread = Thread.currentThread(); // pzopt: darkness floor, the world render reads the floored light
          pzopt.GpuSections.begin("world"); // pzopt: GPU section (the whole world pass, the part the render scale shrinks)
          this.renderInternal();
          pzopt.GpuSections.end("world"); // pzopt: GPU section
+         pzopt.Darkness.drawThread = null; // pzopt
       } catch (Throwable var5) {
+         pzopt.Darkness.drawThread = null; // pzopt
          if (var1 != null) {
             try {
                var1.close();

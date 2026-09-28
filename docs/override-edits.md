@@ -5178,3 +5178,20 @@ programs' extra outputs go to no draw buffer, the game's chunk composite is neve
   `Sway.drawTrees` (the same colour and depth as the VBO path, plus the attribute and the depth flag).
 - `pzopt.PixelLight.chunkDraw` (ours): a sway twin of its chosen variant counts as that variant (no switch back).
 - `pzopt.Dlss` (ours): after the object motion, one additive pass adds the sway's per-pixel motion (`Sway.motionTexture`).
+
+## The darkness floor is only seen, never played (`darknessFloorPct`, 2026-09-28; LightingJNI + IsoWorld)
+
+With the darkness floor on, the Louisville player died seconds into the route (5 of 9 runs with the floor, 0 of 28
+without; runs `bis-dark-*`, `fix-all*`). `pzoptDarkApply` floored the square's flat light (`lightInfo`) in place, and that
+value is what gameplay reads: zombie sight (`IsoZombie.spottedNew` / `spottedOld` / `updateVisionRadius`),
+`IsoGameCharacter.TestIfSeen`, `IsoPlayer.checkCanSeeClient` / `tooDarkToRead` and the low-light to-hit penalty
+(`CombatManager.getWeatherPenalty` through `IsoGridSquare.getLightLevel`). So zombies saw the player in rooms that should
+be dark. The corner lights and the fade multiplier are only read by the renderer, so they stay floored.
+
+- `zombie.iso.LightingJNI.JNILighting`: `pzoptNative` keeps the native's flat light as read (set before the floor, fresh
+  reads and the first settings change), `pzoptFloored` says the floor changed it (cleared when the features go off);
+  `lightInfo()` still runs the lazy refresh, then hands `pzoptNative` to every caller but `pzopt.Darkness.drawThread`.
+- `zombie.iso.IsoWorld.render`: `Darkness.drawThread` is the game thread for the world pass (`renderInternal`: the cell
+  render, the chunk bakes, `cacheLightInfo`, which keeps the floored object by reference for the objects' colours) and
+  null otherwise, also on a throw. Worker threads (the characters draw pre-pass, the zombie batches) always get the native
+  value; the character models are lit from the corner lights (`getVertLight`), which keep the floor.

@@ -86,6 +86,13 @@ public final class Darkness {
    public static volatile Settings squares = build();
    private static final ThreadLocal<Scratch> SCRATCH = ThreadLocal.withInitial(Scratch::new);
    public static long applied, floored, repeated, cacheMisses; // racy counters (lighting workers), for the stats line only
+   /**
+    * The game thread while IsoWorld.render draws the world, else null. Only that thread reads the floored flat light
+    * (JNILighting.lightInfo): zombie sight, stealth, the to-hit penalty and every other gameplay reader, on any thread and
+    * outside the world render, get the native's value, so the floor is only seen, never played (before 2026-09-28 zombies
+    * spotted the player in floored rooms: the Louisville player died seconds into the route).
+    */
+   public static volatile Thread drawThread;
    /** devDarkStats: time the per-square apply (the lighting workers add to it). */
    public static final boolean TIMING = Config.DEV_DARK_STATS;
    public static final java.util.concurrent.atomic.LongAdder applyNs = new java.util.concurrent.atomic.LongAdder();
