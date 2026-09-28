@@ -23,7 +23,7 @@ import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
 import zombie.core.textures.TextureID;
 import zombie.core.utils.DirectBufferAllocator;
-import zombie.core.utils.ImageUtils;
+import zombie.core.math.PZMath;
 import zombie.core.utils.WrappedBuffer;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoUtils;
@@ -538,8 +538,8 @@ public final class ResumeShot {
       boolean compress = TextureID.useCompressionOption;
       TextureID.useCompressionOption = false;
       try {
-         int wHw = ImageUtils.getNextPowerOfTwoHW(w);
-         int hHw = ImageUtils.getNextPowerOfTwoHW(h);
+         int wHw = Math.max(2, PZMath.smallestEncompassingPowerOfTwo(w)); // ImageUtils.getNextPowerOfTwoHW (gone in 42.21)
+         int hHw = Math.max(2, PZMath.smallestEncompassingPowerOfTwo(h)); // ImageUtils.getNextPowerOfTwoHW (gone in 42.21)
          WrappedBuffer wb = DirectBufferAllocator.allocate(wHw * hHw * 4);
          ByteBuffer buf = wb.getBuffer();
          buf.clear();

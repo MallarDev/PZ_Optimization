@@ -82,7 +82,8 @@ public class PathfindRaceGuardTest {
    };
 
    private static final String PFB = "zombie/pathfind/PathFindBehavior2.class";
-   private static final String UPDATE_DESC = "()Lzombie/pathfind/PathFindBehavior2$BehaviorResult;";
+   // 42.21: update() only forwards to update(float speedMul), which holds the body the checks below read
+   private static final String UPDATE_DESC = "(F)Lzombie/pathfind/PathFindBehavior2$BehaviorResult;";
 
    /**
     * Every method a batch task can reach that touches the scratch, with the statics it touches. {@code update}

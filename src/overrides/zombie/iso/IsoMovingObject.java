@@ -75,7 +75,6 @@ import zombie.iso.areas.IsoRoom;
 import zombie.iso.areas.isoregion.regions.IWorldRegion;
 import zombie.iso.fboRenderChunk.FBORenderObjectOutline;
 import zombie.iso.objects.IsoDoor;
-import zombie.iso.objects.IsoMolotovCocktail;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoTree;
 import zombie.iso.objects.IsoZombieGiblets;
@@ -195,11 +194,7 @@ implements Mover {
         this.sprite = spr != null ? spr : IsoSprite.CreateSprite(IsoSpriteManager.instance);
         this.animationRecorder = new AnimationPlayerRecorder(this);
         if (bObjectListAdd) {
-            if (this.getCell().isSafeToAdd()) {
-                this.getCell().getObjectList().add(this);
-            } else {
-                this.getCell().getAddList().add(this);
-            }
+            this.getCell().addMovingObject(this);
         }
     }
 
@@ -229,11 +224,12 @@ implements Mover {
     }
 
     private void updateAnimationRecorder() {
-        boolean isWorldRecording;
         if (AnimationPlayerRecorder.isAnimRecorderDiscardTriggered()) {
             this.animationRecorder.discardRecording();
         }
-        if (isWorldRecording = AnimationPlayerRecorder.isAnimationRecorderActiveAll()) {
+        this.animationRecorder.updateObjHighlight();
+        boolean isWorldRecording = AnimationPlayerRecorder.isAnimationRecorderActiveAll();
+        if (isWorldRecording) {
             this.animPlayerRecordingExclusive = false;
         }
         this.animationRecorder.setRecording(this.shouldAnimRecorderBeActive());
@@ -331,6 +327,40 @@ implements Mover {
         float z = this.getZ();
         if (current.HasStairs()) {
             z = current.getApparentZ(this.getX() - (float)current.getX(), this.getY() - (float)current.getY());
+        }
+        float minPos = 0.2f;
+        float maxPos = 0.8f;
+        if (this.last.has(IsoObjectType.stairsTN) && this.last.u != null && this.last.u.has(IsoFlagType.WallN)) {
+            if ((double)this.x - Math.floor(this.x) > (double)0.8f && (this.last.e == null || !this.last.e.has(IsoObjectType.stairsTN))) {
+                this.setX((float)Math.floor(this.x) + 0.8f);
+            }
+            if (!current.HasStairs()) {
+                this.setY(Math.round(this.getY()));
+            }
+        }
+        if (this.last.has(IsoObjectType.stairsTW) && this.last.u != null && this.last.u.has(IsoFlagType.WallW)) {
+            if ((double)this.y - Math.floor(this.y) > (double)0.8f && (this.last.s == null || !this.last.s.has(IsoObjectType.stairsTW))) {
+                this.setY((float)Math.floor(this.y) + 0.8f);
+            }
+            if (!current.HasStairs()) {
+                this.setX(Math.round(this.getX()));
+            }
+        }
+        if (current.has(IsoFlagType.WallN) && current.d != null && current.d.has(IsoObjectType.stairsTN)) {
+            if ((double)this.x - Math.floor(this.x) > (double)0.8f && (current.d.e == null || !current.d.e.has(IsoObjectType.stairsTN))) {
+                this.setX((float)Math.floor(this.x) + 0.8f);
+            }
+            if ((double)this.x - Math.floor(this.x) < (double)0.2f && (current.d.w == null || !current.d.w.has(IsoObjectType.stairsTN))) {
+                this.setX((float)Math.floor(this.x) + 0.2f);
+            }
+        }
+        if (current.has(IsoFlagType.WallW) && current.d != null && current.d.has(IsoObjectType.stairsTW)) {
+            if ((double)this.y - Math.floor(this.y) > (double)0.8f && (current.d.s == null || !current.d.s.has(IsoObjectType.stairsTW))) {
+                this.setY((float)Math.floor(this.y) + 0.8f);
+            }
+            if ((double)this.y - Math.floor(this.y) < (double)0.2f && (current.d.n == null || !current.d.n.has(IsoObjectType.stairsTW))) {
+                this.setY((float)Math.floor(this.y) + 0.2f);
+            }
         }
         if (this instanceof IsoGameCharacter && ((state = ((IsoGameCharacter)this).getCurrentState()) == ClimbOverFenceState.instance() || state == ClimbThroughWindowState.instance())) {
             if (current.HasStairs() && this.getZ() > z) {
@@ -1387,22 +1417,10 @@ implements Mover {
     }
 
     private boolean DoCollide(int favour) {
-        int dy;
         IsoGameCharacter chr = Type.tryCastTo(this, IsoGameCharacter.class);
         this.setCurrentSquareFromPosition(this.getNextX(), this.getNextY());
         if (chr != null && chr.isRagdollSimulationActive()) {
             return false;
-        }
-        if (this instanceof IsoMolotovCocktail) {
-            for (int zz = PZMath.fastfloor(this.getZ()); zz > 0; --zz) {
-                for (dy = -1; dy <= 1; ++dy) {
-                    for (int dx = -1; dx <= 1; ++dx) {
-                        IsoGridSquare sq = this.getCell().createNewGridSquare(PZMath.fastfloor(this.getNextX()) + dx, PZMath.fastfloor(this.getNextY()) + dy, zz, false);
-                        if (sq == null) continue;
-                        sq.RecalcAllWithNeighbours(true);
-                    }
-                }
-            }
         }
         if (this.current != null) {
             if (!this.current.TreatAsSolidFloor()) {
@@ -1421,7 +1439,7 @@ implements Mover {
                 IsoWorld.instance.currentCell.lightUpdateCount = 10;
             }
             int dx = this.current.getX() - this.last.getX();
-            dy = this.current.getY() - this.last.getY();
+            int dy = this.current.getY() - this.last.getY();
             int dz = this.current.getZ() - this.last.getZ();
             boolean bCollide = false;
             if (this.last.testCollideAdjacent(this, dx, dy, dz) || this.current == null) {
@@ -2158,6 +2176,10 @@ implements Mover {
 
     public UpdateSchedulerSimulationLevel getCurrentSimulationLevel() {
         return this.currentSimulationLevel;
+    }
+
+    public boolean isTransparentWallTo(IsoMovingObject target) {
+        return target != null && target.getSquare() != null && this.getSquare() != null && target.getSquare().getTransparentWallTo(this.getSquare()) != null;
     }
 
     @Override

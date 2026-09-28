@@ -513,6 +513,11 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   a lit room flipped between its light and the room's every frame (the level pick moved with the jitter). `pplTexelHeight`
   (height from the texel the pixel shows) + `pplFloorSnap` (flat texels within two DEPTH16 steps of a level are on it); dev
   views `devPplView=14|15` (with `colorGrading=false hdr=false`).
+- Build 42.21 (2026-09-28, revision `4a0e9546ec`, stable branch; `docs/override-edits.md` "Port to Build 42.21"): the
+  overrides were three-way merged (Vineflower of the 42.20.4 jar kept in `pzsrv-stock/` as base, ours, 42.21); 40 of the
+  113 classes changed. 42.21 made `saveCellAsync` moot (stock queues and throttles cell saves) and fades trees while
+  driving (`pzopt.XxlTreeFade` keeps baked XXL trees in step, 12-square radius). `decompiled/` is the 42.21 CFR tree; the
+  42.20 one is in `build/port4221/decompiled-42.20/`. The bench save still logs "invalid room metaID" on 42.21, stock too.
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

@@ -1,10 +1,6 @@
 package zombie.core.textures;
 
-import java.awt.image.BufferedImage;
-import java.awt.image.Raster;
-import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectInputStream;
@@ -12,18 +8,16 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import javax.imageio.ImageIO;
 import org.lwjgl.system.MemoryUtil;
 import zombie.ZomboidFileSystem;
 import zombie.core.math.PZMath;
 import zombie.core.textures.PNGDecoder.Format;
 import zombie.core.utils.BooleanGrid;
 import zombie.core.utils.DirectBufferAllocator;
-import zombie.core.utils.ImageUtils;
+import zombie.core.utils.NativeImage;
 import zombie.core.utils.WrappedBuffer;
 import zombie.core.znet.SteamFriends;
 import zombie.debug.DebugOptions;
-import zombie.debug.DebugType;
 import zombie.util.list.PZArrayUtil;
 
 public final class ImageData implements Serializable {
@@ -73,83 +67,72 @@ public final class ImageData implements Serializable {
       path = Texture.processFilePath(path);
       path = ZomboidFileSystem.instance.getString(path);
       ZomboidFileSystem.instance.validatePrefix(path);
-      if (path.endsWith(".jpg") || path.endsWith(".jpeg")) {
-         try {
-            BufferedImage bufferedImage = ImageIO.read(new File(path).getAbsoluteFile());
-            this.width = bufferedImage.getWidth();
-            this.height = bufferedImage.getHeight();
-            this.widthHw = ImageUtils.getNextPowerOfTwoHW(this.width);
-            this.heightHw = ImageUtils.getNextPowerOfTwoHW(this.height);
-            this.data = new MipMapLevel(this.widthHw, this.heightHw);
-            ByteBuffer buf = this.data.getBuffer();
-            buf.rewind();
-            int stride = this.widthHw * 4;
-            if (this.width != this.widthHw) {
-               for (int x = this.width * 4; x < this.widthHw * 4; x++) {
-                  for (int y = 0; y < this.heightHw; y++) {
-                     buf.put(x + y * stride, (byte)0);
+
+      try {
+         NativeImage image = NativeImage.read(new File(path).getAbsolutePath(), false);
+
+         label117: {
+            try {
+               if (image == null) {
+                  this.dispose();
+                  this.width = this.height = -1;
+                  break label117;
+               }
+
+               int bpp = 4;
+               ByteBuffer imageBuffer = image.pixels();
+               this.width = image.width();
+               this.height = image.height();
+               this.widthHw = PZMath.smallestEncompassingPowerOfTwo(this.width);
+               this.heightHw = PZMath.smallestEncompassingPowerOfTwo(this.height);
+               this.data = new MipMapLevel(this.widthHw, this.heightHw);
+               ByteBuffer buf = this.data.getBuffer();
+               buf.rewind();
+               int strideOut = this.widthHw * 4;
+               if (this.width != this.widthHw) {
+                  for (int x = this.width * 4; x < this.widthHw * 4; x++) {
+                     for (int y = 0; y < this.heightHw; y++) {
+                        buf.put(x + y * strideOut, (byte)0);
+                     }
                   }
                }
-            }
 
-            if (this.height != this.heightHw) {
-               for (int y = this.height; y < this.heightHw; y++) {
-                  for (int x = 0; x < this.width * 4; x++) {
-                     buf.put(x + y * stride, (byte)0);
+               if (this.height != this.heightHw) {
+                  for (int y = this.height; y < this.heightHw; y++) {
+                     for (int x = 0; x < this.width * 4; x++) {
+                        buf.put(x + y * strideOut, (byte)0);
+                     }
                   }
                }
+
+               int strideIn = this.width * 4;
+
+               for (int y = 0; y < this.height; y++) {
+                  buf.put(y * strideOut, imageBuffer, y * strideIn, strideIn);
+               }
+            } catch (Throwable var10) {
+               if (image != null) {
+                  try {
+                     image.close();
+                  } catch (Throwable var9) {
+                     var10.addSuppressed(var9);
+                  }
+               }
+
+               throw var10;
             }
 
-            for (int y = 0; y < this.height; y++) {
-               buf.position(y * stride);
-
-               for (int x = 0; x < this.width; x++) {
-                  int argb = bufferedImage.getRGB(x, y);
-                  buf.put((byte)(argb << 8 >> 24));
-                  buf.put((byte)(argb << 16 >> 24));
-                  buf.put((byte)(argb << 24 >> 24));
-                  buf.put((byte)(argb >> 24));
-               }
+            if (image != null) {
+               image.close();
             }
 
             return;
-         } catch (Exception e) {
-            this.dispose();
-            this.width = this.height = -1;
-         }
-      }
-
-      try (
-         InputStream is = new FileInputStream(path);
-         BufferedInputStream bis = new BufferedInputStream(is);
-      ) {
-         PNGDecoder png = new PNGDecoder(bis, false);
-         this.width = png.getWidth();
-         this.height = png.getHeight();
-         this.widthHw = ImageUtils.getNextPowerOfTwoHW(this.width);
-         this.heightHw = ImageUtils.getNextPowerOfTwoHW(this.height);
-         this.data = new MipMapLevel(this.widthHw, this.heightHw);
-         ByteBuffer buf = this.data.getBuffer();
-         buf.rewind();
-         int stride = this.widthHw * 4;
-         if (this.width != this.widthHw) {
-            for (int x = this.width * 4; x < this.widthHw * 4; x++) {
-               for (int y = 0; y < this.heightHw; y++) {
-                  buf.put(x + y * stride, (byte)0);
-               }
-            }
          }
 
-         if (this.height != this.heightHw) {
-            for (int y = this.height; y < this.heightHw; y++) {
-               for (int x = 0; x < this.width * 4; x++) {
-                  buf.put(x + y * stride, (byte)0);
-               }
-            }
+         if (image != null) {
+            image.close();
          }
-
-         png.decode(this.data.getBuffer(), stride, png.getHeight(), Format.RGBA, 1229209940);
-      } catch (Exception ex) {
+      } catch (Exception e) {
          this.dispose();
          this.width = this.height = -1;
       }
@@ -158,16 +141,16 @@ public final class ImageData implements Serializable {
    public ImageData(int width, int height) {
       this.width = width;
       this.height = height;
-      this.widthHw = ImageUtils.getNextPowerOfTwoHW(width);
-      this.heightHw = ImageUtils.getNextPowerOfTwoHW(height);
+      this.widthHw = PZMath.smallestEncompassingPowerOfTwo(width);
+      this.heightHw = PZMath.smallestEncompassingPowerOfTwo(height);
       this.data = new MipMapLevel(this.widthHw, this.heightHw);
    }
 
    public ImageData(int width, int height, WrappedBuffer data) {
       this.width = width;
       this.height = height;
-      this.widthHw = ImageUtils.getNextPowerOfTwoHW(width);
-      this.heightHw = ImageUtils.getNextPowerOfTwoHW(height);
+      this.widthHw = PZMath.smallestEncompassingPowerOfTwo(width);
+      this.heightHw = PZMath.smallestEncompassingPowerOfTwo(height);
       this.data = new MipMapLevel(this.widthHw, this.heightHw, data);
    }
 
@@ -181,12 +164,11 @@ public final class ImageData implements Serializable {
    }
 
    public ImageData(InputStream b, boolean bDoMask) throws Exception {
-      BufferedImage image = null;
       PNGDecoder png = new PNGDecoder(b, bDoMask);
       this.width = png.getWidth();
       this.height = png.getHeight();
-      this.widthHw = ImageUtils.getNextPowerOfTwoHW(this.width);
-      this.heightHw = ImageUtils.getNextPowerOfTwoHW(this.height);
+      this.widthHw = PZMath.smallestEncompassingPowerOfTwo(this.width);
+      this.heightHw = PZMath.smallestEncompassingPowerOfTwo(this.height);
       if (png.isAnimated()) {
          ImageDataFrame frame = new ImageDataFrame().set(this, png.getCurrentFrame());
          this.frames.add(frame);
@@ -277,47 +259,6 @@ public final class ImageData implements Serializable {
       }
 
       buf.rewind();
-   }
-
-   public void setData(BufferedImage image) {
-      if (image != null) {
-         this.setData(image.getData());
-      }
-   }
-
-   public void setData(Raster rasterData) {
-      if (rasterData == null) {
-         DebugType.General.printStackTrace();
-      } else {
-         this.width = rasterData.getWidth();
-         this.height = rasterData.getHeight();
-         if (this.width <= this.widthHw && this.height <= this.heightHw) {
-            int[] pixelData = rasterData.getPixels(0, 0, this.width, this.height, (int[])null);
-            ByteBuffer buf = this.data.getBuffer();
-            buf.rewind();
-            int counter = 0;
-            int position = buf.position();
-            int step = this.widthHw * 4;
-
-            for (int i = 0; i < pixelData.length; i++) {
-               if (++counter > this.width) {
-                  buf.position(position + step);
-                  position = buf.position();
-                  counter = 1;
-               }
-
-               buf.put((byte)pixelData[i]);
-               buf.put((byte)pixelData[++i]);
-               buf.put((byte)pixelData[++i]);
-               buf.put((byte)pixelData[++i]);
-            }
-
-            buf.rewind();
-            this.solid = false;
-         } else {
-            DebugType.General.printStackTrace();
-         }
-      }
    }
 
    private void readObject(ObjectInputStream s) throws IOException, ClassNotFoundException {

@@ -168,6 +168,7 @@ import zombie.pathfind.PolygonalMap2;
 import zombie.pathfind.nativeCode.PathfindNative;
 import zombie.popman.NetworkZombieManager;
 import zombie.popman.NetworkZombieSimulator;
+import zombie.popman.ZombiePopulationManager;
 import zombie.popman.ZombieStateFlags;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.CharacterTrait;
@@ -397,6 +398,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    private boolean canSeeTarget;
    public int followCount;
    public int zombieId;
+   public int persistentId;
    private float bonusSpotTime;
    public boolean staggerBack;
    private boolean knifeDeath;
@@ -3611,6 +3613,11 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
 
       this.updateActiveState();
+      if (this.persistentId != 0 && this.isDead()) {
+         ZombiePopulationManager.releaseZombie(this);
+         this.persistentId = 0;
+      }
+
       if (GameServer.server || GameClient.client && !this.isRemoteZombie()) {
          GameStatistic.getInstance().zombiesUpdated.increase();
       }
@@ -4027,13 +4034,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          IsoObject sheetRope = this.current.getSheetRope();
          if (sheetRope != null) {
             sheetRope.sheetRopeHealth = sheetRope.sheetRopeHealth - Rand.Next(5, 15);
-            if (sheetRope.sheetRopeHealth < 40.0F) {
-               this.current.damageSpriteSheetRopeFromBottom(null, this.current.has(IsoFlagType.climbSheetN) || this.current.has(IsoFlagType.climbSheetS));
-               this.current.RecalcProperties();
-            }
-
-            if (sheetRope.sheetRopeHealth <= 0.0F) {
-               this.current.removeSheetRopeFromBottom(null, this.current.has(IsoFlagType.climbSheetN) || this.current.has(IsoFlagType.climbSheetS));
+            if (GameClient.client) {
+               sheetRope.sync();
+            } else {
+               this.current.damageSpriteSheetRopeFromBottom();
             }
          }
       }
@@ -4582,7 +4586,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
 
    public void hitConsequences(HandWeapon weapon, IsoGameCharacter wielder, boolean bIgnoreDamage, float damage, boolean bRemote) {
       if (!this.isOnlyJawStab() || this.isCloseKilled()) {
-         super.hitConsequences(weapon, wielder, bIgnoreDamage, damage, bRemote);
+         super.hitConsequences(weapon, wielder, bIgnoreDamage || GameClient.client && this.isRemoteZombie(), damage, bRemote);
          if (Core.debug) {
             boolean isCriticalHit = wielder.isCriticalHit();
             String hitType = isCriticalHit ? "got critically hit for" : "got hit for";
@@ -4727,6 +4731,8 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          this.group = null;
       }
 
+      ZombiePopulationManager.releaseZombie(this);
+      this.persistentId = 0;
       if (GameServer.server && this.onlineId != -1) {
          ServerMap.instance.zombieMap.remove(this.onlineId);
          this.onlineId = -1;

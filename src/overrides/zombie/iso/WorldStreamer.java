@@ -20,7 +20,6 @@ import zombie.SystemDisabler;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.ThreadGroups;
-import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.network.ByteBufferReader;
 import zombie.core.network.ByteBufferWriter;
@@ -30,12 +29,10 @@ import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
 import zombie.debug.LogSeverity;
 import zombie.erosion.categories.ErosionCategory.Data;
-import zombie.gameStates.GameLoadingState;
 import zombie.network.ChunkChecksum;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes.PacketType;
-import zombie.network.packets.INetworkPacket;
 import zombie.network.packets.NotRequiredInZipPacket;
 import zombie.network.packets.RequestZipListPacket;
 import zombie.savefile.PlayerDB;
@@ -56,6 +53,8 @@ public final class WorldStreamer {
    private static final int CRF_NOT_READY = 8;
    private static final int CRF_RECEIVED = 16;
    private static final int BLOCK_SIZE = 1024;
+   private static final int PENDING_CHUNKS_MAX = 40;
+   private static final int PENDING_CHUNKS_FILL_THRESHOLD = 20;
    public static WorldStreamer instance = new WorldStreamer();
    private final ConcurrentLinkedQueue<IsoChunk> jobQueue = new ConcurrentLinkedQueue<>();
    private final Stack<IsoChunk> jobList = new Stack<>();
@@ -79,8 +78,6 @@ public final class WorldStreamer {
    private boolean compare;
    private boolean networkFileDebug;
    private ByteBuffer inMemoryZip;
-   private boolean requestingLargeArea;
-   private volatile int largeAreaDownloads;
    private final ByteBuffer bb1 = ByteBuffer.allocate(5120);
    private final ByteBuffer bb2 = ByteBuffer.allocate(5120);
 
@@ -115,17 +112,15 @@ public final class WorldStreamer {
 
    private void sendRequests() throws IOException {
       if (!this.chunkRequests1.isEmpty()) {
-         if (!this.requestingLargeArea || this.pendingRequests1.size() <= 20) {
+         if (this.pendingRequests1.size() <= 20) {
             WorldStreamer.ChunkRequest head = null;
             WorldStreamer.ChunkRequest tail = null;
 
             for (int i = this.chunkRequests1.size() - 1; i >= 0; i--) {
                IsoChunk chunk = this.chunkRequests1.get(i);
-               if (!this.shouldSendChunk(chunk)) {
-                  if (chunk.refs.isEmpty()) {
-                     this.chunkRequests1.remove(i);
-                  }
-               } else {
+               if (chunk.refs.isEmpty()) {
+                  this.chunkRequests1.remove(i);
+               } else if (this.shouldSendChunk(chunk)) {
                   WorldStreamer.ChunkRequest request = WorldStreamer.ChunkRequest.alloc();
                   request.chunk = chunk;
                   request.requestNumber = this.requestNumber++;
@@ -139,7 +134,7 @@ public final class WorldStreamer {
                   tail = request;
                   this.pendingRequests1.add(request);
                   this.chunkRequests1.remove(i);
-                  if (this.requestingLargeArea && this.pendingRequests1.size() >= 40) {
+                  if (this.pendingRequests1.size() >= 40) {
                      break;
                   }
                }
@@ -489,48 +484,49 @@ public final class WorldStreamer {
       if (chunk != null) {
          // pzopt: timings around the disk load and the grid recalc (no-ops unless instrument=true)
          pzopt.Stats.Timing timing = pzopt.Stats.begin(chunk);
-         chunk.LoadChunk(chunk.wx, chunk.wy, fromServer);
-         if (fromServer == null) {
-            VehiclesDB2.instance.loadChunk(chunk);
-         }
-         timing.loadEndNs = System.nanoTime();
-
-         if (chunk.jobType != IsoChunk.JobType.Convert && chunk.jobType != IsoChunk.JobType.SoftReset) {
-            if (pzopt.RecalcPool.active() && Thread.currentThread() == this.worldStreamer && !chunk.refs.isEmpty()) {
-               // pzopt: loop 1 here on the streamer thread, the rest on a pool
-               // worker; the pool publishes to loadGridSquare in submission order
-               boolean submitted = false;
-               try {
-                  chunk.recalcLoop1();
-                  pzopt.RecalcPool.submit(chunk, timing);
-                  submitted = true;
-               } catch (Exception ex) {
-                  ExceptionLogger.logException(ex);
-               }
-               if (submitted) {
-                  return;
-               }
-               // loop 1 threw: fall through and publish as stock would
-            } else {
-               try {
-                  if (!chunk.refs.isEmpty()) {
-                     timing.recalcStartNs = System.nanoTime();
-                     timing.thread = Thread.currentThread().getName();
-                     chunk.loadInWorldStreamerThread();
-                     timing.recalcEndNs = System.nanoTime();
-                     pzopt.Parity.capture(chunk); // no-op unless a parity run is requested
-                  }
-               } catch (Exception ex) {
-                  ExceptionLogger.logException(ex);
-               }
+         if (chunk.LoadChunk(chunk.wx, chunk.wy, fromServer)) { // pzopt: 42.21's guard, around the timing / recalc-pool body below
+            if (fromServer == null) {
+               VehiclesDB2.instance.loadChunk(chunk);
             }
+            timing.loadEndNs = System.nanoTime();
 
-            IsoChunk.loadGridSquare.add(chunk);
-            timing.publishNs = System.nanoTime();
-            pzopt.Stats.done(chunk, timing);
-         } else {
-            chunk.doLoadGridsquare();
-            chunk.loaded = true;
+            if (chunk.jobType != IsoChunk.JobType.Convert && chunk.jobType != IsoChunk.JobType.SoftReset) {
+               if (pzopt.RecalcPool.active() && Thread.currentThread() == this.worldStreamer && !chunk.refs.isEmpty()) {
+                  // pzopt: loop 1 here on the streamer thread, the rest on a pool
+                  // worker; the pool publishes to loadGridSquare in submission order
+                  boolean submitted = false;
+                  try {
+                     chunk.recalcLoop1();
+                     pzopt.RecalcPool.submit(chunk, timing);
+                     submitted = true;
+                  } catch (Exception ex) {
+                     ExceptionLogger.logException(ex);
+                  }
+                  if (submitted) {
+                     return;
+                  }
+                  // loop 1 threw: fall through and publish as stock would
+               } else {
+                  try {
+                     if (!chunk.refs.isEmpty()) {
+                        timing.recalcStartNs = System.nanoTime();
+                        timing.thread = Thread.currentThread().getName();
+                        chunk.loadInWorldStreamerThread();
+                        timing.recalcEndNs = System.nanoTime();
+                        pzopt.Parity.capture(chunk); // no-op unless a parity run is requested
+                     }
+                  } catch (Exception ex) {
+                     ExceptionLogger.logException(ex);
+                  }
+               }
+
+               IsoChunk.loadGridSquare.add(chunk);
+               timing.publishNs = System.nanoTime();
+               pzopt.Stats.done(chunk, timing);
+            } else {
+               chunk.doLoadGridsquare();
+               chunk.loaded = true;
+            }
          }
       }
    }
@@ -615,84 +611,17 @@ public final class WorldStreamer {
       this.stop();
    }
 
-   public void requestLargeAreaZip(int wx, int wy, int range) throws IOException {
-      INetworkPacket.send(PacketType.RequestLargeAreaZip, new Object[]{wx, wy});
-      this.requestingLargeArea = true;
-      this.largeAreaDownloads = 0;
-      GameLoadingState.gameLoadingString = Translator.getText("IGUI_MP_RequestMapData", new Object[0]);
-      int numRequests = 0;
-      int minX = wx - range;
-      int minY = wy - range;
-      int maxX = wx + range;
-      int maxY = wy + range;
-
-      for (int y = minY; y <= maxY; y++) {
-         for (int x = minX; x <= maxX; x++) {
-            if (IsoWorld.instance.metaGrid.isValidChunk(x, y)) {
-               IsoChunk chunk = (IsoChunk)IsoChunkMap.chunkStore.poll();
-               if (chunk == null) {
-                  chunk = new IsoChunk(IsoWorld.instance.currentCell);
-               }
-
-               this.addJob(chunk, x, y, true);
-               numRequests++;
-            }
-         }
-      }
-
-      DebugLog.log("Requested " + numRequests + " chunks from the server");
-      long start = System.currentTimeMillis();
-      long received = start;
-      int seconds = 0;
-      int downloads = 0;
-
-      while (this.isBusy()) {
-         long now = System.currentTimeMillis();
-         if (now - received > 60000L) {
-            GameLoadingState.mapDownloadFailed = true;
-            throw new IOException("map download from server timed out");
-         }
-
-         int largeAreaDownloads = this.largeAreaDownloads;
-         GameLoadingState.gameLoadingString = Translator.getText("IGUI_MP_DownloadedMapData", new Object[]{largeAreaDownloads, numRequests});
-         long elapsed = now - start;
-         if (elapsed / 1000L > seconds) {
-            DebugLog.log("Received " + largeAreaDownloads + " / " + numRequests + " chunks");
-            seconds = (int)(elapsed / 1000L);
-         }
-
-         if (downloads < largeAreaDownloads) {
-            received = now;
-            downloads = largeAreaDownloads;
-         }
-
-         try {
-            Thread.sleep(100L);
-         } catch (InterruptedException var21) {
-         }
-      }
-
-      DebugLog.log("Received " + this.largeAreaDownloads + " / " + numRequests + " chunks");
-      this.requestingLargeArea = false;
-   }
-
    private void cancelOutOfBoundsRequests() {
-      if (!this.requestingLargeArea) {
-         for (int i = 0; i < this.pendingRequests1.size(); i++) {
-            WorldStreamer.ChunkRequest request = this.pendingRequests1.get(i);
-            if ((request.flagsWs & 1) == 0 && request.chunk.refs.isEmpty()) {
-               request.flagsWs |= 1;
-               this.waitingToCancelQ.add(request);
-            }
+      for (int i = 0; i < this.pendingRequests1.size(); i++) {
+         WorldStreamer.ChunkRequest request = this.pendingRequests1.get(i);
+         if ((request.flagsWs & 1) == 0 && request.chunk.refs.isEmpty()) {
+            request.flagsWs |= 1;
+            this.waitingToCancelQ.add(request);
          }
       }
    }
 
    public void receiveChunkPart(ByteBufferReader bb) {
-      for (WorldStreamer.ChunkRequest request = this.sentRequests.poll(); request != null; request = this.sentRequests.poll()) {
-         this.pendingRequests.add(request);
-      }
-
       int requestNumber = bb.getInt();
       int numChunks = bb.getInt();
       int chunkIndex = bb.getInt();
@@ -702,10 +631,7 @@ public final class WorldStreamer {
 
       for (int i = 0; i < this.pendingRequests.size(); i++) {
          WorldStreamer.ChunkRequest request = this.pendingRequests.get(i);
-         if ((request.flagsWs & 1) != 0) {
-            this.pendingRequests.remove(i--);
-            request.flagsUdp |= 16;
-         } else if (request.requestNumber == requestNumber) {
+         if (request.requestNumber == requestNumber) {
             if (request.bb == null) {
                request.bb = this.getByteBuffer(fileSize);
             }
@@ -724,9 +650,6 @@ public final class WorldStreamer {
                request.bb.position(fileSize);
                this.pendingRequests.remove(i);
                request.flagsUdp |= 16;
-               if (this.requestingLargeArea) {
-                  this.largeAreaDownloads++;
-               }
             }
             break;
          }
@@ -752,10 +675,6 @@ public final class WorldStreamer {
    }
 
    public void receiveNotRequired(ByteBufferReader bb) {
-      for (WorldStreamer.ChunkRequest request = this.sentRequests.poll(); request != null; request = this.sentRequests.poll()) {
-         this.pendingRequests.add(request);
-      }
-
       int count = bb.getInt();
 
       for (int n = 0; n < count; n++) {
@@ -764,10 +683,7 @@ public final class WorldStreamer {
 
          for (int i = 0; i < this.pendingRequests.size(); i++) {
             WorldStreamer.ChunkRequest request = this.pendingRequests.get(i);
-            if ((request.flagsWs & 1) != 0) {
-               this.pendingRequests.remove(i--);
-               request.flagsUdp |= 16;
-            } else if (request.requestNumber == requestNumber) {
+            if (request.requestNumber == requestNumber) {
                if (this.networkFileDebug) {
                   DebugType.NetworkFileDebug.debugln("NotRequiredInZip " + request.chunk.wx + "," + request.chunk.wy + " delete=" + !sameOnServer);
                }
@@ -778,11 +694,22 @@ public final class WorldStreamer {
 
                this.pendingRequests.remove(i);
                request.flagsUdp |= 16;
-               if (this.requestingLargeArea) {
-                  this.largeAreaDownloads++;
-               }
                break;
             }
+         }
+      }
+   }
+
+   public void udpUpdate() {
+      for (WorldStreamer.ChunkRequest request = this.sentRequests.poll(); request != null; request = this.sentRequests.poll()) {
+         this.pendingRequests.add(request);
+      }
+
+      for (int i = 0; i < this.pendingRequests.size(); i++) {
+         WorldStreamer.ChunkRequest request = this.pendingRequests.get(i);
+         if ((request.flagsWs & 1) != 0) {
+            this.pendingRequests.remove(i--);
+            request.flagsUdp |= 16;
          }
       }
    }

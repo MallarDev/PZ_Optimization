@@ -471,10 +471,7 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
       if (room != null && room.building != null && room.building.alarmed) {
          DebugType.Sound.debugln("Elec shutoff = " + SandboxOptions.getInstance().getElecShutModifier());
          DebugType.Sound.debugln("alarm decay = " + room.building.alarmDecay);
-         DebugType.Sound
-            .debugln(
-               "nights survived = " + (float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (SandboxOptions.instance.timeSinceApo.getValue() - 1) * 30)
-            );
+         DebugType.Sound.debugln("nights survived = %.2f", new Object[]{GameTime.getInstance().getWorldAgeDaysSinceBegin()});
          IsoGridSquare sq = IsoWorld.instance.currentCell.getGridSquare(room.x, room.y, 0);
          if (sq != null && sq.hasGridPower(room.building.alarmDecay)) {
             this.alarmList.add(new Alarm(room.x + room.getW() / 2, room.y + room.getH() / 2));

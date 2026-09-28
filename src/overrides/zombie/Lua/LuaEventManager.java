@@ -751,6 +751,7 @@ public final class LuaEventManager implements JavaFunction {
       LuaEventManager.AddEvent("OnLoad");
       LuaEventManager.AddEvent("AddXP");
       LuaEventManager.AddEvent("LevelPerk");
+      LuaEventManager.AddEvent("LogLevelPerk");
       LuaEventManager.AddEvent("OnSave");
       LuaEventManager.AddEvent("OnMainMenuEnter");
       LuaEventManager.AddEvent("OnGameStateEnter");
@@ -836,6 +837,7 @@ public final class LuaEventManager implements JavaFunction {
       LuaEventManager.AddEvent("OnCustomUIKey");
       LuaEventManager.AddEvent("OnCustomUIKeyPressed");
       LuaEventManager.AddEvent("OnCustomUIKeyReleased");
+      LuaEventManager.AddEvent("OnTileObjectAdded");
       LuaEventManager.AddEvent("OnDeviceText");
       LuaEventManager.AddEvent("OnRadioInteraction");
       LuaEventManager.AddEvent("OnLoadRadioScripts");

@@ -29,6 +29,12 @@ public class LuaCompiler implements JavaFunction {
       this.index = index;
    }
 
+   public static void register(KahluaTable env) {
+      for (int i = 0; i < names.length; i++) {
+         env.rawset(names[i], functions[i]);
+      }
+   }
+
    public int call(LuaCallFrame callFrame, int nArguments) {
       switch (this.index) {
          case 0:

@@ -777,6 +777,10 @@ implements IPathfinder {
     }
 
     public BehaviorResult update() {
+        return this.update(1.0f);
+    }
+
+    public BehaviorResult update(float speedMul) {
         // pzopt: entityUpdateParallel. This method used to open with a defensive clone of this.path.nodes, on the
         // reading that PZ's pathfinding writes the list from its own thread while a batch task reads it. It does
         // not. Both pathfinders fill the REQUEST's own Path and queue the request; the only code that copies a
@@ -920,6 +924,7 @@ implements IPathfinder {
             tempVector2_2.set(0.0f, 0.0f);
         }
         float speed = tempVector2_2.getLength();
+        speed *= speedMul;
         if (zombie != null) {
             zombie.running = false;
             if (SandboxOptions.instance.lore.speed.getValue() == 1) {

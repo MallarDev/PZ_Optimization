@@ -3,7 +3,8 @@
 `src/overrides/` is **not in the repository**: it holds decompiled game code.
 Regenerate it with `scripts/regen-overrides.sh` (Vineflower output of
 `zombie.iso.IsoChunk` and `zombie.iso.WorldStreamer` from the installed jar,
-revision `b0bbce05d5`), then re-apply the edits below by hand. Every edit is
+revision `4a0e9546ec`, Build 42.21, since 2026-09-28; before that `b0bbce05d5`, Build 42.20.4), then re-apply
+the edits below by hand (the last section, "Port to Build 42.21", lists what the port changed). Every edit is
 marked `// pzopt:` in the working copy. One decompiler fix is needed first:
 the `switch` expression on `carSpawnRate` in `IsoChunk.addVehicles` lacks a
 `default -> chance;` arm.
@@ -5195,3 +5196,50 @@ be dark. The corner lights and the fade multiplier are only read by the renderer
   render, the chunk bakes, `cacheLightInfo`, which keeps the floored object by reference for the objects' colours) and
   null otherwise, also on a throw. Worker threads (the characters draw pre-pass, the zombie batches) always get the native
   value; the character models are lit from the corner lights (`getVertLight`), which keep the floor.
+
+## Port to Build 42.21 (2026-09-28, revision `4a0e9546ec`)
+
+42.21 went to the stable branch; the jar is byte-identical to the 42.21 unstable decompiled on 2026-09-25
+(`/games/pz-42.21/`), so `decompiled/` is that CFR tree. Method: Vineflower of the 100 overridden classes from the
+42.20.4 jar (`pzsrv-stock/`, the base) and from 42.21, then `git merge-file` of our sources onto the 42.21 output.
+Of the 113 classes, 68 are unchanged between the two jars and kept as they were; 40 changed. The 13 classes of the
+game-thread offload pass (PR #35) are CFR output, not Vineflower, so their merge base and target are CFR of the two jars.
+The bytecode audit then compares every unedited method against the 42.21 jar (6,217 methods, 0 mismatches after the
+one decompiler fix below); the edited methods 42.21 touched were checked line by line against the 42.21 changes.
+
+- **zombie.popman.ZombiePopulationManager**: 42.21 rewrote cell saving. `requestSaveCell` only queues the cell key
+  and `processPendingSaveCells` (MapCollisionData thread) saves due cells throttled per cell through the native,
+  under `saveLock`; there is no zombie snapshot on the game thread any more. Our `saveCellAsync` edit (snapshot
+  without the lock, one pending write per cell) is gone: the class is 42.21's with the load marker, and the key has
+  no effect. Decompiler fix again in `removeChunkFromWorld`: Vineflower renders the stationary branch first as an
+  if / else; the jar tests the moving case first with a `continue` inside the `try` (two `finally` copies), so the
+  moving branch comes first and both end in `continue` (`// pzopt: decompiler fix`).
+- **zombie.iso.WorldStreamer** `DoChunkAlways`: 42.21's `IsoChunk.LoadChunk` returns whether the chunk loaded and the
+  stock method does nothing more when it did not; our timing / recalc-pool body now sits inside that guard.
+- **zombie.iso.fboRenderChunk.FBORenderCell**: 42.21 counts a player in a vehicle as aiming in `isTranslucentTree`
+  (trees in the cutaway stencil turn see-through while driving); the two places that hoist the aim flag for
+  `pzoptIsTranslucentTree` (the tree-translucency pass, `pzoptBakeTrees`) do the same. 42.21's `IsoTree.render` also
+  fades XXL trees while driving, inside or near rooms; a tree baked into the chunk textures never reaches
+  `IsoTree.render`, so with `treesInChunkTexture` an XXL tree those rules fade is translucent (per-frame, faded by
+  IsoTree) in `pzoptIsTranslucentTree` (`pzopt.XxlTreeFade`, 42.21's arithmetic). While driving only XXL trees within
+  12 squares are faded (42.21: all of them): fading every XXL tree moved them all to per-frame drawing, 120 km/h drive
+  mean 4.4 -> 10.2 ms, p99 11.4 -> 29 ms (2026-09-25 backport runs `bp4221-trees-drive` / `-drive12`).
+  `--prop devXxlTreeLog=true` logs how many checks came back see-through every 10 s.
+- **zombie.gameStates.GameLoadingState** `render`: 42.21 removed `mapDownloadFailed`; the resume-shot condition drops it.
+- **zombie.core.textures.ImageData**: 42.21 loads jpg / png files through `NativeImage`; the conflict was our cosmetic
+  `Format` import, 42.21's code kept. `pzopt.GifTextures` / `pzopt.ResumeShot` used `ImageUtils.getNextPowerOfTwoHW`
+  (removed): `max(2, PZMath.smallestEncompassingPowerOfTwo(n))`, the same values.
+- **zombie.GameWindow** `initShared`: 42.21 dropped `CustomizationManager.load()`; our item-dump hook stays.
+- **zombie.iso.IsoWorld** tile-definition loading: 42.21's log category (`DebugType.General`) under our preload guard.
+- IsoChunk, FBORenderCell imports and IsoLightSwitch's new constant: both sides kept.
+- **zombie.characters.IsoGameCharacter** `faceThisObject`: 42.21 hands a character target to `faceThisObjectAlt` and skips
+  objects with no index; `entityUpdateParallel`'s per-thread scratch vector stays.
+- **zombie.characters.animals.IsoAnimal** `updateInternal`: 42.21 moved the stress / lure / LOS block into a new branch;
+  the `devGtAlternate` timer around `updateLOS` moved with it.
+- **zombie.pathfind.PathFindBehavior2**: 42.21 split `update()` into `update()` -> `update(float speedMul)`; the per-thread
+  scratch locals and the assertion `try` of `entityUpdateParallel` open `update(float)` now.
+- **zombie.Lua.LuaEventManager**: 42.21's two new events (`LogLevelPerk`, `OnTileObjectAdded`) added by hand (our copy is
+  formatted differently from a fresh decompile, so a text merge could not place them).
+- `pzopt.ActionEval.PURE_CALLBACKS`: 42.21's new `nearWallCrouching` variable (a field getter); `hitDir` is an enum
+  getter now, still a field read.
+

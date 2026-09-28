@@ -119,7 +119,7 @@ public abstract class State implements IAnimEventListener, IAnimEventWrappedBroa
       }
    }
 
-   public float awayCheckDistance() {
+   public float awayCheckDistance(IsoGameCharacter owner) {
       return 0.2F;
    }
 

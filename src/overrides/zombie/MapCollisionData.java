@@ -8,6 +8,8 @@ import java.util.Stack;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import zombie.core.Core;
 import zombie.core.logger.ExceptionLogger;
+import zombie.debug.DebugType;
+import zombie.debug.LogSeverity;
 import zombie.gameStates.IngameState;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoGridSquare;
@@ -118,6 +120,10 @@ public final class MapCollisionData {
 
    private static void writeToStdErr(String message) {
       System.err.println(message);
+   }
+
+   private static void writeToLog(int severity, String message) {
+      DebugType.General.write(severity >= 2 ? LogSeverity.Error : LogSeverity.Warning, message);
    }
 
    public void init(IsoMetaGrid metaGrid) {
@@ -372,7 +378,7 @@ public final class MapCollisionData {
 
    public void save() {
       if (!this.client) {
-         ZombiePopulationManager.instance.beginSaveRealZombies();
+         ZombiePopulationManager.instance.updateRealZombies();
          if (!this.thread.isAlive()) {
             n_save();
             ZombiePopulationManager.instance.save();
@@ -388,8 +394,6 @@ public final class MapCollisionData {
                } catch (InterruptedException var3) {
                }
             }
-
-            ZombiePopulationManager.instance.endSaveRealZombies();
          }
       }
    }
@@ -535,9 +539,9 @@ public final class MapCollisionData {
                this.save = false;
             }
 
-            ZombiePopulationManager.instance.processPendingSaveCells();
             MapCollisionData.n_update();
             ZombiePopulationManager.instance.updateThread();
+            ZombiePopulationManager.instance.processPendingSaveCells();
          }
 
          MapCollisionData.this.sync.endFrame();

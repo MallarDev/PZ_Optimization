@@ -231,7 +231,7 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
    public IsoAnimal(IsoCell cell, int x, int y, int z, String type, String breedName) {
       super(cell, new SurvivorDesc(), x, y, z, true);
       this.addOnDiedListener(this::onDied, false);
-      if (!this.checkForChickenpocalypse() && !this.checkForWater()) {
+      if (!this.checkForChickenpocalypse(null) && !this.checkForWater()) {
          this.registerVariableCallbacks();
          this.setDefaultState(AnimalIdleState.instance());
          this.setCollidable(true);
@@ -257,7 +257,7 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
 
    public IsoAnimal(IsoCell cell, int x, int y, int z, String type, String breedName, boolean skeleton) {
       super(cell, new SurvivorDesc(), x, y, z, true);
-      if (!this.checkForChickenpocalypse() && !this.checkForWater()) {
+      if (!this.checkForChickenpocalypse(null) && !this.checkForWater()) {
          this.shouldBeSkeleton = skeleton;
          this.registerVariableCallbacks();
          this.setDefaultState(AnimalIdleState.instance());
@@ -281,7 +281,7 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
       }
    }
 
-   public boolean checkForChickenpocalypse() {
+   public boolean checkForChickenpocalypse(IsoAnimal replacingAnimal) {
       if (this.getSquare() == null) {
          return false;
       }
@@ -290,11 +290,8 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
          for (int y = this.getSquare().getY() - 4; y < this.getSquare().getY() + 4; y++) {
             IsoGridSquare sq = this.getSquare().getCell().getGridSquare(x, y, this.getSquare().getZ());
             if (sq != null) {
-               ArrayList<IsoAnimal> animals = sq.getAnimals();
-
-               for (int i = 0; i < animals.size(); i++) {
-                  IsoAnimal animalTest = animals.get(i);
-                  if (animalTest != this && animalTest.getAnimalID() == this.getAnimalID()) {
+               for (IsoAnimal otherAnimal : sq.getAnimals()) {
+                  if (otherAnimal != this && otherAnimal != replacingAnimal && otherAnimal.getAnimalID() == this.getAnimalID()) {
                      DebugType.Animal.println("Possible chickenpocalypse, deleting the newly created animal");
                      this.delete();
                      return true;
@@ -313,7 +310,7 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
 
    public IsoAnimal(IsoCell cell, int x, int y, int z, String type, AnimalBreed breed) {
       super(cell, new SurvivorDesc(), x, y, z, true);
-      if (!this.checkForChickenpocalypse() && !this.checkForWater()) {
+      if (!this.checkForChickenpocalypse(null) && !this.checkForWater()) {
          this.registerVariableCallbacks();
          this.setDefaultState(AnimalIdleState.instance());
          this.setCollidable(true);
@@ -327,7 +324,7 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
 
    public IsoAnimal(IsoCell cell, int x, int y, int z, String type, AnimalBreed breed, boolean skeleton) {
       super(cell, new SurvivorDesc(), x, y, z, true);
-      if (!this.checkForChickenpocalypse() && !this.checkForWater()) {
+      if (!this.checkForChickenpocalypse(null) && !this.checkForWater()) {
          this.shouldBeSkeleton = skeleton;
          this.registerVariableCallbacks();
          this.setDefaultState(AnimalIdleState.instance());
@@ -437,33 +434,35 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
             } else {
                this.behavior.update();
                this.data.update();
-               this.width = this.adef.collisionSize * this.getAnimalSize();
-               this.separate();
-               this.checkTreeExists();
-               this.reattachToTree();
-               this.checkZone();
-               this.reattachBackToMom();
-               this.respondToSound();
-               if (this.petTimer > 0.0F) {
-                  this.petTimer = this.petTimer - GameTime.getInstance().getMultiplier();
-                  if (this.petTimer < 0.0F) {
-                     this.petTimer = 0.0F;
+               if (!this.isDead()) {
+                  this.width = this.adef.collisionSize * this.getAnimalSize();
+                  this.separate();
+                  this.checkTreeExists();
+                  this.reattachToTree();
+                  this.checkZone();
+                  this.reattachBackToMom();
+                  this.respondToSound();
+                  if (this.petTimer > 0.0F) {
+                     this.petTimer = this.petTimer - GameTime.getInstance().getMultiplier();
+                     if (this.petTimer < 0.0F) {
+                        this.petTimer = 0.0F;
+                     }
                   }
-               }
 
-               this.updateStress();
-               this.updateLured();
-               this.updateEmitter();
-               this.tryThump(null);
-               long pzoptLosT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
-               this.updateLOS();
-               pzopt.GtAb.end(pzopt.GtAb.S_ANIMAL_LOS, pzoptLosT); // pzopt
-               if (this.vehicle4testCollision != null) {
-                  this.setVehicleCollision(this.testCollideWithVehicles(this.vehicle4testCollision, null));
-                  this.vehicle4testCollision = null;
-               }
+                  this.updateStress();
+                  this.updateLured();
+                  this.updateEmitter();
+                  this.tryThump(null);
+                  long pzoptLosT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
+                  this.updateLOS();
+                  pzopt.GtAb.end(pzopt.GtAb.S_ANIMAL_LOS, pzoptLosT); // pzopt
+                  if (this.vehicle4testCollision != null) {
+                     this.setVehicleCollision(this.testCollideWithVehicles(this.vehicle4testCollision, null));
+                     this.vehicle4testCollision = null;
+                  }
 
-               super.update();
+                  super.update();
+               }
             }
          }
       }
@@ -2099,6 +2098,7 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
    }
 
    public void copyFrom(IsoAnimal animal) {
+      LuaManager.copyTable(this.getModData(), animal.getModData());
       this.setHoursSurvived(animal.getHoursSurvived());
       this.getStats().set(CharacterStat.HUNGER, animal.getStats().get(CharacterStat.HUNGER));
       this.getStats().set(CharacterStat.THIRST, animal.getStats().get(CharacterStat.THIRST));
@@ -3379,14 +3379,19 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
       this.delete();
    }
 
-   public void delete() {
-      DebugType.Animal.debugln("Animal delete id=%d", new Object[]{this.getOnlineID()});
-      this.removeFromWorld();
-      this.removeFromSquare();
+   public void removeFromUpdateLists() {
       AnimalInstanceManager.getInstance().remove(this);
       if (GameServer.server && !this.isDead()) {
          AnimalSynchronizationManager.getInstance().delete(this.getOnlineID());
       }
+   }
+
+   public void delete() {
+      DebugType.Animal.debugln("Animal delete id=%d", new Object[]{this.getOnlineID()});
+      this.removeFromWorld();
+      this.removeFromSquare();
+      this.setSquare(null);
+      this.removeFromUpdateLists();
    }
 
    public InventoryItem canEatFromTrough(IsoFeedingTrough trough) {

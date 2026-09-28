@@ -17,6 +17,7 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.lwjgl.opengl.GL;
@@ -92,6 +93,7 @@ import zombie.gameStates.TermsOfServiceState;
 import zombie.globalObjects.SGlobalObjects;
 import zombie.input.GameKeyboard;
 import zombie.input.JoypadManager;
+import zombie.input.KeybindId;
 import zombie.input.Mouse;
 import zombie.input.JoypadManager.Joypad;
 import zombie.inventory.types.MapItem;
@@ -109,7 +111,6 @@ import zombie.iso.sprite.IsoCursor;
 import zombie.iso.sprite.IsoReticle;
 import zombie.iso.worldgen.WorldGenParams;
 import zombie.network.CoopMaster;
-import zombie.network.CustomizationManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.pathfind.PolygonalMap2;
@@ -208,7 +209,6 @@ public final class GameWindow {
          pzopt.ScriptDump.dumpItems(); // pzopt: equivalence check for itemParamSwitch
       }
 
-      CustomizationManager.getInstance().load();
       SpriteModelManager.getInstance().init();
       if (pzopt.Config.EARLY_MODELS && pzopt.Overrides.enabled()) {
          // pzopt: register the models and the 3,990 animation files now (enter() finds it created and skips), so
@@ -538,7 +538,7 @@ public final class GameWindow {
 
       WorldMapImages.checkLoadingQueue();
       fileSystem.updateAsyncTransactions();
-      if (GameKeyboard.isKeyPressed("Take screenshot")) {
+      if (GameKeyboard.isKeyPressed(KeybindId.TAKE_SCREENSHOT)) {
          Core.getInstance().TakeFullScreenshot(null);
       }
 
@@ -1033,7 +1033,7 @@ public final class GameWindow {
             }
 
             if (Core.debug) {
-               if (GameKeyboard.isKeyDown("Toggle Lua Debugger")) {
+               if (GameKeyboard.isKeyDown(KeybindId.TOGGLE_LUA_DEBUGGER)) {
                   if (!luaDebuggerKeyDown) {
                      UIManager.setShowLuaDebuggerOnError(true);
                      LuaManager.thread.step = true;
@@ -1044,7 +1044,7 @@ public final class GameWindow {
                   luaDebuggerKeyDown = false;
                }
 
-               if (GameKeyboard.isKeyPressed("ToggleLuaConsole")) {
+               if (GameKeyboard.isKeyPressed(KeybindId.TOGGLE_LUA_CONSOLE)) {
                   UIElement console = UIManager.getDebugConsole();
                   if (console != null) {
                      console.setVisible(!console.isVisible());
@@ -1199,7 +1199,7 @@ public final class GameWindow {
          }
       }
 
-      ArrayList<String> modIDs = ZomboidFileSystem.instance.getModIDs();
+      List<String> modIDs = ZomboidFileSystem.instance.getModIDs();
 
       for (int i = texturePacks.size() - 1; i >= 0; i--) {
          GameWindow.TexturePack texturePack = texturePacks.get(i);

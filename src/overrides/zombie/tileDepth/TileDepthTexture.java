@@ -1,6 +1,5 @@
 package zombie.tileDepth;
 
-import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -142,38 +141,6 @@ public final class TileDepthTexture {
       }
    }
 
-   @Deprecated
-   void load(float[] pixels, BufferedImage bufferedImage, int left, int top) {
-      this.empty = true;
-
-      for (int y = 0; y < this.height; y++) {
-         for (int x = 0; x < this.width; x++) {
-            int argb = bufferedImage.getRGB(left + x, top + y);
-            int a = argb >> 24 & 0xFF;
-            int b = argb & 0xFF;
-            pixels[x + y * this.width] = a == 0 ? -1.0F : b / 255.0F;
-            if (this.empty && a != 0) {
-               this.empty = false;
-            }
-         }
-      }
-
-      if (this.empty) {
-         this.pixels = null;
-      } else {
-         this.allocPixelsIfNeeded();
-         System.arraycopy(pixels, 0, this.pixels, 0, this.pixels.length);
-         if (TileDepthTextureManager.getInstance().isLoadingFinished()) {
-            IsoSprite sprite = (IsoSprite)IsoSpriteManager.instance.namedMap.get(this.getName());
-            if (sprite != null) {
-               sprite.depthTexture = this;
-            }
-         }
-      }
-
-      this.updateGPUTexture();
-   }
-
    void load(float[] pixels, ByteBuffer bb, int stride, int left, int top) {
       int bytesPerPixel = 4;
       this.empty = true;
@@ -211,26 +178,25 @@ public final class TileDepthTexture {
       }
    }
 
-   BufferedImage setBufferedImage(BufferedImage bufferedImage, int left, int top) {
-      int[] rowARGB = new int[this.width];
-
+   ByteBuffer setPixelBuffer(ByteBuffer bb, int left, int top, int stride) {
       for (int y = 0; y < this.height; y++) {
          for (int x = 0; x < this.width; x++) {
             float pixel = this.getPixel(x, y);
+            int value;
             if (pixel >= 0.0F) {
                pixel = PZMath.min(pixel, 1.0F);
-               int rgb = (int)Math.floor(pixel * 255.0F) & 0xFF;
+               int rgb = (int)(pixel * 255.0F) & 0xFF;
                int a = 255;
-               rowARGB[x] = 0xFF000000 | rgb << 16 | rgb << 8 | rgb;
+               value = 0xFF000000 | rgb << 16 | rgb << 8 | rgb;
             } else {
-               rowARGB[x] = 0;
+               value = 0;
             }
-         }
 
-         bufferedImage.setRGB(left, top + y, this.width, 1, rowARGB, 0, this.width);
+            bb.putInt((left + x) * 4 + (top + y) * stride, value);
+         }
       }
 
-      return bufferedImage;
+      return bb;
    }
 
    private float clampPixelToUpperFloor(int x, int y, float pixel) {

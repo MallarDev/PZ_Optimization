@@ -71,10 +71,6 @@ public abstract class ECSComponent {
       return entityTypeClass.cast(this.getECSOwnerEntity());
    }
 
-   public <EntityType extends ECSEntity> EntityType tryGetECSOwnerEntity(Class<EntityType> entityTypeClass) {
-      return (EntityType)Type.tryCastTo(this.getECSOwnerEntity(), entityTypeClass);
-   }
-
    public <OwnerType> OwnerType tryGetECSOwnerEntityAs(Class<? extends OwnerType> ownerTypeClass) {
       return (OwnerType)Type.tryCastTo(this.getECSOwnerEntity(), ownerTypeClass);
    }

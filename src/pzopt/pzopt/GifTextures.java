@@ -27,7 +27,7 @@ import zombie.core.textures.ImageData;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureID;
 import zombie.core.utils.DirectBufferAllocator;
-import zombie.core.utils.ImageUtils;
+import zombie.core.math.PZMath;
 import zombie.core.utils.WrappedBuffer;
 
 /**
@@ -253,8 +253,8 @@ public final class GifTextures {
 
    /** One game texture from RGBA rows; blocks on the render thread once (the upload), like a Steam avatar does. */
    private static Texture texture(String name, int width, int height, byte[] rgba) {
-      int widthHw = ImageUtils.getNextPowerOfTwoHW(width);
-      int heightHw = ImageUtils.getNextPowerOfTwoHW(height);
+      int widthHw = Math.max(2, PZMath.smallestEncompassingPowerOfTwo(width)); // ImageUtils.getNextPowerOfTwoHW (gone in 42.21)
+      int heightHw = Math.max(2, PZMath.smallestEncompassingPowerOfTwo(height)); // ImageUtils.getNextPowerOfTwoHW (gone in 42.21)
       WrappedBuffer wb = DirectBufferAllocator.allocate(widthHw * heightHw * 4);
       ByteBuffer buf = wb.getBuffer();
       buf.clear();

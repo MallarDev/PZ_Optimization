@@ -2988,7 +2988,7 @@ public final class Item extends GameEntityScript {
                this.itemAfterCleaning = val.trim();
             } else {
                DebugType.DetailedInfo
-                  .trace(
+                  .warn(
                      "adding unknown item param \""
                         + param.trim()
                         + "\" = \""

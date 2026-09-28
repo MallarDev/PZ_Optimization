@@ -16,12 +16,15 @@ import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.random.Rand;
 import zombie.debug.DebugType;
+import zombie.iso.IsoChunk;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMetaChunk;
 import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
 import zombie.network.GameClient;
+import zombie.network.GameServer;
+import zombie.network.ServerMap;
 import zombie.network.PacketTypes.PacketType;
 import zombie.network.packets.INetworkPacket;
 import zombie.pathfind.LiangBarsky;
@@ -1010,6 +1013,24 @@ public class Zone {
       sb.append(", id=").append(this.id.toString());
       sb.append('}');
       return sb.toString();
+   }
+
+   public boolean hasWaterSquare() {
+      int wx1 = PZMath.coorddivision(this.x, 8);
+      int wy1 = PZMath.coorddivision(this.y, 8);
+      int wx2 = PZMath.coorddivision(this.x + this.w - 1, 8);
+      int wy2 = PZMath.coorddivision(this.y + this.h - 1, 8);
+
+      for (int wx = wx1; wx <= wx2; wx++) {
+         for (int wy = wy1; wy <= wy2; wy++) {
+            IsoChunk chunk = GameServer.server ? ServerMap.instance.getChunk(wx, wy) : IsoWorld.instance.currentCell.getChunk(wx, wy);
+            if (chunk != null && chunk.hasWaterSquare()) {
+               return true;
+            }
+         }
+      }
+
+      return false;
    }
 
    private enum PolygonHit {

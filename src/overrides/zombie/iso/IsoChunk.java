@@ -95,6 +95,7 @@ import zombie.iso.fboRenderChunk.FBORenderLevels;
 import zombie.iso.fboRenderChunk.FBORenderOcclusion;
 import zombie.iso.fboRenderChunk.FBORenderCutaways.ChunkLevelData;
 import zombie.iso.fboRenderChunk.FBORenderCutaways.ChunkLevelsData;
+import zombie.iso.objects.GridSquareEdgeFacingDirection;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoGenerator;
 import zombie.iso.objects.IsoLightSwitch;
@@ -225,6 +226,8 @@ public final class IsoChunk {
    public boolean requiresHotSave;
    public boolean preventHotSave;
    private boolean ignorePathfind;
+   private boolean hasWaterSquareCached;
+   private boolean hasWaterSquareCachedValue;
    public IsoChunk.JobType jobType = IsoChunk.JobType.None;
    public LotHeader lotheader;
    public final BoundedQueue<IsoFloorBloodSplat> floorBloodSplats = new BoundedQueue(1000);
@@ -275,6 +278,9 @@ public final class IsoChunk {
    public ArrayList<IsoGameCharacter> ragdollControllersForAddToWorld;
    public static final CappedConcurrentQueue<IsoChunk> loadGridSquare = new CappedConcurrentQueue(Integer.MAX_VALUE);
    public static final int BLOCK_SIZE = 65536;
+   private static final int LENGTH_OFFSET = 5;
+   private static final int CRC_OFFSET = 9;
+   private static final int HEADER_SIZE = 17;
    private static ByteBuffer sliceBuffer = ByteBuffer.allocate(65536);
    private static ByteBuffer sliceBufferLoad = ByteBuffer.allocate(65536);
    public static final Object WriteLock = new Object();
@@ -284,8 +290,6 @@ public final class IsoChunk {
    private static final ArrayList<IsoChunk.ChunkLock> Locks = new ArrayList<>();
    private static final Stack<IsoChunk.ChunkLock> FreeLocks = new Stack<>();
    private static final IsoChunk.SanityCheck sanityCheck = new IsoChunk.SanityCheck();
-   private static final CRC32 crcLoad = new CRC32();
-   private static final CRC32 crcSave = new CRC32();
    private Chunk erosion;
    private static final HashMap<String, String> Fix2xMap = new HashMap<>();
    public int randomId;
@@ -1914,8 +1918,7 @@ public final class IsoChunk {
                Zone zone = metaChunk.getZone(i);
                if (this.canAddSurvivorInHorde(zone, forced)) {
                   int baseChance = 4;
-                  float worldAgeDays = (float)GameTime.getInstance().getWorldAgeHours() / 24.0F;
-                  worldAgeDays += (SandboxOptions.instance.timeSinceApo.getValue() - 1) * 30;
+                  float worldAgeDays = (float)GameTime.getInstance().getWorldAgeDaysSinceBegin();
                   baseChance = (int)(baseChance + worldAgeDays * 0.03F);
                   baseChance = Math.min(baseChance, 15);
                   if (forced || Rand.Next(0.0F, 500.0F) < 0.4F * baseChance) {
@@ -2387,14 +2390,14 @@ public final class IsoChunk {
    }
 
    public boolean LoadChunk(int wx, int wy, ByteBuffer fromServer) {
-      this.loaded = this.LoadOrCreate(wx, wy, fromServer);
-      if (!this.loaded) {
+      boolean loaded = this.LoadOrCreate(wx, wy, fromServer);
+      if (!loaded) {
          ChunkChecksum.setChecksum(wx, wy, 0L);
          this.Blam(wx, wy);
-         this.loaded = this.LoadBrandNew(wx, wy);
+         loaded = this.LoadBrandNew(wx, wy);
       }
 
-      return this.loaded;
+      return loaded;
    }
 
    private boolean LoadOrCreate(int wx, int wy, ByteBuffer fromServer) {
@@ -3032,14 +3035,14 @@ public final class IsoChunk {
                if (chunkE != null) {
                   for (int y = 0; y < 8; y++) {
                      IsoGridSquare square = chunkE.getGridSquare(0, y, z);
-                     this.fixObjectAmbientEmittersOnSquare(square, false);
+                     fixObjectAmbientEmittersOnSquare(square, GridSquareEdgeFacingDirection.EAST_WEST);
                   }
                }
 
                if (chunkS != null) {
                   for (int x = 0; x < 8; x++) {
                      IsoGridSquare square = chunkS.getGridSquare(x, 0, z);
-                     this.fixObjectAmbientEmittersOnSquare(square, true);
+                     fixObjectAmbientEmittersOnSquare(square, GridSquareEdgeFacingDirection.NORTH_SOUTH);
                   }
                }
             }
@@ -3047,7 +3050,7 @@ public final class IsoChunk {
       }
    }
 
-   private void fixObjectAmbientEmittersOnSquare(IsoGridSquare square, boolean north) {
+   private static void fixObjectAmbientEmittersOnSquare(IsoGridSquare square, GridSquareEdgeFacingDirection facingDirection) {
    }
 
    @Deprecated
@@ -3361,7 +3364,8 @@ public final class IsoChunk {
                   }
 
                   obj.removeFromWorld();
-                  obj.current = obj.last = null;
+                  obj.removeFromSquare();
+                  obj.setSquare(null);
                   if (!GameServer.server && !GameClient.client && obj instanceof BaseVehicle vehicle && vehicle.shouldUpdateInMeta()) {
                      this.vehicles.remove(vehicle);
                      VehiclesDB2.instance.updateVehicle(vehicle);
@@ -3622,8 +3626,8 @@ public final class IsoChunk {
          int len = sliceBufferLoad.getInt();
          sanityCheck.checkLength(len, sliceBufferLoad.limit());
          long crc = sliceBufferLoad.getLong();
-         crcLoad.reset();
-         crcLoad.update(sliceBufferLoad.array(), 17, sliceBufferLoad.limit() - 1 - 4 - 4 - 8);
+         CRC32 crcLoad = new CRC32();
+         crcLoad.update(sliceBufferLoad.array(), 17, sliceBufferLoad.limit() - 17);
          sanityCheck.checkCRC(crc, crcLoad.getValue());
          if (worldVersion >= 209) {
             this.blendingDoneFull = sliceBufferLoad.get() != 0;
@@ -4407,6 +4411,7 @@ public final class IsoChunk {
                   testDir.mkdir();
                }
 
+               CRC32 crcSave = new CRC32();
                sliceBuffer = this.Save(sliceBuffer, crcSave, false);
                if (!GameClient.client && !GameServer.server) {
                   SafeWrite(this.wx, this.wy, sliceBuffer);
@@ -4495,6 +4500,25 @@ public final class IsoChunk {
       return bb;
    }
 
+   public static boolean validateByteBufferHeader(ByteBuffer bb) {
+      if (bb != null && bb.limit() >= 17) {
+         int len = bb.getInt(5);
+         if (len != bb.limit()) {
+            return false;
+         }
+
+         long crc = bb.getLong(9);
+         int position = bb.position();
+         bb.position(17);
+         CRC32 crcLoad = new CRC32();
+         crcLoad.update(bb);
+         bb.position(position);
+         return crc == crcLoad.getValue();
+      } else {
+         return false;
+      }
+   }
+
    public void SaveLoadedChunk(zombie.network.ClientChunkRequest.Chunk ccrc, CRC32 crc32) throws IOException {
       ccrc.bb = this.Save(ccrc.bb, crc32, false);
    }
@@ -4510,7 +4534,7 @@ public final class IsoChunk {
       bb.put((byte)(IsDebugSave() ? 1 : 0));
       bb.putInt(249);
       bb.putInt(0);
-      bb.putLong(0L);
+      bb.putLong(-1L);
       bb.put((byte)(this.blendingDoneFull ? 1 : 0));
       this.writeFlags(bb, this.blendingModified);
       bb.put((byte)(this.blendingDonePartial ? 1 : 0));
@@ -4630,7 +4654,7 @@ public final class IsoChunk {
 
       int len = bb.position();
       crc.reset();
-      crc.update(bb.array(), 17, len - 1 - 4 - 4 - 8);
+      crc.update(bb.array(), 17, len - 17);
       bb.position(5);
       bb.putInt(len);
       bb.putLong(crc.getValue());
@@ -5543,6 +5567,8 @@ public final class IsoChunk {
       this.attachmentsPartial = null;
       this.chunkGenerationStatus = EnumSet.noneOf(ChunkGenerationStatus.class);
       this.ignorePathfind = false;
+      this.hasWaterSquareCached = false;
+      this.hasWaterSquareCachedValue = false;
    }
 
    public int getNumberOfWaterTiles() {
@@ -5661,15 +5687,27 @@ public final class IsoChunk {
    }
 
    public boolean hasWaterSquare() {
+      if (this.hasWaterSquareCached) {
+         return this.hasWaterSquareCachedValue;
+      }
+
       for (int y = 0; y < 8; y++) {
          for (int x = 0; x < 8; x++) {
             IsoGridSquare square = this.getGridSquare(x, y, 0);
-            if (square == null || square.isWaterSquare()) {
+            if (square == null) {
+               return true;
+            }
+
+            if (square.isWaterSquare()) {
+               this.hasWaterSquareCached = true;
+               this.hasWaterSquareCachedValue = true;
                return true;
             }
          }
       }
 
+      this.hasWaterSquareCached = true;
+      this.hasWaterSquareCachedValue = false;
       return false;
    }
 

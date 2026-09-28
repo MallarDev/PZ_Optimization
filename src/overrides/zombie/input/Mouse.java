@@ -1,10 +1,6 @@
 package zombie.input;
 
-import java.awt.image.BufferedImage;
 import java.io.File;
-import java.nio.IntBuffer;
-import javax.imageio.ImageIO;
-import org.lwjgl.BufferUtils;
 import org.lwjglx.LWJGLException;
 import org.lwjglx.input.Cursor;
 import zombie.GameTime;
@@ -12,7 +8,9 @@ import zombie.UsedFromLua;
 import zombie.ZomboidFileSystem;
 import zombie.core.Core;
 import zombie.core.SpriteRenderer;
+import zombie.core.logger.ExceptionLogger;
 import zombie.core.textures.Texture;
+import zombie.core.utils.NativeImage;
 import zombie.debug.DebugType;
 import zombie.debug.LogSeverity;
 
@@ -230,24 +228,43 @@ public final class Mouse {
       File file = ZomboidFileSystem.instance.getMediaFile("ui/" + filename);
 
       try {
-         BufferedImage img = ImageIO.read(file);
-         int w = img.getWidth();
-         int h = img.getHeight();
-         int[] rgbData = new int[w * h];
+         NativeImage image = NativeImage.read(file.getAbsolutePath(), true);
 
-         for (int i = 0; i < rgbData.length; i++) {
-            int x = i % w;
-            int y = h - 1 - i / w;
-            rgbData[i] = img.getRGB(x, y);
+         Cursor var8;
+         label50: {
+            try {
+               if (image == null) {
+                  var8 = null;
+                  break label50;
+               }
+
+               var8 = new Cursor(image.width(), image.height(), 1, 1, 1, image.pixels().asIntBuffer(), null);
+            } catch (Throwable var6) {
+               if (image != null) {
+                  try {
+                     image.close();
+                  } catch (Throwable var5) {
+                     var6.addSuppressed(var5);
+                  }
+               }
+
+               throw var6;
+            }
+
+            if (image != null) {
+               image.close();
+            }
+
+            return var8;
          }
 
-         IntBuffer buffer = BufferUtils.createIntBuffer(w * h);
-         buffer.put(rgbData);
-         buffer.rewind();
-         int xHotspot = 1;
-         int yHotspot = 1;
-         return new Cursor(w, h, 1, 1, 1, buffer, null);
+         if (image != null) {
+            image.close();
+         }
+
+         return var8;
       } catch (Exception ex) {
+         ExceptionLogger.logException(ex);
          return null;
       }
    }

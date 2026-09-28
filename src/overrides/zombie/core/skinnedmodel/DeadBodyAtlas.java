@@ -1368,28 +1368,36 @@ public final class DeadBodyAtlas {
          return this;
       }
 
+      private boolean useRagdollPose() {
+         return this.body.ragdollFall
+            && !PZArrayUtil.isNullOrEmpty(this.body.diedBoneTransforms)
+            && !this.animatedModel.getAnimationPlayer().isBoneCountMismatched(this.body.diedBoneTransforms);
+      }
+
       private void setDeathPose() {
          if (!PZArrayUtil.isNullOrEmpty(this.body.diedBoneTransforms)) {
             AnimationPlayer animationPlayer = this.animatedModel.getAnimationPlayer();
-            animationPlayer.stopAll();
-            AnimationTrack animationTrack = animationPlayer.play("DeathPose", true, true, -1.0F);
-            if (animationTrack != null) {
-               animationTrack.setBlendWeight(1.0F);
-               animationTrack.initRagdollTransforms(this.body.diedBoneTransforms);
+            if (!animationPlayer.isBoneCountMismatched(this.body.diedBoneTransforms)) {
+               animationPlayer.stopAll();
+               AnimationTrack animationTrack = animationPlayer.play("DeathPose", true, true, -1.0F);
+               if (animationTrack != null) {
+                  animationTrack.setBlendWeight(1.0F);
+                  animationTrack.initRagdollTransforms(this.body.diedBoneTransforms);
+               }
             }
          }
       }
 
       public boolean renderMain() {
-         if (!this.animatedModel.isReadyToRender()) {
+         if (this.animatedModel.isReadyToRender()) {
+            this.animatedModel.renderMain();
+            this.animPlayerAngle = this.animatedModel.getAnimationPlayer().getRenderedAngle();
+            boolean bRagdoll = this.useRagdollPose();
+            this.animatedModel.calculateShadowParams(this.entry.shadowParams, bRagdoll);
+            return true;
+         } else {
             return false;
          }
-
-         this.animatedModel.renderMain();
-         this.animPlayerAngle = this.animatedModel.getAnimationPlayer().getRenderedAngle();
-         boolean bRagdoll = this.body.ragdollFall && !PZArrayUtil.isNullOrEmpty(this.body.diedBoneTransforms);
-         this.animatedModel.calculateShadowParams(this.entry.shadowParams, bRagdoll);
-         return true;
       }
 
       public void render() {
@@ -1462,7 +1470,7 @@ public final class DeadBodyAtlas {
          int translationData = this.animatedModel.getAnimationPlayer().getSkinningBoneIndex("Translation_Data", -1);
          org.lwjgl.util.vector.Matrix4f[] worldSpace = null;
          boolean[] bIgnoreBone = null;
-         boolean bRagdoll = this.body.ragdollFall && !PZArrayUtil.isNullOrEmpty(this.body.diedBoneTransforms) && bip01Pelvis != -1;
+         boolean bRagdoll = this.useRagdollPose() && bip01Pelvis != -1;
          float relativeToX = 0.0F;
          float relativeToY = 0.0F;
          if (bRagdoll) {

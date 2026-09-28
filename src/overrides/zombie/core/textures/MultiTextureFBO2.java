@@ -9,7 +9,7 @@ import zombie.core.Core;
 import zombie.core.PerformanceSettings;
 import zombie.core.SceneShaderStore;
 import zombie.core.SpriteRenderer;
-import zombie.core.utils.ImageUtils;
+import zombie.core.math.PZMath;
 import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
 import zombie.debug.LogSeverity;
@@ -155,8 +155,8 @@ public final class MultiTextureFBO2 {
 
       this.zoomedInLevel = this.zoomLevels[this.zoomLevels.length - 1];
       this.zoomedOutLevel = this.zoomLevels[0];
-      int x = ImageUtils.getNextPowerOfTwoHW(xres);
-      int y = ImageUtils.getNextPowerOfTwoHW(yres);
+      int x = PZMath.smallestEncompassingPowerOfTwo(xres);
+      int y = PZMath.smallestEncompassingPowerOfTwo(yres);
       this.current = this.createTexture(x, y, false);
    }
 

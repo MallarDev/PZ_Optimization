@@ -20,6 +20,7 @@ import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
+import zombie.iso.objects.GridSquareEdgeFacingDirection;
 import zombie.iso.objects.IsoDoor;
 import zombie.iso.objects.IsoWindow;
 import zombie.popman.ObjectPool;
@@ -338,11 +339,11 @@ public final class FMODAmbientWalls {
 
       void setObjectAndLogic(IsoGridSquare square) {
          this.release();
-         this.object = square.getDoor(this.north);
+         this.object = square.getDoor(this.north ? GridSquareEdgeFacingDirection.NORTH_SOUTH : GridSquareEdgeFacingDirection.EAST_WEST);
          if (this.object != null) {
             this.logic = ((ObjectAmbientEmitters.DoorLogic)FMODAmbientWalls.getInstance().doorLogicPool.alloc()).init(this.object);
          } else {
-            this.object = square.getWindow(this.north);
+            this.object = square.getWindow(this.north ? GridSquareEdgeFacingDirection.NORTH_SOUTH : GridSquareEdgeFacingDirection.EAST_WEST);
             if (this.object != null) {
                this.logic = ((ObjectAmbientEmitters.WindowLogic)FMODAmbientWalls.getInstance().windowLogicPool.alloc()).init(this.object);
             } else {

@@ -54,6 +54,7 @@ import zombie.network.PacketTypes;
 import zombie.network.ServerOptions;
 import zombie.network.packets.INetworkPacket;
 import zombie.network.statistics.data.ConnectionQueueStatistic;
+import zombie.popman.ZombiePopulationManager;
 import zombie.radio.ZomboidRadio;
 import zombie.ui.SpeedControls;
 import zombie.ui.UIManager;
@@ -75,7 +76,9 @@ public final class GameTime {
     public static final float SecondsPerHour = 3600.0f;
     public static final int SECONDS_PER_MINUTE = 60;
     public static final float MULTIPLIER = 0.8f;
+    public static final float START_OF_NEW_DAY = 7.0f;
     public static final float THIRTY_FPS_SCALE = 1.6f;
+    public static final long SYNC_CLOCK_MS = 10000L;
     public static GameTime instance = new GameTime();
     private static long serverTimeShift;
     private static boolean serverTimeShiftIsSet;
@@ -358,6 +361,8 @@ public final class GameTime {
         }
         for (int n = 0; n < IsoWorld.instance.currentCell.getZombieList().size(); ++n) {
             IsoZombie zombie = IsoWorld.instance.currentCell.getZombieList().get(0);
+            ZombiePopulationManager.releaseZombie(zombie);
+            zombie.persistentId = 0;
             IsoWorld.instance.currentCell.getZombieList().remove(n);
             IsoWorld.instance.currentCell.getRemoveList().add(zombie);
             zombie.getCurrentSquare().getMovingObjects().remove(zombie);
@@ -434,7 +439,7 @@ public final class GameTime {
 
     public void update(boolean bSleeping) {
         int now;
-        IsoPlayer player;
+        boolean serverSyncClock;
         long ms = System.currentTimeMillis();
         int metaSandbox = 9000;
         if (SandboxOptions.instance.metaEvent.getValue() == 1) {
@@ -476,6 +481,7 @@ public final class GameTime {
         this.updateCalendar(this.getYear(), this.getMonth(), this.getDay(), (int)this.getTimeOfDay(), (int)((this.getTimeOfDay() - (float)((int)this.getTimeOfDay())) * 60.0f));
         float lastTimeOfDay = this.getTimeOfDay();
         if (!GameTime.isGamePaused()) {
+            IsoPlayer player;
             float time = 1.0f / this.getMinutesPerDay() / 60.0f * this.getMultiplier() / 2.0f;
             if (Core.lastStand) {
                 time = 1.0f / this.getMinutesPerDay() / 60.0f * this.getUnmoddedMultiplier() / 2.0f;
@@ -517,9 +523,15 @@ public final class GameTime {
                 player3.setAsleepTime(0.0f);
             }
         }
-        if (!GameClient.client && lastTimeOfDay <= 7.0f && this.getTimeOfDay() > 7.0f) {
+        boolean bl = serverSyncClock = GameServer.server && (ms - this.lastClockSync >= 10000L || GameServer.fastForward);
+        if (lastTimeOfDay <= 7.0f && this.getTimeOfDay() > 7.0f) {
             this.setNightsSurvived(this.getNightsSurvived() + 1);
-            this.doMetaEvents();
+            if (GameServer.server) {
+                serverSyncClock = true;
+            }
+            if (!GameClient.client) {
+                this.doMetaEvents();
+            }
         }
         if (GameClient.client) {
             if (this.getTimeOfDay() >= 24.0f) {
@@ -527,34 +539,13 @@ public final class GameTime {
             }
             while (this.serverNewDays > 0) {
                 --this.serverNewDays;
-                this.setDay(this.getDay() + 1);
-                if (this.getDay() >= this.daysInMonth(this.getYear(), this.getMonth())) {
-                    this.setDay(0);
-                    this.setMonth(this.getMonth() + 1);
-                    if (this.getMonth() >= 12) {
-                        this.setMonth(0);
-                        this.setYear(this.getYear() + 1);
-                    }
-                }
-                this.updateCalendar(this.getYear(), this.getMonth(), this.getDay(), (int)this.getTimeOfDay(), this.getMinutes());
-                LuaEventManager.triggerEvent("EveryDays");
+                this.advanceOneDay();
             }
         } else if (this.getTimeOfDay() >= 24.0f) {
             this.setTimeOfDay(this.getTimeOfDay() - 24.0f);
-            this.setDay(this.getDay() + 1);
-            if (this.getDay() >= this.daysInMonth(this.getYear(), this.getMonth())) {
-                this.setDay(0);
-                this.setMonth(this.getMonth() + 1);
-                if (this.getMonth() >= 12) {
-                    this.setMonth(0);
-                    this.setYear(this.getYear() + 1);
-                }
-            }
-            this.updateCalendar(this.getYear(), this.getMonth(), this.getDay(), (int)this.getTimeOfDay(), this.getMinutes());
-            LuaEventManager.triggerEvent("EveryDays");
+            this.advanceOneDay();
             if (GameServer.server) {
-                GameServer.syncClock();
-                this.lastClockSync = ms;
+                serverSyncClock = true;
             }
         }
         if (!ClimateManager.getInstance().getThunderStorm().isModifyingNight()) {
@@ -579,13 +570,12 @@ public final class GameTime {
         if ((now = (int)((this.getTimeOfDay() - (float)((int)this.getTimeOfDay())) * 60.0f)) / 10 != this.minutesMod) {
             IsoPlayer[] players = IsoPlayer.players;
             for (int i = 0; i < players.length; ++i) {
-                player = players[i];
+                IsoPlayer player = players[i];
                 if (player == null) continue;
                 player.dirtyRecalcGridStackTime = 1.0f;
             }
             ErosionMain.EveryTenMinutes();
             ClimateManager.getInstance().updateEveryTenMins();
-            GameTime.getInstance().updateRoomLight();
             LuaEventManager.triggerEvent("EveryTenMinutes");
             this.minutesMod = now / 10;
             ZomboidRadio.getInstance().UpdateScripts(this.getHour(), now);
@@ -594,13 +584,24 @@ public final class GameTime {
             LuaEventManager.triggerEvent("EveryOneMinute");
             this.previousMinuteStamp = this.minutesStamp;
         }
-        if (GameServer.server && (ms - this.lastClockSync > 10000L || GameServer.fastForward)) {
+        if (serverSyncClock) {
             GameServer.syncClock();
             this.lastClockSync = ms;
         }
     }
 
-    private void updateRoomLight() {
+    private void advanceOneDay() {
+        this.setDay(this.getDay() + 1);
+        if (this.getDay() >= this.daysInMonth(this.getYear(), this.getMonth())) {
+            this.setDay(0);
+            this.setMonth(this.getMonth() + 1);
+            if (this.getMonth() >= 12) {
+                this.setMonth(0);
+                this.setYear(this.getYear() + 1);
+            }
+        }
+        this.updateCalendar(this.getYear(), this.getMonth(), this.getDay(), (int)this.getTimeOfDay(), this.getMinutes());
+        LuaEventManager.triggerEvent("EveryDays");
     }
 
     private void setMinutesStamp() {
@@ -828,7 +829,7 @@ public final class GameTime {
     }
 
     public double getWorldAgeDaysSinceBegin() {
-        return (float)(this.getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.timeSinceApo.getValue() - 1) * 30));
+        return this.getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.getTimeSinceApo() - 1) * 30);
     }
 
     public double getWorldAgeHours() {

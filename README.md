@@ -9,14 +9,14 @@ the worst stalls from the chunk streamer, the renderer, the weather and the load
 Options tab, and every number in this file comes from the hands-off benchmark harness in
 this repo.
 
-**Target: Build 42.20.4, jar revision `b0bbce05d5`, Windows, Linux and macOS** (the three
+**Target: Build 42.21, jar revision `4a0e9546ec`, Windows, Linux and macOS** (the three
 Steam depots ship the same jar). The overrides refuse to run against any other revision: they log one
 line and the game behaves as stock.
 
 | | |
 |---|---|
 | **Steam Workshop** | [PZ_Optimization (item 3805285544)](https://steamcommunity.com/sharedfiles/filedetails/?id=3805285544) |
-| **Latest release** | [github.com/xD3I/PZ_Optimization/releases/latest](https://github.com/xD3I/PZ_Optimization/releases/latest) (`install.ps1`, `install.sh`, `pzopt-b0bbce05d5-classes.zip`) |
+| **Latest release** | [github.com/xD3I/PZ_Optimization/releases/latest](https://github.com/xD3I/PZ_Optimization/releases/latest) (`install.ps1`, `install.sh`, `pzopt-4a0e9546ec-classes.zip`) |
 | **Showcase video** | [youtube.com/watch?v=GCjCYbTE9AQ](https://www.youtube.com/watch?v=GCjCYbTE9AQ), stock vs all optimizations ([See it in action](#see-it-in-action)) |
 | **Live benchmark dashboard** | [pzo.diegov.dev](https://pzo.diegov.dev) (Grafana: every harness run since 2026-09-24 frame by frame, CPU / GPU use, profiler flame graphs, run-vs-run diffs, the game being benchmarked right now; the first page load after a quiet spell takes a few seconds) |
 | **Every run, in order** | [`docs/results.md`](docs/results.md) (earlier runs: [`docs/archive/2026-09-24/`](docs/archive/2026-09-24/)) |
@@ -458,8 +458,8 @@ so **close the game first** whichever method you pick.
 
 ### Requirements
 
-- Project Zomboid on Steam on the **Build 42.20.4** beta (right-click the game, Properties,
-  Betas). The Windows, Linux and macOS depots all work; the jar is the same.
+- Project Zomboid on Steam on **Build 42.21** (the default branch since 2026-09-28; right-click the game, Properties,
+  Betas: none). The Windows, Linux and macOS depots all work; the jar is the same.
 - Windows: Windows PowerShell 5.1 or newer (built in). Linux and macOS: `bash`, `curl` or
   the `gh` CLI, and `unzip` (or `python3`); a stock Mac has all of them, no Xcode or Homebrew
   needed. No JDK anywhere.
@@ -510,7 +510,8 @@ download over the installed files, no installer run needed. Item layout and uplo
 
 One line, no path to type. The script uses the Steam Workshop copy when it finds one in the
 Steam library that holds the game; otherwise it downloads `pzopt-<revision>-classes.zip` for
-your game's revision from the matching release. A running game is waited for.
+your game's revision from the matching release. A running game is waited for. Run over an
+existing install (an older build, or a build for the game before its last update), it replaces it.
 
 **Windows** (Start menu, type `powershell`):
 
@@ -539,13 +540,13 @@ install a zip you already have, `-From` / `--from <folder>` to install an unpack
 
 ### Method C: unpack the zip by hand
 
-Download `pzopt-b0bbce05d5-classes.zip` (about 850 KB) from the
+Download `pzopt-4a0e9546ec-classes.zip` (about 850 KB) from the
 [release page](https://github.com/xD3I/PZ_Optimization/releases/latest) and unpack it into
 the folder that holds `projectzomboid.jar`, without overwriting anything (`Expand-Archive`
 without `-Force`, or `unzip -n`). On macOS that folder is inside the app bundle: in
 `~/Library/Application Support/Steam/steamapps/common/ProjectZomboid`, right-click
 `Project Zomboid.app`, Show Package Contents, `Contents/Java`. The zip carries `pzopt-files.txt`, the list of everything
-it adds. The revision in the file name must match your game (42.20.4 is `b0bbce05d5`); a
+it adds. The revision in the file name must match your game (42.21 is `4a0e9546ec`); a
 zip for another revision disables itself at start-up. To remove it, delete the files listed
 in `pzopt-files.txt` and the empty folders they leave, or run either installer's uninstall.
 
@@ -568,7 +569,7 @@ scripts/pzopt.sh status   # must say installed: yes, no MISSING / MODIFIED
 If the game is not in `/games/steamapps/common/ProjectZomboid`, export `PZ_ROOT` first
 (the folder that contains `projectzomboid/` with the jar and `ProjectZomboid64.json`):
 `export PZ_ROOT="$HOME/.local/share/Steam/steamapps/common/ProjectZomboid"`. `build.sh` ends
-with `built N class files into build/classes for game revision b0bbce05d5` and fails
+with `built N class files into build/classes for game revision 4a0e9546ec` and fails
 loudly on a revision or signature mismatch. `scripts/test.sh` runs the JVM-only unit tests
 (no game needed); `scripts/release.sh` builds the release zip. `scripts/pzopt.sh` and
 `install.sh` read the same manifest, so either can uninstall what the other installed.
@@ -596,7 +597,7 @@ grep -c '\[pzopt\] loaded override' ~/Zomboid/console.txt
 |---|---|
 | dozens of lines | the overrides are active. Options has an **Optimizations** tab and Display has the **Uncapped** entry. Done. |
 | `0` | the class files did not load. Check that `<game>\pzopt\Overrides.class` exists and that `ProjectZomboid64.json` lists `"."` before `"projectzomboid.jar"` under `classpath` (it does on the stock depot; the macOS bundle has no JSON, its launcher puts `Contents/Java` first by itself). |
-| a line saying the overrides were built for another revision | your game is not 42.20.4 / `b0bbce05d5`; the game runs as stock. Switch Steam to that beta or wait for a matching release. |
+| a line saying the overrides were built for another revision | your game is not 42.21 / `4a0e9546ec`; the game runs as stock. Switch Steam to that branch or wait for a matching release. |
 
 ### Uninstall
 
@@ -660,10 +661,14 @@ Options > Optimizations > Updates, `updateFromWorkshop` (default on).
 
 ### After a game update
 
-The classes are compiled against one exact jar. After Steam updates the game they disable
-themselves (one log line, stock behaviour). Uninstall them and wait for a release whose zip
-carries the new revision, then install again; the Workshop item is updated at the same
-time. From source, on an unchanged revision (a Steam re-verify, for example) just
+The classes are compiled against one exact jar. They switch their own changes off on another
+revision, but they still stand in for the game's copies of the classes they replace, and a game
+update that removes or changes what those old copies call stops the game at start: Build 42.21
+(2026-09-28) closes before the main menu with a build for 42.20.4 installed, so neither the
+in-game updater nor the Uninstall button can be reached. Run the install command again (above)
+once a release for the new revision is out: it replaces the old build (since the 42.21 release;
+older installers asked for `-Uninstall` / `--uninstall` first). The uninstall command alone
+gives back the vanilla game at any time. The Workshop item is updated at the same time. From source, on an unchanged revision (a Steam re-verify, for example) just
 `scripts/pzopt.sh uninstall && scripts/build.sh && scripts/pzopt.sh install`; if
 `build.sh` reports a mismatch the game changed and the overrides need porting
 (`scripts/regen-overrides.sh`, `.claude/skills/game-update`).

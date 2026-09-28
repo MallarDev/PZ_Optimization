@@ -89,7 +89,9 @@ public final class ActionEval {
       "shouttype", "shoutitemmodel", "fallspeedseverity", "aimingmode", "hastimedactions",
       "bmovingnetwork", "bistargetissmallvehicle", "distancetotarget", "bcanseetarget", "bgetupfromcrawl",
       // Third audit, 2026-09-22: two grid reads (the square's objects and properties, the sheet-rope walk down).
-      "intrees", "canclimbdownrope");
+      "intrees", "canclimbdownrope",
+      // 42.21 (2026-09-28): IsoGameCharacter.isNearWallCrouching, a field getter.
+      "nearwallcrouching");
       // Deliberately NOT here (they write through a getter or use shared scratch, so the game thread reads them into
       // the snapshot, in stock's order): battack / bhastarget / shouldsprint / getShouldAttack clear the target,
       // bthump drops the thump target, beatbodytarget rescans the corpses, blunge runs a pathfind line test through a

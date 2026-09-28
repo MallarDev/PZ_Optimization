@@ -260,6 +260,7 @@ import zombie.iso.RoomDef;
 import zombie.iso.Vector2;
 import zombie.iso.Vector2ObjectPool;
 import zombie.iso.Vector3;
+import zombie.iso.IsoGridSquare.ILighting;
 import zombie.iso.IsoObjectPicker.ClickObject;
 import zombie.iso.LosUtil.TestResults;
 import zombie.iso.SpriteDetails.IsoFlagType;
@@ -771,7 +772,7 @@ public abstract class IsoGameCharacter
    public long lastAnimalPet;
    private final AnimEventBroadcaster animEventBroadcaster = new AnimEventBroadcaster();
    public IsoGameCharacter vbdebugHitTarget;
-   private String hitDirEnum = "FRONT";
+   private HitDirEnum hitDirEnum = HitDirEnum.FRONT;
    private boolean isGrappleThrowOutWindow;
    private boolean isGrappleThrowOverFence;
    private boolean isGrappleThrowIntoContainer;
@@ -792,6 +793,7 @@ public abstract class IsoGameCharacter
    public final NetworkCharacter networkCharacter = new NetworkCharacter();
    private final Map<CharacterDiedListener, Boolean> onDiedListeners = new LinkedHashMap<>();
    private IsoDeadBody diedBody;
+   private boolean nearWallCrouching;
    private final IsoGameCharacter.Recoil recoil = new IsoGameCharacter.Recoil();
    private static final double meleeWeaponMuscleStrainAdjustment = 0.65;
    private boolean usePhysicHitReaction;
@@ -827,11 +829,7 @@ public abstract class IsoGameCharacter
       }
 
       if (x != 0.0F || y != 0.0F || z != 0.0F) {
-         if (this.getCell().isSafeToAdd()) {
-            this.getCell().getObjectList().add(this);
-         } else {
-            this.getCell().getAddList().add(this);
-         }
+         this.getCell().addMovingObject(this);
       }
 
       if (this.def == null) {
@@ -861,6 +859,7 @@ public abstract class IsoGameCharacter
       this.setLastY(this.setNextY(y));
       if (cell != null) {
          this.current = this.getCell().getGridSquare(PZMath.fastfloor(x), PZMath.fastfloor(y), PZMath.fastfloor(z));
+         this.setMovingSquareNow();
       }
 
       this.offsetY = 0.0F;
@@ -922,6 +921,7 @@ public abstract class IsoGameCharacter
          "sittingonfurniture", this::isSittingOnFurniture, this::setSittingOnFurniture, owner -> "Is this character sitting on furniture. Eg a chair."
       );
       this.setVariable("sitonground", this::isSitOnGround, this::setSitOnGround, owner -> "Is this character sitting on the ground.");
+      this.setVariable("nearWallCrouching", this::isNearWallCrouching, this::setNearWallCrouching, owner -> "Is the character currently crouching near a wall.");
       this.setVariable(
          "canclimbdownrope",
          this::canClimbDownSheetRopeInCurrentSquare,
@@ -1096,6 +1096,7 @@ public abstract class IsoGameCharacter
       this.setVariable("hitforce", this::getHitForce, owner -> "The character has been hit, by this amount of force.");
       this.setVariable(
          "hitDir",
+         HitDirEnum.class,
          this::getHitDirEnum,
          owner -> "The direction the character has been hit from.<br />Known values:<br /> FRONT,<br /> BEHIND,<br /> LEFT,<br /> RIGHT."
       );
@@ -1183,6 +1184,9 @@ public abstract class IsoGameCharacter
 
    private void OnAnimEvent_FallOnFront(IsoGameCharacter owner, boolean fallOnFront) {
       owner.setFallOnFront(fallOnFront);
+      if (GameClient.client && owner instanceof IsoZombie zombie && (zombie.isLocal() || zombie.wasLocal())) {
+         INetworkPacket.send(PacketType.ZombieFall, new Object[]{zombie});
+      }
    }
 
    private void OnAnimEvent_SetOnFloor(IsoGameCharacter owner, boolean onFloor) {
@@ -1658,7 +1662,7 @@ public abstract class IsoGameCharacter
                }
 
                if (GameClient.client) {
-                  if (this instanceof IsoZombie && ((IsoZombie)this).isRemoteZombie()) {
+                  if (this instanceof IsoZombie zombie && zombie.isRemoteZombie() && !this.isBeingGrappled() && !zombie.isReanimatedForGrappleOnly()) {
                      if (this.getCurrentState() != ClimbOverFenceState.instance()
                         && this.getCurrentState() != ClimbThroughWindowState.instance()
                         && this.getCurrentState() != ClimbOverWallState.instance()
@@ -2316,7 +2320,8 @@ public abstract class IsoGameCharacter
             return false;
          }
 
-         ColorInfo lightInfo = this.getCurrentSquare().lighting[playerIndex].lightInfo();
+         ILighting lighting = this.getCurrentSquare().lighting[playerIndex];
+         ColorInfo lightInfo = lighting == null ? null : lighting.lightInfo();
          if (lightInfo == null) {
             return false;
          }
@@ -2607,7 +2612,7 @@ public abstract class IsoGameCharacter
       if (chr == null) {
          return false;
       } else {
-         return container == null ? false : container.canHumanCorpseFit(chr);
+         return container == null ? false : container.canHumanCorpseFit(chr) && !container.isLockedToCharacter(chr);
       }
    }
 
@@ -2615,19 +2620,19 @@ public abstract class IsoGameCharacter
       if (chr == null) {
          return false;
       } else {
-         return container == null ? false : container.containsHumanCorpse();
+         return container == null ? false : container.containsHumanCorpse() && !container.isLockedToCharacter(chr);
       }
    }
 
    public boolean canAccessContainer(ItemContainer container) {
-      return container.doesVehicleDoorNeedOpening() ? container.canCharacterOpenVehicleDoor(this) : true;
+      return container.doesVehicleDoorNeedOpening() ? container.canCharacterOpenVehicleDoor(this) : !container.isLockedToCharacter(this);
    }
 
    public String getContainerToolTip(ItemContainer container) {
       if (container.doesVehicleDoorNeedOpening()) {
          return !container.canCharacterOpenVehicleDoor(this) ? "IGUI_Tooltip_VehicleDoorLocked" : "IGUI_Tooltip_DoorClosed";
       } else {
-         return "";
+         return container.isLockedToCharacter(this) ? "IGUI_Tooltip_ContainerLocked" : "";
       }
    }
 
@@ -3622,6 +3627,7 @@ public abstract class IsoGameCharacter
       }
 
       this.removeOnFireLightSource();
+      this.unregisterInventoryAnimals();
    }
 
    public int getPathIndex() {
@@ -4766,18 +4772,20 @@ public abstract class IsoGameCharacter
    }
 
    public void ReadLiterature(Literature literature) {
-      this.stats.add(CharacterStat.STRESS, literature.getStressChange());
-      this.getBodyDamage().JustReadSomething(literature);
-      if (literature.getLearnedRecipes() != null) {
-         for (int i = 0; i < literature.getLearnedRecipes().size(); i++) {
-            if (!this.getKnownRecipes().contains(literature.getLearnedRecipes().get(i))) {
-               this.learnRecipe((String)literature.getLearnedRecipes().get(i));
+      if (literature != null) {
+         this.stats.add(CharacterStat.STRESS, literature.getStressChange());
+         this.getBodyDamage().JustReadSomething(literature);
+         if (literature.getLearnedRecipes() != null) {
+            for (int i = 0; i < literature.getLearnedRecipes().size(); i++) {
+               if (!this.getKnownRecipes().contains(literature.getLearnedRecipes().get(i))) {
+                  this.learnRecipe((String)literature.getLearnedRecipes().get(i));
+               }
             }
          }
-      }
 
-      if (literature.hasTag(ItemTag.CONSUME_ON_READ)) {
-         literature.Use();
+         if (literature.hasTag(ItemTag.CONSUME_ON_READ)) {
+            literature.Use();
+         }
       }
    }
 
@@ -5342,7 +5350,7 @@ public abstract class IsoGameCharacter
 
          this.characterActions.clear();
          if (this == IsoPlayer.players[0] || this == IsoPlayer.players[1] || this == IsoPlayer.players[2] || this == IsoPlayer.players[3]) {
-            UIManager.getProgressBar(((IsoPlayer)this).getIndex()).setValue(0.0F);
+            UIManager.trySetProgressBarValue(((IsoPlayer)this).getIndex(), 0.0F);
          }
       }
    }
@@ -5359,7 +5367,7 @@ public abstract class IsoGameCharacter
 
             this.characterActions.clear();
             if (this == IsoPlayer.players[0] || this == IsoPlayer.players[1] || this == IsoPlayer.players[2] || this == IsoPlayer.players[3]) {
-               UIManager.getProgressBar(((IsoPlayer)this).getIndex()).setValue(0.0F);
+               UIManager.trySetProgressBarValue(((IsoPlayer)this).getIndex(), 0.0F);
             }
          }
       }
@@ -5375,7 +5383,7 @@ public abstract class IsoGameCharacter
 
             this.characterActions.clear();
             if (this == IsoPlayer.players[0] || this == IsoPlayer.players[1] || this == IsoPlayer.players[2] || this == IsoPlayer.players[3]) {
-               UIManager.getProgressBar(((IsoPlayer)this).getIndex()).setValue(0.0F);
+               UIManager.trySetProgressBarValue(((IsoPlayer)this).getIndex(), 0.0F);
             }
          }
       }
@@ -5393,7 +5401,7 @@ public abstract class IsoGameCharacter
 
             this.characterActions.clear();
             if (this == IsoPlayer.players[0] || this == IsoPlayer.players[1] || this == IsoPlayer.players[2] || this == IsoPlayer.players[3]) {
-               UIManager.getProgressBar(((IsoPlayer)this).getIndex()).setValue(0.0F);
+               UIManager.trySetProgressBarValue(((IsoPlayer)this).getIndex(), 0.0F);
             }
          }
       }
@@ -6849,6 +6857,22 @@ public abstract class IsoGameCharacter
       }
    }
 
+   public void transmitHaloNote(String str) {
+      this.transmitHaloNote(str, this.haloDispTime);
+   }
+
+   public void transmitHaloNote(String str, float dispTime) {
+      this.transmitHaloNote(str, 0, 255, 0, dispTime);
+   }
+
+   public void transmitHaloNote(String str, int r, int g, int b, float dispTime) {
+      if (GameServer.server) {
+         this.sendObjectChange(IsoObjectChange.SET_HALO_NOTE, new Object[]{"note", str, "r", r, "g", g, "b", b, "dispTime", dispTime});
+      } else {
+         this.setHaloNote(str, r, g, b, dispTime);
+      }
+   }
+
    public float getHaloTimerCount() {
       return this.haloNote != null ? this.haloNote.getInternalClock() : 0.0F;
    }
@@ -7245,6 +7269,17 @@ public abstract class IsoGameCharacter
       coord.y = sy;
    }
 
+   private static boolean canSeePlayer(IsoPlayer player) {
+      IsoPlayer camPlayer = (IsoPlayer)Type.tryCastTo(IsoCamera.frameState.camCharacter, IsoPlayer.class);
+      if (camPlayer == null || player == null || player.isAnimal()) {
+         return false;
+      } else {
+         return !camPlayer.canSeeAll() && player != camPlayer
+            ? player.getCurrentSquare() != null && player.getCurrentSquare().getCanSee(IsoCamera.frameState.playerIndex) && camPlayer.checkCanSeeClient(player)
+            : true;
+      }
+   }
+
    public void renderlast() {
       super.renderlast();
       int playerIndex = IsoCamera.frameState.playerIndex;
@@ -7268,16 +7303,10 @@ public abstract class IsoGameCharacter
 
          float sx = tempVector2_2.x;
          float sy = tempVector2_2.y;
-         this.canSeeCurrent = true;
+         this.canSeeCurrent = canSeePlayer(this.isoPlayer);
          this.drawUserName = false;
-         if (this.isoPlayer != null
-               && (this == IsoCamera.frameState.camCharacter || this.getCurrentSquare() != null && this.getCurrentSquare().getCanSee(playerIndex))
-            || IsoPlayer.getInstance().canSeeAll()) {
-            if (this == IsoPlayer.getInstance()) {
-               this.canSeeCurrent = true;
-            }
-
-            if (GameClient.client && this.userName != null && !(this instanceof IsoAnimal)) {
+         if (this.canSeeCurrent) {
+            if (GameClient.client && this.userName != null) {
                this.drawUserName = false;
                if (ServerOptions.getInstance().mouseOverToSeeDisplayName.getValue() && this != IsoPlayer.getInstance() && !IsoPlayer.getInstance().canSeeAll()) {
                   ClickObject object = IsoObjectPicker.Instance.ContextPick(Mouse.getXA(), Mouse.getYA());
@@ -7314,7 +7343,7 @@ public abstract class IsoGameCharacter
                }
             }
 
-            if (!GameClient.client && this.isoPlayer != null && !this.isAnimal() && this.isoPlayer.getVehicle() == null) {
+            if (!GameClient.client && this.isoPlayer != null && this.isoPlayer.getVehicle() == null) {
                String nameStr = "";
                BaseVehicle nearVehicle = this.isoPlayer.getNearVehicle();
                if (vehicle == null
@@ -8662,36 +8691,32 @@ public abstract class IsoGameCharacter
 
    public void setHitDir(Vector2 hitDir) {
       super.setHitDir(hitDir);
-      this.setHitDirEnum(this.determineHitDirEnum(hitDir));
+      this.hitDirEnum = this.determineHitDirEnum(hitDir);
    }
 
    public UpdateSchedulerSimulationLevel getMinimumSimulationLevel() {
       return !this.isDead() && !this.isRagdollSimulationActive() && !this.isFalling() ? super.getMinimumSimulationLevel() : UpdateSchedulerSimulationLevel.FULL;
    }
 
-   private void setHitDirEnum(String hitDirEnum) {
-      this.hitDirEnum = hitDirEnum;
-   }
-
-   public String getHitDirEnum() {
+   public HitDirEnum getHitDirEnum() {
       return this.hitDirEnum;
    }
 
-   private String determineHitDirEnum(Vector2 hitDir) {
+   private HitDirEnum determineHitDirEnum(Vector2 hitDir) {
       Vector2 lookVector = this.getLookVector(IsoGameCharacter.l_testDotSide.v1);
       Vector2 hitDirNormalized = IsoGameCharacter.l_testDotSide.v3.set(hitDir);
       hitDirNormalized.normalize();
       float dotHitDirToForward = Vector2.dot(hitDirNormalized.x, hitDirNormalized.y, lookVector.x, lookVector.y);
       if (dotHitDirToForward < -0.5F) {
-         return "FRONT";
+         return HitDirEnum.FRONT;
       }
 
       if (dotHitDirToForward > 0.5F) {
-         return "BEHIND";
+         return HitDirEnum.BEHIND;
       }
 
       float crossZ = hitDirNormalized.x * lookVector.y - hitDirNormalized.y * lookVector.x;
-      return crossZ > 0.0F ? "RIGHT" : "LEFT";
+      return crossZ > 0.0F ? HitDirEnum.RIGHT : HitDirEnum.LEFT;
    }
 
    private void updateInternal() {
@@ -8888,7 +8913,7 @@ public abstract class IsoGameCharacter
 
                      this.characterActions.removeElement(act);
                      if (this == IsoPlayer.players[0] || this == IsoPlayer.players[1] || this == IsoPlayer.players[2] || this == IsoPlayer.players[3]) {
-                        UIManager.getProgressBar(((IsoPlayer)this).getIndex()).setValue(0.0F);
+                        UIManager.trySetProgressBarValue(((IsoPlayer)this).getIndex(), 0.0F);
                      }
                   }
 
@@ -9639,10 +9664,8 @@ public abstract class IsoGameCharacter
 
    protected float calculateSneakLimpSpeedScale() {
       float sneakLimpSpeedScale = 1.0F;
-      boolean bIsSneaking = this.isSneaking();
-      boolean bNearWallCrouching = this.getVariable("nearWallCrouching").getValueBool();
-      if (bIsSneaking) {
-         if (bNearWallCrouching) {
+      if (this.isSneaking()) {
+         if (this.isNearWallCrouching()) {
             sneakLimpSpeedScale = 0.45F;
          } else {
             sneakLimpSpeedScale = 0.6F;
@@ -9859,7 +9882,7 @@ public abstract class IsoGameCharacter
       }
 
       float mod = 1.0F;
-      if (this.isSitOnGround() || this.isSittingOnFurniture() || this.isResting()) {
+      if (this.isSitting() || this.isResting()) {
          mod = 1.5F;
       }
 
@@ -9959,7 +9982,7 @@ public abstract class IsoGameCharacter
                   )
                );
          }
-      } else if (!this.isSittingOnFurniture() && !this.isSitOnGround()) {
+      } else if (!this.isSitting()) {
          this.stats
             .set(
                CharacterStat.IDLENESS,
@@ -10240,7 +10263,9 @@ public abstract class IsoGameCharacter
    }
 
    public void faceThisObject(IsoObject object) {
-      if (object != null) {
+      if (object instanceof IsoGameCharacter) {
+         this.faceThisObjectAlt(object);
+      } else if (object != null && object.getObjectIndex() != -1) {
          Vector2 facingPosition = pzopt.UpdateBatch.tempoScratch(); // pzopt: entityUpdateParallel -- the static tempo scratch is shared by every character on every thread (faceThisObject through the batch threw the zero-length exception in run lou-pipe-off); per-thread scratch, identical output single-threaded
          BaseVehicle objVehicle = (BaseVehicle)Type.tryCastTo(object, BaseVehicle.class);
          BarricadeAble barricadeAble = (BarricadeAble)Type.tryCastTo(object, BarricadeAble.class);
@@ -10300,7 +10325,10 @@ public abstract class IsoGameCharacter
          object.getFacingPositionAlt(tempo);
          tempo.x = tempo.x - this.getX();
          tempo.y = tempo.y - this.getY();
-         this.setForwardDirection(tempo);
+         if (tempo.getLength() > 0.0F) {
+            this.setForwardDirection(tempo);
+         }
+
          AnimationPlayer animationPlayer = this.getAnimationPlayer();
          if (animationPlayer != null && animationPlayer.isReady()) {
             animationPlayer.updateForwardDirection(this);
@@ -13331,6 +13359,10 @@ public abstract class IsoGameCharacter
       this.isSitOnFurniture = isSittingOnFurniture;
    }
 
+   public boolean isSitting() {
+      return this.isSitOnGround() || this.isSittingOnFurniture();
+   }
+
    public IsoObject getSitOnFurnitureObject() {
       return this.sitOnFurnitureObject;
    }
@@ -13602,7 +13634,7 @@ public abstract class IsoGameCharacter
       for (BaseVehicle vehicle : IsoWorld.instance.currentCell.getVehicles()) {
          if (vehicle.DistTo(this) < 3.5F) {
             if (this.sneaking) {
-               this.setVariable("nearWallCrouching", true);
+               this.setNearWallCrouching(true);
             }
 
             return true;
@@ -13621,7 +13653,7 @@ public abstract class IsoGameCharacter
          if (nSq != null) {
             float result = nSq.getGridSneakModifier(true);
             if (result > 1.0F) {
-               this.setVariable("nearWallCrouching", true);
+               this.setNearWallCrouching(true);
                return result;
             }
          }
@@ -13630,7 +13662,7 @@ public abstract class IsoGameCharacter
             float result = sSq.getGridSneakModifier(false);
             float result2 = sSq.getGridSneakModifier(true);
             if (result > 1.0F || result2 > 1.0F) {
-               this.setVariable("nearWallCrouching", true);
+               this.setNearWallCrouching(true);
                return result > 1.0F ? result : result2;
             }
          }
@@ -13639,7 +13671,7 @@ public abstract class IsoGameCharacter
             float result = eSq.getGridSneakModifier(false);
             float result2 = eSq.getGridSneakModifier(true);
             if (result > 1.0F || result2 > 1.0F) {
-               this.setVariable("nearWallCrouching", true);
+               this.setNearWallCrouching(true);
                return result > 1.0F ? result : result2;
             }
          }
@@ -13648,26 +13680,34 @@ public abstract class IsoGameCharacter
             float result = wSq.getGridSneakModifier(false);
             float result2 = wSq.getGridSneakModifier(true);
             if (result > 1.0F || result2 > 1.0F) {
-               this.setVariable("nearWallCrouching", true);
+               this.setNearWallCrouching(true);
                return result > 1.0F ? result : result2;
             }
          }
 
          float result = this.getCurrentSquare().getGridSneakModifier(false);
          if (result > 1.0F) {
-            this.setVariable("nearWallCrouching", true);
+            this.setNearWallCrouching(true);
             return result;
          } else if (this instanceof IsoPlayer && ((IsoPlayer)this).isNearVehicle()) {
-            this.setVariable("nearWallCrouching", true);
+            this.setNearWallCrouching(true);
             return 6.0F;
          } else {
-            this.setVariable("nearWallCrouching", false);
+            this.setNearWallCrouching(false);
             return 0.0F;
          }
       } else {
-         this.setVariable("nearWallCrouching", false);
+         this.setNearWallCrouching(false);
          return 0.0F;
       }
+   }
+
+   public void setNearWallCrouching(boolean value) {
+      this.nearWallCrouching = value;
+   }
+
+   public boolean isNearWallCrouching() {
+      return this.nearWallCrouching;
    }
 
    public float getBeenSprintingFor() {
@@ -14633,6 +14673,13 @@ public abstract class IsoGameCharacter
             if (GameClient.client) {
                this.getNetworkCharacterAI().onDied();
             } else {
+               if (GameServer.server) {
+                  IsoGridSquare square = this.getCurrentSquare();
+                  if (square != null) {
+                     this.dropHeldItems(square.x, square.y, square.z, false, false);
+                  }
+               }
+
                this.becomeCorpse();
             }
          } finally {
@@ -14848,6 +14895,44 @@ public abstract class IsoGameCharacter
          }
       } else {
          return null;
+      }
+   }
+
+   public Vector3 getCurrentAnimationTranslationTarget(Vector3 outTargetPos) {
+      this.getPosition(outTargetPos);
+      ActionContext actionContext = this.getActionContext();
+      AnimationPlayer animationPlayer = this.getAnimationPlayer();
+      AdvancedAnimator advancedAnimator = this.getAdvancedAnimator();
+      if (actionContext != null && animationPlayer != null && advancedAnimator != null) {
+         ActionState actionState = actionContext.getCurrentState();
+         if (actionState != null && !StringUtils.isNullOrEmpty(actionState.getName())) {
+            AnimationSet animSet = advancedAnimator.animSet;
+            AnimState animState = animSet.GetState(actionState.getName());
+            SkinningData skinningData = animationPlayer.getSkinningData();
+            List<AnimNode> nodes = new ArrayList<>();
+            animState.getAnimNodes(this, nodes);
+            Vector2 translationTotal = new Vector2();
+            Vector2 translation = new Vector2();
+
+            for (AnimNode node : nodes) {
+               if (!StringUtils.isNullOrEmpty(node.animName) && node.useDeferredMovement) {
+                  AnimationClip clip = (AnimationClip)skinningData.animationClips.get(node.animName);
+                  if (clip != null) {
+                     clip.getTotalTranslation(node.deferredBoneName, node.deferredBoneAxis, translation);
+                     translationTotal.add(translation);
+                  }
+               }
+            }
+
+            translationTotal.rotate(this.getAnimAngleRadians() - (float) (Math.PI / 2));
+            translationTotal.scale(AdvancedAnimator.motionScale);
+            outTargetPos.addToThis(translationTotal);
+            return outTargetPos;
+         } else {
+            return outTargetPos;
+         }
+      } else {
+         return outTargetPos;
       }
    }
 
@@ -16712,7 +16797,7 @@ public abstract class IsoGameCharacter
             return false;
          }
 
-         if ((this.isSittingOnFurniture() || this.isSitOnGround()) && this.getMoodles().getMoodleLevel(MoodleType.ENDURANCE) >= 1) {
+         if (this.isSitting() && this.getMoodles().getMoodleLevel(MoodleType.ENDURANCE) >= 1) {
             return false;
          }
 
@@ -16905,6 +16990,21 @@ public abstract class IsoGameCharacter
          INetworkPacket.sendToRelative(PacketType.ZombieHelmetFalling, x, y, new Object[]{this, item, x, y, z});
       } else {
          new IsoFallingClothing(this.getCell(), x, y, z + 0.4F, Rand.Next(-0.2F, 0.2F), Rand.Next(-0.2F, 0.2F), item);
+      }
+   }
+
+   private void unregisterInventoryAnimals() {
+      if (this.inventory != null) {
+         for (int i = 0; i < this.inventory.items.size(); i++) {
+            InventoryItem item = (InventoryItem)this.inventory.items.get(i);
+            AnimalInventoryItem animalItem = (AnimalInventoryItem)Type.tryCastTo(item, AnimalInventoryItem.class);
+            if (animalItem != null) {
+               IsoAnimal animal = animalItem.getAnimal();
+               if (animal != null) {
+                  animal.removeFromUpdateLists();
+               }
+            }
+         }
       }
    }
 
@@ -17552,6 +17652,12 @@ public abstract class IsoGameCharacter
             }
          }
 
+         Map<Perk, Integer> oldPerkLevels = new HashMap<>();
+
+         for (IsoGameCharacter.PerkInfo oldInfo : IsoGameCharacter.this.perkList) {
+            oldPerkLevels.put(oldInfo.perk, oldInfo.level);
+         }
+
          IsoGameCharacter.this.perkList.clear();
          int perkListSize = input.getInt();
 
@@ -17563,6 +17669,9 @@ public abstract class IsoGameCharacter
                info.perk = p;
                info.level = level;
                IsoGameCharacter.this.perkList.add(info);
+               if (oldPerkLevels.getOrDefault(p, 0) != level) {
+                  LuaEventManager.triggerEvent("LogLevelPerk", this.chr, p, level, false);
+               }
             }
          }
 

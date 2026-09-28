@@ -207,16 +207,17 @@ if [[ $mode == status ]]; then
   exit 0
 fi
 
-if [[ $mode == uninstall ]]; then
-  wait_game_closed
+# Removes an install: the files of the manifest (or of a hand-unpacked zip's pzopt-files.txt), the folders they leave,
+# the launcher edits. Used by --uninstall and by an install that finds a previous one (a build for an older game
+# revision crashes the updated game at start, so the install replaces it instead of refusing).
+remove_install() {
   reset_aot
   reset_gc "$JSON"
-  list=""
+  local list="" n=0 rel d
   if [[ -f "$MANIFEST" ]]; then list=$(grep -v '^#' "$MANIFEST" | cut -d' ' -f1)
   elif [[ -f "$dir/pzopt-files.txt" ]]; then list=$(cat "$dir/pzopt-files.txt")
-  else echo "not installed (no pzopt-installed.txt or pzopt-files.txt in $dir)"; exit 0
+  else return 1
   fi
-  n=0
   while IFS= read -r rel; do
     [[ -z "$rel" ]] && continue
     [[ -f "$dir/$rel" ]] && { rm -f "$dir/$rel"; n=$((n+1)); }
@@ -225,6 +226,11 @@ if [[ $mode == uninstall ]]; then
   done <<< "$list"
   rm -f "$MANIFEST" "$dir/pzopt-files.txt"
   echo "removed $n files; projectzomboid.jar was never modified"
+}
+
+if [[ $mode == uninstall ]]; then
+  wait_game_closed
+  remove_install || { echo "not installed (no pzopt-installed.txt or pzopt-files.txt in $dir)"; exit 0; }
   echo "caches under ~/Zomboid/pzopt/ (anims, packs, framecap.ini, options.ini) can be deleted by hand"
   exit 0
 fi
@@ -232,8 +238,12 @@ fi
 # --- install ------------------------------------------------------------------------------
 
 wait_game_closed
-[[ -f "$MANIFEST" ]] && die "already installed (see --status); run --uninstall first"
 [[ -n "$REV" ]] || die "could not read the game revision from $JAR"
+if [[ -f "$MANIFEST" || -f "$dir/pzopt-files.txt" ]]; then
+  old_rev=$(sed -n 's/^# revision=\([^ ]*\).*/\1/p' "$MANIFEST" 2>/dev/null)
+  echo "replacing the installed build (for game revision ${old_rev:-unknown}; this game is $REV)"
+  remove_install
+fi
 
 reset_aot
 # the launcher must search "." before the jar or loose classes never load

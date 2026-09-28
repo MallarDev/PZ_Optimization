@@ -230,14 +230,16 @@ if ($Status) {
   exit 0
 }
 
-if ($Uninstall) {
-  Wait-GameClosed
-  Reset-Aot
-  Reset-Gc
+# Removes an install: the files of the manifest (or of a hand-unpacked zip's pzopt-files.txt), the folders they leave,
+# the launcher edits. Used by -Uninstall and by an install that finds a previous one (a build for an older game
+# revision crashes the updated game at start, so the install replaces it instead of refusing). $false: nothing installed.
+function Remove-Install {
+  Reset-Aot | Out-Null   # only the $true / $false below may reach the caller
+  Reset-Gc | Out-Null
   $filesTxt = Join-Path $Dir 'pzopt-files.txt'
   if (Test-Path $Manifest) { $list = Get-Content $Manifest | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { ($_ -split ' ')[0] } }
   elseif (Test-Path $filesTxt) { $list = Get-Content $filesTxt | Where-Object { $_ } }
-  else { Write-Host "not installed (no pzopt-installed.txt or pzopt-files.txt in $Dir)"; exit 0 }
+  else { return $false }
   $n = 0
   foreach ($rel in $list) {
     $p = Join-Path $Dir $rel
@@ -249,6 +251,12 @@ if ($Uninstall) {
   }
   Remove-Item -LiteralPath $Manifest, $filesTxt -Force -ErrorAction SilentlyContinue
   Write-Host "removed $n files; projectzomboid.jar was never modified"
+  return $true
+}
+
+if ($Uninstall) {
+  Wait-GameClosed
+  if (-not (Remove-Install)) { Write-Host "not installed (no pzopt-installed.txt or pzopt-files.txt in $Dir)"; exit 0 }
   Write-Host "caches under $env:USERPROFILE\Zomboid\pzopt\ (anims, packs, framecap.ini, options.ini) can be deleted by hand"
   exit 0
 }
@@ -256,8 +264,13 @@ if ($Uninstall) {
 # --- install ---------------------------------------------------------------------------
 
 Wait-GameClosed
-if (Test-Path $Manifest) { Fail 'already installed (see -Status); run -Uninstall first' }
 if (-not $Rev) { Fail "could not read the game revision from $Jar" }
+if ((Test-Path $Manifest) -or (Test-Path (Join-Path $Dir 'pzopt-files.txt'))) {
+  $oldRev = 'unknown'
+  if (Test-Path $Manifest) { $m = Get-Content $Manifest | Select-String '^# revision=(\S+)' | Select-Object -First 1; if ($m) { $oldRev = $m.Matches[0].Groups[1].Value } }
+  Write-Host "replacing the installed build (for game revision $oldRev; this game is $Rev)"
+  [void](Remove-Install)
+}
 
 Reset-Aot
 # the launcher must search "." before the jar or loose classes never load

@@ -470,6 +470,7 @@ public final class Config {
    public static final boolean PERSISTENT_VBO_COHERENT = bool("persistentVboCoherent", true); // false: MAP_FLUSH_EXPLICIT + glFlushMappedBufferRange at unmap
    public static final boolean PERSISTENT_VBO_FINISH = bool("persistentVboFinish", false); // diagnostic: glFinish before every persistent map (GPU read race check)
    public static final boolean TREES_IN_CHUNK_TEXTURE = bool("treesInChunkTexture", true);
+   public static final boolean DEV_XXL_TREE_LOG = bool("devXxlTreeLog", false); // dev: every 10 s, how many XXL trees 42.21's cutaway rules made see-through (pzopt.XxlTreeFade)
    public static final boolean WINDOWS_IN_CHUNK_TEXTURE = bool("windowsInChunkTexture", true);
    public static final boolean TRANSLUCENT_TILES_IN_CHUNK_TEXTURE = bool("translucentTilesInChunkTexture", true);
    public static final float CURTAIN_DEPTH_NUDGE = Math.max(0, integer("curtainDepthNudgePct", 5)) / 100.0F; // tiles; issue #4
@@ -641,7 +642,7 @@ public final class Config {
    public static final boolean DEV_GL_STATE_CHECK = bool("devGlStateCheck", false); // dev: also query the driver and count disagreements with the recorded program
    public static final boolean PROPERTY_SURFACE_NOALLOC = bool("propertySurfaceNoAlloc", true); // PropertyContainer.initSurface walks its entries without allocating a capturing lambda per call (C1 code, jitMode)
    public static final boolean CHUNK_MAP_FAST = bool("chunkMapFast", true); // IsoChunkMap.getGridSquareDirect without helper calls, calculateZExtentsForChunkMap over the grid width instead of length x length
-   public static final boolean SAVE_CELL_ASYNC = bool("saveCellAsync", true); // ZombiePopulationManager.requestSaveCell snapshots without saveLock (held by the MapCollisionData thread through each native cell write) and keeps one pending write per cell (a drive unloads dozens of chunks of the same cell)
+   public static final boolean SAVE_CELL_ASYNC = bool("saveCellAsync", true); // no effect since 42.21 (its requestSaveCell only queues the cell key, the MapCollisionData thread saves throttled); on 42.20 ZombiePopulationManager.requestSaveCell snapshots without saveLock (held by the MapCollisionData thread through each native cell write) and keeps one pending write per cell (a drive unloads dozens of chunks of the same cell)
    public static final boolean WORLD_SOUND_FAST = bool("worldSoundFast", true); // addSound walks only the loaded chunk grid; FishSchoolManager.addSoundNoise skips a repeat of an identical call in the same game minute (the house alarm adds its sound every frame)
    public static final boolean KEYBOARD_FRESH = bool("keyboardFresh", true); // GameKeyboard reads the keyboard poll it swaps in (stock: the previous one, a frame behind mouse and pad)
    public static final boolean INPUT_LATCH = bool("inputLatch", true); // the game thread gets a fresh event pump + input poll from the render thread right before its input swap (pzopt.InputLatch)

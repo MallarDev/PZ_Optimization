@@ -98,7 +98,6 @@ public final class GameLoadingState extends GameState {
    public static boolean playerWrongIP;
    private static boolean showedUI;
    private static boolean showedClickToSkip;
-   public static boolean mapDownloadFailed;
    private static boolean playerCreated;
    private static boolean done;
    public static boolean convertingWorld;
@@ -209,7 +208,7 @@ public final class GameLoadingState extends GameState {
       GameWindow.okToSaveOnExit = false;
       showedUI = false;
       ChunkMapFilenames.instance.clear();
-      DebugType.DetailedInfo.trace("Savefile name is \"" + Core.gameSaveWorld + "\"");
+      DebugType.DetailedInfo.println("Savefile name is \"" + Core.gameSaveWorld + "\"");
       gameLoadingString = "";
 
       try {
@@ -302,7 +301,6 @@ public final class GameLoadingState extends GameState {
       newGame = true;
       worldVersionError = false;
       unexpectedError = false;
-      mapDownloadFailed = false;
       playerCreated = false;
       convertingWorld = false;
       convertingFileCount = 0;
@@ -555,7 +553,7 @@ public final class GameLoadingState extends GameState {
 
    public void render() {
       if (pzopt.NoLoadingScreen.active() && pzopt.ResumeShot.hasShot() && !unexpectedError && !GameWindow.serverDisconnected
-         && !playerWrongIP && !worldVersionError && !mapDownloadFailed && !convertingWorld) {
+         && !playerWrongIP && !worldVersionError && !convertingWorld) { // pzopt: 42.21 dropped mapDownloadFailed
          // pzopt: noLoadingScreen + resumeShot, the save's cached ground view with its tile effect on black instead of the
          // loading screen (text, tips, progress); a save without a cached view keeps the stock loading screen
          Core.getInstance().StartFrame();
@@ -683,16 +681,7 @@ public final class GameLoadingState extends GameState {
          screenFader.render();
       }
 
-      if (mapDownloadFailed) {
-         int cx = Core.getInstance().getScreenWidth() / 2;
-         int cy = Core.getInstance().getScreenHeight() / 2;
-         int mediumHgt = TextManager.instance.getFontFromEnum(UIFont.Medium).getLineHeight();
-         int top = cy - mediumHgt / 2;
-         String reason = Translator.getText("UI_GameLoad_MapDownloadFailed", new Object[0]);
-         TextManager.instance.DrawStringCentre(UIFont.Medium, cx, top, reason, 0.8, 0.1, 0.1, 1.0);
-         UIManager.render();
-         Core.getInstance().EndFrameUI();
-      } else if (unexpectedError) {
+      if (unexpectedError) {
          int mediumHgt = TextManager.instance.getFontFromEnum(UIFont.Medium).getLineHeight();
          int smallHgt = TextManager.instance.getFontFromEnum(UIFont.Small).getLineHeight();
          int pad1 = 8;

@@ -399,7 +399,7 @@ public final class GodRays {
    /** The edge's type for the light: a wall, a window (glass or an empty frame, not curtained or barricaded), an open doorway. */
    private static int edge(IsoGridSquare sq, boolean north) {
       if (sq.has(north ? IsoFlagType.DoorWallN : IsoFlagType.DoorWallW) || sq.has(north ? IsoFlagType.doorN : IsoFlagType.doorW)) {
-         IsoObject d = sq.getDoor(north);
+         IsoObject d = sq.getDoor(north ? zombie.iso.objects.GridSquareEdgeFacingDirection.NORTH_SOUTH : zombie.iso.objects.GridSquareEdgeFacingDirection.EAST_WEST); // 42.21: edge enum (north = NORTH_SOUTH)
          if (d == null) {
             return E_DOOR; // an empty door frame
          }
@@ -408,7 +408,7 @@ public final class GodRays {
          return open ? E_DOOR : E_WALL;
       }
       if (sq.has(north ? IsoFlagType.WindowN : IsoFlagType.WindowW) || sq.has(north ? IsoFlagType.windowN : IsoFlagType.windowW)) {
-         IsoWindow w = sq.getWindow(north);
+         IsoWindow w = sq.getWindow(north ? zombie.iso.objects.GridSquareEdgeFacingDirection.NORTH_SOUTH : zombie.iso.objects.GridSquareEdgeFacingDirection.EAST_WEST); // 42.21: edge enum
          if (w != null) {
             if (w.isBarricaded()) {
                return E_WALL;

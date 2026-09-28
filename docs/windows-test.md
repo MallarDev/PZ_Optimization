@@ -6,6 +6,9 @@ the zip built on Linux carries the finished class files, and the runtime guard
 class it shadows against the Windows jar. If anything differs it logs one line and
 the game runs as stock, so the worst case of a mismatch is "no effect".
 
+Current target since 2026-09-28: game revision `4a0e9546ec` (Build 42.21, the stable branch); the releases
+below tagged `win-b0bbce05d5-*` were for Build 42.20.4.
+
 2026-09-20 release from `100f441` (flicker of objects inside buildings, doors, windows and corpses fixed; overlay fps colour) is 699 KB, 130 files plus the manifest (131 lines, unchanged); tag `win-b0bbce05d5-100f441`.
 2026-09-20 night release from `cc99c05` (thunderstorm pass: puddle cache, rain tiles, VBORenderer batch, lighting re-bake spread, play mode; includes the 100f441 flicker fix and the overlay colours) is 740 KB, 145 files plus the manifest (146 lines); tag `win-b0bbce05d5-cc99c05`.
 2026-09-21 release from `4dbe655` (RecalcPool: a failed chunk-recalc retry no longer leaves the publisher blocked, which stopped every later chunk from loading; found in a Windows user's console, StackOverflowError in the stock `isWallTo` recursion) is 741 KB, 145 files plus the manifest (146 lines, unchanged); tag `win-b0bbce05d5-4dbe655`.
@@ -155,7 +158,7 @@ in the default place (Steam, right-click the game, Manage, Browse local files).
 
 ### 1. Check the game
 
-- Steam, Properties, Betas: the game must be on **Build 42.20.4**. Any other
+- Steam, Properties, Betas: the game must be on **Build 42.21** (the default branch). Any other
   version makes the guard disable the overrides.
 - Close the game.
 

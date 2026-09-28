@@ -7,8 +7,9 @@ import imgui.extension.implot.ImPlot;
 import imgui.extension.implot.ImPlotContext;
 import imgui.gl3.ImGuiImplGl3;
 import imgui.glfw.ImGuiImplGlfw;
-import java.awt.Canvas;
 import java.nio.IntBuffer;
+import java.util.HashSet;
+import java.util.Set;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWCharCallback;
 import org.lwjgl.glfw.GLFWCursorPosCallback;
@@ -18,7 +19,6 @@ import org.lwjgl.glfw.GLFWKeyCallback;
 import org.lwjgl.glfw.GLFWMouseButtonCallback;
 import org.lwjgl.glfw.GLFWScrollCallback;
 import org.lwjgl.glfw.GLFWVidMode;
-import org.lwjgl.glfw.GLFWWindowFocusCallback;
 import org.lwjgl.glfw.GLFWWindowIconifyCallback;
 import org.lwjgl.glfw.GLFWWindowPosCallback;
 import org.lwjgl.glfw.GLFWWindowRefreshCallback;
@@ -34,20 +34,18 @@ import org.lwjglx.LWJGLException;
 import org.lwjglx.LWJGLUtil;
 import org.lwjglx.input.Keyboard;
 import org.lwjglx.input.Mouse;
-import zombie.GameWindow;
-import zombie.characters.IsoPlayer;
 import zombie.core.Clipboard;
 import zombie.core.Core;
 import zombie.core.SpriteRenderer;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderThread;
 import zombie.debug.DebugLog;
-import zombie.network.GameClient;
-import zombie.network.GameServer;
-import zombie.ui.UIManager;
+import zombie.debug.DebugType;
+import zombie.util.list.PZArrayUtil;
 
 public class Display {
    private static String windowTitle = "Game";
+   private static boolean isInitialized;
    private static boolean displayCreated;
    private static boolean displayFocused;
    private static boolean displayVisible = true;
@@ -73,18 +71,29 @@ public class Display {
    public static ImGuiImplGlfw imGuiGlfw;
    public static ImGuiImplGl3 imGuiGl3;
    private static ImPlotContext imPlotContext;
+   private static final Set<Display.FocusGainedListener> focusGainedListeners = new HashSet<>();
+   private static final Set<Display.FocusLostListener> focusLostListeners = new HashSet<>();
    private static final double[] mouseCursorPosX = new double[1];
    private static final double[] mouseCursorPosY = new double[1];
    private static int mouseCursorState = -1;
    static int frameCount;
 
    public static void init() {
+      if (isInitialized) {
+         throw new IllegalStateException("Display has already been initialized.");
+      }
+
+      isInitialized = true;
       if (LWJGLUtil.getPlatform() == 1) {
          if (("1".equals(System.getProperty("zomboid.wayland")) || pzopt.Hdr.wantsWayland()) && GLFW.glfwPlatformSupported(393219)) { // pzopt: HDR output needs the Wayland platform
             GLFW.glfwInitHint(327683, 393219);
          } else {
             GLFW.glfwInitHint(327683, 393220);
          }
+      }
+
+      if (LWJGLUtil.getPlatform() == 2) {
+         GLFW.glfwInitHint(331777, 0);
       }
 
       if (!GLFW.glfwInit()) {
@@ -258,6 +267,49 @@ public class Display {
       }
    }
 
+   public static void addFocusGainedListener(Display.FocusGainedListener listener) {
+      focusGainedListeners.add(listener);
+   }
+
+   public static void addFocusLostListener(Display.FocusLostListener listener) {
+      focusLostListeners.add(listener);
+   }
+
+   public static void removeFocusGainedListener(Display.FocusGainedListener listener) {
+      focusGainedListeners.remove(listener);
+   }
+
+   public static void removeFocusLostListener(Display.FocusLostListener listener) {
+      focusLostListeners.remove(listener);
+   }
+
+   private static void setDisplayFocused(boolean focused) {
+      if (displayFocused != focused) {
+         if (Display.Callbacks.noise) {
+            DebugType.General.debugln("glfwSetWindowFocusCallback focused=%s", new Object[]{focused});
+         }
+
+         displayFocused = focused;
+         if (focused) {
+            Clipboard.rememberCurrentValue();
+         }
+
+         if (focused) {
+            invokeDisplayFocusGainedEvent();
+         } else {
+            invokeDisplayFocusLostEvent();
+         }
+      }
+   }
+
+   private static void invokeDisplayFocusLostEvent() {
+      PZArrayUtil.forEach(focusLostListeners, Display.FocusLostListener::onFocusLost);
+   }
+
+   private static void invokeDisplayFocusGainedEvent() {
+      PZArrayUtil.forEach(focusGainedListeners, Display.FocusGainedListener::onFocusGained);
+   }
+
    public static boolean isCreated() {
       return displayCreated;
    }
@@ -365,6 +417,8 @@ public class Display {
       } else {
          displayResized = false;
       }
+
+      setDisplayFocused(GLFW.glfwGetWindowAttrib(Display.Window.handle, 131073) == 1);
    }
 
    public static void swapBuffers() throws LWJGLException {
@@ -803,9 +857,6 @@ public class Display {
       return displayResizable;
    }
 
-   public static void setParent(Canvas parent) throws LWJGLException {
-   }
-
    public static void releaseContext() throws LWJGLException {
       GLFW.glfwMakeContextCurrent(0L);
    }
@@ -894,7 +945,6 @@ public class Display {
       static GLFWCursorPosCallback cursorPosCallback;
       static GLFWMouseButtonCallback mouseButtonCallback;
       static GLFWScrollCallback scrollCallback;
-      static GLFWWindowFocusCallback windowFocusCallback;
       static GLFWWindowIconifyCallback windowIconifyCallback;
       static GLFWWindowSizeCallback windowSizeCallback;
       static GLFWWindowPosCallback windowPosCallback;
@@ -909,31 +959,6 @@ public class Display {
          GLFW.glfwSetCursorPosCallback(Display.getWindow(), cursorPosCallback);
          mouseButtonCallback = GLFWMouseButtonCallback.create((windowHnd, button, action, mods) -> Mouse.addButtonEvent(button, action == 1));
          GLFW.glfwSetMouseButtonCallback(Display.getWindow(), mouseButtonCallback);
-         windowFocusCallback = GLFWWindowFocusCallback.create(
-            (windowHnd, focused) -> {
-               if (noise) {
-                  DebugLog.log("glfwSetWindowFocusCallback focused=" + focused);
-               }
-
-               Display.displayFocused = focused;
-               if (focused) {
-                  Clipboard.rememberCurrentValue();
-               }
-
-               if (!focused
-                  && Core.getInstance().getOptionFocusloss()
-                  && GameWindow.isIngameState()
-                  && !Core.exiting
-                  && !GameClient.client
-                  && !GameServer.server
-                  && IsoPlayer.hasInstance()
-                  && !IsoPlayer.allPlayersDead()
-                  && UIManager.getSpeedControls().isReallyVisible()) {
-                  UIManager.getSpeedControls().SetCurrentGameSpeed(0);
-               }
-            }
-         );
-         GLFW.glfwSetWindowFocusCallback(Display.getWindow(), windowFocusCallback);
          windowIconifyCallback = GLFWWindowIconifyCallback.create((windowHnd, iconified) -> {
             if (noise) {
                DebugLog.log("glfwSetWindowIconifyCallback iconifed=" + iconified);
@@ -993,13 +1018,20 @@ public class Display {
          cursorPosCallback.free();
          mouseButtonCallback.free();
          scrollCallback.free();
-         windowFocusCallback.free();
          windowIconifyCallback.free();
          windowSizeCallback.free();
          windowPosCallback.free();
          windowRefreshCallback.free();
          framebufferSizeCallback.free();
       }
+   }
+
+   public interface FocusGainedListener {
+      void onFocusGained();
+   }
+
+   public interface FocusLostListener {
+      void onFocusLost();
    }
 
    private static final class Window {

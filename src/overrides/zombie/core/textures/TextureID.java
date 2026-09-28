@@ -154,6 +154,24 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
       this.onCreated(State.READY);
    }
 
+   public TextureID(int width, int height, ByteBuffer pixels) {
+      super(null, TextureIDAssetManager.instance);
+      this.assetParams = null;
+      int bpp = 4;
+      int widthHw = PZMath.smallestEncompassingPowerOfTwo(width);
+      int heightHw = PZMath.smallestEncompassingPowerOfTwo(height);
+      WrappedBuffer wrappedBuffer = DirectBufferAllocator.allocate(widthHw * heightHw * 4);
+
+      for (int y = 0; y < height; y++) {
+         wrappedBuffer.getBuffer().put(y * widthHw * 4, pixels, y * width * 4, width * 4);
+      }
+
+      wrappedBuffer.getBuffer().flip();
+      this.data = new ImageData(width, height, wrappedBuffer);
+      RenderThread.invokeOnRenderContext(this::createTexture);
+      this.onCreated(State.READY);
+   }
+
    public TextureID(String path, int red, int green, int blue) throws Exception {
       super(null, TextureIDAssetManager.instance);
       this.assetParams = null;

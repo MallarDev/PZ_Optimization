@@ -208,4 +208,20 @@ public final class GameKeyboard {
       assert Thread.currentThread() == RenderThread.renderThread;
       return s_keyboardStateCache.getStatePolling().getEventQueue();
    }
+
+   public static boolean isKeyDown(KeybindId keybindId) {
+      return isKeyDown(keybindId.getId());
+   }
+
+   public static boolean isKeyPressed(KeybindId keybindId) {
+      return isKeyPressed(keybindId.getId());
+   }
+
+   public static boolean wasKeyDown(KeybindId keybindId) {
+      return wasKeyDown(keybindId.getId());
+   }
+
+   public static int whichKeyDown(KeybindId keybindId) {
+      return whichKeyDown(keybindId.getId());
+   }
 }
