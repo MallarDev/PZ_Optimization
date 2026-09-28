@@ -427,6 +427,7 @@ PzoptOptionDates = {
     persistentVboFrameSync = "2026-09-25",
     persistentVboSlots = "2026-09-20",
     persistentVboTrustFrames = "2026-09-25",
+    physicsDefer = "2026-09-28",
     physicsStepHz = "2026-09-26",
     physicsStepMode = "2026-09-26",
     pixelLight = "2026-09-25",

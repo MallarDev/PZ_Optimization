@@ -18,6 +18,7 @@ package pzopt;
  *   <li>darknessFloorPct, darknessFloorBasements, memoryTint, memoryLightPct: {@link Darkness#reconfigure} (every loaded
  *       square re-derives its light from the native's values, every chunk texture bakes again); memoryTintPct is read
  *       every frame; colorGrading, colorGradingPct, colorGradingNightPct: {@link Grade#reconfigure} (a new LUT).</li>
+ *   <li>pplTorchFeetGlow: read every frame by {@link PixelLight} (the only per-pixel lighting key that is live).</li>
  * </ul>
  */
 final class Enhancements {
@@ -29,7 +30,7 @@ final class Enhancements {
       return key.startsWith("upscaler") || key.startsWith("dlss") || key.startsWith("fsr") || key.startsWith("hdr")
          || key.equals("ambientOcclusion") || key.startsWith("ao") || key.startsWith("sunShadow") || key.startsWith("reflection")
          || key.startsWith("darknessFloor") || key.startsWith("memory") || key.startsWith("colorGrading")
-         || key.startsWith("moonShadow") || key.startsWith("cloud");
+         || key.startsWith("moonShadow") || key.startsWith("cloud") || key.equals("pplTorchFeetGlow");
    }
 
    /** Game thread, after Config.reloadLive(key) returned true. */
@@ -45,6 +46,9 @@ final class Enhancements {
          case "darknessFloorPct", "darknessFloorBasements", "memoryTint", "memoryLightPct" -> Darkness.reconfigure();
          case "memoryTintPct" -> {
             // read every frame by the remembered-places pass
+         }
+         case "pplTorchFeetGlow" -> {
+            // read every frame by the chunk composite's uniforms
          }
          case "colorGrading", "colorGradingPct", "colorGradingNightPct" -> Grade.reconfigure();
          case "sunShadowStrengthPct", "sunShadowSoftnessPct", "sunShadowCharacters", "sunShadowVehicles", "sunShadowTorches",

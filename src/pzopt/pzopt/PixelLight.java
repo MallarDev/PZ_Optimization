@@ -1560,7 +1560,7 @@ public final class PixelLight {
 
    static final class Gl {
       private int program, quadVbo, lattice, latticeN, info, vis;
-      private final int[] u = new int[11];
+      private final int[] u = new int[12];
       private final int[] viewport = new int[4];
       private final float[] viewportF = new float[4];
       private boolean logged;
@@ -1871,7 +1871,7 @@ public final class PixelLight {
                GL20.glGetUniformLocation(program, "pplLb"), GL20.glGetUniformLocation(program, "pplLn"), GL20.glGetUniformLocation(program, "pplOpt"),
                GL20.glGetUniformLocation(program, "pplLc"), GL20.glGetUniformLocation(program, "pplOpt2"), GL20.glGetUniformLocation(program, "pplSmP"),
                GL20.glGetUniformLocation(program, "pplSmV"), GL20.glGetUniformLocation(program, "pplSmO"), GL20.glGetUniformLocation(program, "pplWet"),
-               GL20.glGetUniformLocation(program, "pplShadowMask"), GL20.glGetUniformLocation(program, "pplSmC")};
+               GL20.glGetUniformLocation(program, "pplShadowMask"), GL20.glGetUniformLocation(program, "pplSmC"), GL20.glGetUniformLocation(program, "pplNoFeet")};
             this.chunkUniforms.put(program, loc);
             if (loc[15] >= 0) {
                // the game's ShaderProgram renumbers every sampler2D to units 0, 1, 2... after the link (layout(binding) lost;
@@ -1904,6 +1904,7 @@ public final class PixelLight {
          GL20.glUniform4i(loc[4], Math.floorMod(this.ox, this.n), Math.floorMod(this.oy, this.n), this.n - 1, LEVELS - 1);
          this.lightUniforms(loc[5], loc[6], loc[7], loc[9]);
          GL20.glUniform4f(loc[14], this.wet * Config.PPL_SPEC_PCT / 100.0F, 48.0F, 0.0F, 0.0F);
+         GL20.glUniform1f(loc[17], Config.PPL_TORCH_FEET_GLOW ? 0.0F : 1.0F);
          boolean mask = this.maskValid && !shadowFailed && this.shadowLight >= 0 && Config.PPL_SHADOWS;
          GL20.glUniform4f(loc[10], Config.PPL_SMOOTH ? 1.0F : 0.0F, mask ? this.shadowLight : -1.0F, this.hasTorch() ? 1.0F : 0.0F, costMask);
          if (mask) {
@@ -2139,6 +2140,7 @@ public final class PixelLight {
          GL20.glUniform4i(this.u[4], Math.floorMod(this.ox, this.n), Math.floorMod(this.oy, this.n), this.n - 1, LEVELS - 1);
          this.lightUniforms(this.u[5], this.u[6], this.u[7], this.u[9]);
          GL20.glUniform4f(this.u[10], Config.PPL_SMOOTH ? 1.0F : 0.0F, -1.0F, this.hasTorch() ? 1.0F : 0.0F, 0.0F);
+         GL20.glUniform1f(this.u[11], Config.PPL_TORCH_FEET_GLOW ? 0.0F : 1.0F);
          GL20.glUniform4f(this.u[8], Config.PPL_NORMALS ? 1.0F : 0.0F, Config.PPL_WRAP_PCT / 100.0F, Config.PPL_SHADOWS ? 1.0F : 0.0F, Config.PPL_SHADOW_SQUARES);
          GL13.glActiveTexture(GL13.GL_TEXTURE0 + VIS_UNIT);
          GL11.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, this.vis);
@@ -2233,6 +2235,7 @@ public final class PixelLight {
          this.u[8] = GL20.glGetUniformLocation(this.program, "pplOpt");
          this.u[9] = GL20.glGetUniformLocation(this.program, "pplLc");
          this.u[10] = GL20.glGetUniformLocation(this.program, "pplOpt2");
+         this.u[11] = GL20.glGetUniformLocation(this.program, "pplNoFeet");
          FloatBuffer quad = BufferUtils.createFloatBuffer(8);
          quad.put(new float[] {-1.0F, -1.0F, 1.0F, -1.0F, 1.0F, 1.0F, -1.0F, 1.0F}).flip();
          this.quadVbo = GL15.glGenBuffers();
@@ -2397,6 +2400,7 @@ public final class PixelLight {
       // (fitted on flip dumps, 2026-09-25: a handheld torch 1.76 x strength, falloff^1.15, cosine ramp from the cone's + 0.025
       // to 0.95, mean error 0.04; a vehicle light (focused) 1.57 x strength, falloff^1.57, ramp from the cone's - 0.28 to 1.0,
       // mean error 0.055)
+      "uniform float pplNoFeet;", // 1: no spill at a handheld torch's holder's feet (pplTorchFeetGlow off; unset = 0 = the spill)
       "float pplTorch(vec2 p, vec4 a, vec4 b, float kind) {",
       "   vec2 v = p - a.xy;",
       "   float d = length(v);",
@@ -2407,7 +2411,7 @@ public final class PixelLight {
       "   if (b.z > -1.5 && d > 1e-3) {",
       "      float c0 = car ? b.z - 0.28 : b.z + 0.025, c1 = car ? 1.0 : 0.95;",
       "      ang = clamp((dot(v, b.xy) / d - c0) / max(c1 - c0, 0.05), 0.0, 1.0);",
-      "      if (!car) ang = mix(ang, 1.0, clamp(1.0 - 1.5 * d, 0.0, 1.0));", // a little spill at the holder's feet
+      "      if (!car && pplNoFeet < 0.5) ang = mix(ang, 1.0, clamp(1.0 - 1.5 * d, 0.0, 1.0));", // a little spill at the holder's feet
       "   }",
       "   return min(1.0, (car ? 1.57 : 1.76) * b.w * fall * ang);",
       "}",

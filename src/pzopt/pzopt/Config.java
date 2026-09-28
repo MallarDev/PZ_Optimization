@@ -1101,6 +1101,7 @@ public final class Config {
    public static volatile boolean COLOR_GRADING; // time-of-day / weather LUT
    public static volatile int COLOR_GRADING_PCT; // strength of the grade
    public static volatile int COLOR_GRADING_NIGHT_PCT; // strength of the night-vision (Purkinje) shift within it
+   public static volatile boolean PPL_TORCH_FEET_GLOW; // pixelLight: a handheld torch also lights a small disc round the holder's feet (off: the beam alone; the Workshop report of 2026-09-28 wanted the circle gone)
    // Candidate A (2026-09-26, pzopt.SpriteFilter): how the chunk composite samples the baked world.
    public static volatile String SPRITE_FILTER; // stock | sharp (texel-aware: anti-aliased point sampling zoomed in, supersampled mips zoomed out) | nearest (point sampling at every magnified zoom)
    public static volatile String SPRITE_FILTER_MIN; // sharp, zoomed out: the taps read one mip level, floor(log2(texels a pixel)): rgssa2 (two diagonal taps spread by how far the pixel exceeds that level's texel; default) | rgssa (four rotated-grid taps spread the same way) | floor (one bilinear tap) | rgss4 (the full grid) | rgss2 | bias (one trilinear tap half a level sharp) | trilinear (stock)
@@ -1223,6 +1224,7 @@ public final class Config {
       COLOR_GRADING = bool("colorGrading", false);
       COLOR_GRADING_PCT = integer("colorGradingPct", 100);
       COLOR_GRADING_NIGHT_PCT = integer("colorGradingNightPct", 100);
+      PPL_TORCH_FEET_GLOW = bool("pplTorchFeetGlow", true);
       SPRITE_FILTER = string("spriteFilter", "stock").trim().toLowerCase(java.util.Locale.ROOT);
       SPRITE_FILTER_MIN = string("spriteFilterMin", "rgssa2").trim().toLowerCase(java.util.Locale.ROOT);
       SPRITE_FILTER_SHARPNESS_PCT = integer("spriteFilterSharpnessPct", 100);
