@@ -242,6 +242,7 @@ If da.gd ever goes away, delete the cache line or switch the helper to another C
 on the Workshop page, "Add/edit images & videos" takes the JPGs (upload `00` first, it becomes
 the header) and a YouTube URL for the showcase video.
 `41` the "New! God rays" card (`harness/godrays-card-gif.py`; 2026-09-27): left, god rays off then on in the game's own frames (the lossless panes of the showcase video `docs/media/god-rays-off-vs-on.mp4`, runs `gv-room-*` and `gv-fog-*`: a Rosewood diner at 17:00, the church lot in morning fog at 08:00); right, what it draws and the frame time it adds (12 us, 0.3 % of a 240 fps frame; `docs/findings-god-rays-2026-09-27.md`). The installation card `40` is pinned under the "Install" heading instead (the maintainer, 2026-09-27: it stays on top of the install instructions whatever "New!" section comes next).
+`43` the "New! Foliage sway" card (`harness/sway-card-gif.py`; 2026-09-28, `docs/findings-foliage-sway-2026-09-27.md`): the left half plays two in-game captures of the church lot's graveyard in a strong wind (`--flag wind=1`, default settings, `devCapture=10,5,20,100,crop=2100:200:1024:640`, runs `sway-card-false` / `sway-card-true`), the game as it is above and foliage sway below, cropped at 1:1 on the bushes (a scaled-down crop hid the movement at the page's half size); 99 frames at 20 fps, 128 colours (6.2 MB); the table: plants in the wind, walking through bushes, the frame time against the game's own wind option. The pixel perfect shadows card `42` lost its "New!" heading (its image stays).
 
 ### Animated thumbnail
 
