@@ -5352,6 +5352,11 @@ Findings and numbers: `docs/findings-blood-decals-2026-09-29.md`.
   textures inside a bake's begin / end, as treeAppend does. Wet blood: `BloodWet.collect` before `Ssr.beforeComposite`
   (the wet level-0 squares join the reflection map), `BloodWet.queueMain` after the puddles (GPU section `bloodWet`),
   `BloodWet.queueGlint` in the HDR glint-only pass after the puddles'.
+- **FBORenderCell** (bloodAppendPlants, same day): `pzoptRedrawPlants`, handed to `BloodDecals.flush` as a `PlantRedraw`,
+  draws the plants (isBush / canBeRemoved / attachedFloor MinusFloor objects, no trees) of the given squares of a chunk
+  level through `renderMinusFloor` with the chunk manager pointed at the texture (renderChunk, caching, xoff / yoff as
+  beginRenderChunkLevel sets them), the squares' light cached, pixelLight's bake whitening, depth test LEQUAL; BloodDecals
+  binds a scratch layer around it, so the plants land there, not in the texture.
 - `pzopt.Ssr.beforeComposite` (not an override): a chunk's wet-blood squares are OR-ed into its puddle bits and its slot
   fingerprint, and `f.puddles` is set while any are on screen, so the composite and the characters scatter into them.
 - Picture: `bloodBake=gpu` and `cpu` measured pixel-identical to stock (runs `bp-stock` / `bp-cpu` / `bp2-gpu`: 14-99

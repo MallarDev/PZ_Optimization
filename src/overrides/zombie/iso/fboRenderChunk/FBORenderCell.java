@@ -1615,7 +1615,7 @@ public final class FBORenderCell {
       FBORenderItems.getInstance().update();
       pzopt.SquareTrace.frame(playerIndex); // pzopt: devSquareTrace, after the chunk loop
       this.pzoptFlushTreeAppends(playerIndex, Core.getInstance().getZoom(playerIndex)); // pzopt: treeAppend, before the textures are composited
-      pzopt.BloodDecals.flush(playerIndex, Core.getInstance().getZoom(playerIndex), this.pzoptBloodRules); // pzopt: bloodAppend, new splats into their finished textures before the composite
+      pzopt.BloodDecals.flush(playerIndex, Core.getInstance().getZoom(playerIndex), this.pzoptBloodRules, this.pzoptBloodPlants); // pzopt: bloodAppend, new splats into their finished textures before the composite
       pzopt.PixelLight.bakeEnd(); pzopt.SpriteFilter.bakeEnd(); // pzopt: pixelLight; sprite filter, the finished texture gets its sharp level 1, no square stays white past the bakes
       long pzoptAoT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
       pzopt.ChunkAo.flush(playerIndex); // pzopt: ambient occlusion, this frame's budget of AO computes, before the textures are composited
@@ -5897,6 +5897,72 @@ public final class FBORenderCell {
          out[i * 4 + 3] = 1.0F;
       }
    };
+
+   /**
+    * pzopt: bloodAppendPlants. After a new splat was drawn into chunk {@code t}'s finished texture (BloodDecals.flush, inside
+    * the texture's begin / end), the plants on {@code squares} (bit = x + 8 y of the chunk) are drawn into it again the way
+    * the bake's "Minus Floor Chars" stage draws them (renderMinusFloor: lighting from the square, pixelLight's white bake
+    * light, foliage sway's attributes), with the chunk manager pointed at that texture as beginRenderChunkLevel would and
+    * the depth test on: they land over the splat as stock's bake order has them, and stay behind whatever the bake drew
+    * in front of them. Only squares whose flat-after-blood objects are plants alone come here (BloodDecals.footprint).
+    */
+   private final pzopt.BloodDecals.PlantRedraw pzoptBloodPlants = this::pzoptRedrawPlants;
+
+   private void pzoptRedrawPlants(IsoChunk t, FBORenderChunk rc, int level, long squares, int playerIndex) {
+      FBORenderChunkManager m = FBORenderChunkManager.instance;
+      FBORenderChunk prevRc = m.renderChunk;
+      boolean prevCaching = m.caching;
+      float prevX = m.xoff, prevY = m.yoff;
+      m.renderChunk = rc;
+      m.caching = true;
+      m.xoff = rc.w / 2.0F;
+      m.yoff = (rc.getTopLevel() - rc.getMinLevel() + 1) * FBORenderChunk.PIXELS_PER_LEVEL + rc.getMinLevel() * FBORenderChunk.PIXELS_PER_LEVEL
+         + FBORenderLevels.extraHeightForJumboTrees(rc.getMinLevel(), rc.getTopLevel());
+      boolean ppl = pzopt.PixelLight.ACTIVE;
+      if (ppl) {
+         pzopt.PixelLight.bakeBegin(t, playerIndex);
+      }
+      try {
+         IndieGL.enableDepthTest();
+         IndieGL.glDepthFunc(515);
+         IndieGL.glDepthMask(true);
+         for (int i = 0; i < 64; i++) {
+            if ((squares >>> i & 1L) == 0L) {
+               continue;
+            }
+            IsoGridSquare square = t.getGridSquare(i & 7, i >> 3, level);
+            if (square == null) {
+               continue;
+            }
+            square.cacheLightInfo();
+            if (square.getLightInfo(playerIndex) == null) {
+               continue;
+            }
+            IsoObject[] objects = (IsoObject[])square.getObjects().getElements();
+            int n = square.getObjects().size();
+            for (int k = 0; k < n; k++) {
+               IsoObject object = objects[k];
+               IsoSprite sp = object.sprite;
+               if (sp == null || !(sp.isBush || sp.canBeRemoved || sp.attachedFloor) || object instanceof IsoTree
+                     || object.getRenderInfo(playerIndex).layer != ObjectRenderLayer.MinusFloor) {
+                  continue;
+               }
+               IsoGridSquare renderSquare = object.getRenderSquare();
+               if (renderSquare != null && renderSquare.chunk == t) {
+                  this.renderMinusFloor(object);
+               }
+            }
+         }
+      } finally {
+         if (ppl) {
+            pzopt.PixelLight.bakeEnd();
+         }
+         m.renderChunk = prevRc;
+         m.caching = prevCaching;
+         m.xoff = prevX;
+         m.yoff = prevY;
+      }
+   }
 
    private void renderOneLevel_Blood(IsoChunk chunk, int dwx, int dwy, int zza) {
       IsoChunk chunk2 = IsoWorld.instance.currentCell.getChunk(chunk.wx + dwx, chunk.wy + dwy);

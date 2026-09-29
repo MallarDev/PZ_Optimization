@@ -116,10 +116,22 @@ camera's chunk change, or every 100 ms (90-95 % of frames reuse it).
 Dev: `devBloodWetView` 1 coverage / 2 reflection found / 3 sun term / 4 normal; `devBloodAppendTint` (appended splats
 green); rig `blood_burst=N` + `blood_burst_at=S` (deterministic screenshots).
 
+## Under the grass (`bloodAppendPlants`, default on)
+
+Drawing the footprint's plants again over an appended splat (the first try) doubled every partly transparent pixel:
+bush shadow sprites turned into black blobs, grass hid blood that shows through it in stock (`bpp-*`). Instead the
+plants are drawn once more into a cleared RGBA8 layer that shares the chunk texture's depth (the game's own object
+path: its blend (ONE, ONE_MINUS_SRC_ALPHA / ONE_MINUS_DST_ALPHA, ONE) leaves P = premultiplied plant colour and their
+coverage), and the splat is composited under them: `T (1 - a) + P.rgb a + (1 - P.a) a blood`, which is stock's
+floor -> blood -> plants algebraically, nothing drawn twice (`pzopt.BloodDecals.PlantLayer`, `FBORenderCell.pzoptRedrawPlants`).
+Only squares whose post-blood flat objects are plants alone (grass, bushes, floor-attached plants) take it; bodies, items,
+flattened grass, plants beside a fence on one square, baked low-quality puddles still re-bake. With foliage sway on the
+layer detaches sway's attachment after the plants. `bpq-*`: the blood between the blades as in stock, no blobs, 4.9k
+pixels > 32 of 11 M (splat order). Realistic fight by the road (`rf7-all-wet`): blood-only re-bakes 441 (stock) -> 38 in
+15 s, 383 splats appended (146 under plants), the plant pass below the sampler's resolution.
+
 ## Left
 
-- Appending under grass: the append would have to draw the footprint's grass again over the splat (twice-blended edges
-  at 0 < alpha < 1); not done, the coalesced re-bake stands there.
 - macOS: the instanced paths need GLSL 4.00 / 3.30 core: `bloodBake=gpu` runs as `cpu`, wet blood is off.
 - One run per setting; the fight tails (max frame) are within run-to-run noise at 500+ fps (GPU-bound).
 

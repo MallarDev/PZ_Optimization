@@ -75,12 +75,12 @@ public final class BloodDecals {
 
    // ------------------------------------------------------------------------------------------------ counters
    public static long bakeCalls, bakeCallsSkipped, splatsEmitted, gpuDraws, gpuInstances, cpuSprites, fadeSprites, cacheBuilds, rowUploads;
-   public static long appendsAo, appendsUnsafe, appendsQueued, appendsDrawn, appendsFellBack, appendsHidden, appendsRefused, settleRebakes, fadeDropped;
+   public static long appendsAo, appendsUnsafe, appendsPlants, plantRedraws, appendsQueued, appendsDrawn, appendsFellBack, appendsHidden, appendsRefused, settleRebakes, fadeDropped;
 
    public static String stats() {
       return "blood: mode=" + (useGpu() ? "gpu" : ON ? "cpu" : "off") + " bakeCalls=" + bakeCalls + " skipped=" + bakeCallsSkipped + " splats=" + splatsEmitted
             + " gpuDraws=" + gpuDraws + " instances=" + gpuInstances + " cpuSprites=" + cpuSprites + " fadeSprites=" + fadeSprites + " caches=" + cacheBuilds
-            + " rowUploads=" + rowUploads + " | append ao=" + appendsAo + " unsafe=" + appendsUnsafe + " queued=" + appendsQueued + " drawn=" + appendsDrawn + " fellBack=" + appendsFellBack + " hidden=" + appendsHidden
+            + " rowUploads=" + rowUploads + " | append ao=" + appendsAo + " unsafe=" + appendsUnsafe + " plants=" + appendsPlants + " plantRedraws=" + plantRedraws + " queued=" + appendsQueued + " drawn=" + appendsDrawn + " fellBack=" + appendsFellBack + " hidden=" + appendsHidden
             + " refused=" + appendsRefused + " rebakes deferred=" + rebakesDeferred + " coalesced=" + rebakesCoalesced + " issued=" + rebakesIssued
             + " settleRebakes=" + settleRebakes + " fadeDropped=" + fadeDropped;
    }
@@ -603,7 +603,7 @@ public final class BloodDecals {
       int runs;
       float minX, minY, maxX, maxY, worldAge, cx, cy, bx, by, goX, goY;
       int mask, tileScale;
-      boolean append, tint;
+      boolean append, tint, plants;
       float minLevel;
       Texture expect;
 
@@ -685,6 +685,7 @@ public final class BloodDecals {
       public void postRender() {
          this.data = null;
          this.expect = null;
+         this.plants = false;
          synchronized (pool) {
             if (pool.size() < 256) {
                pool.add(this);
@@ -798,6 +799,8 @@ public final class BloodDecals {
    static final String FRAG = String.join("\n",
          "#version 330",
          "uniform sampler2D DIFFUSE;",
+         "uniform sampler2D uPlantTex; // bloodAppendPlants: the plants over the splat (premultiplied colour, coverage), texel for texel",
+         "uniform int uPlants;",
          "in vec2 vUv;",
          "flat in vec4 vCol;",
          "out vec4 fragColor;",
@@ -805,13 +808,19 @@ public final class BloodDecals {
          "   vec4 c = texture(DIFFUSE, vUv, 0.0) * vCol;",
          "   if (vCol.a < 0.0) c = vec4(0.0, 1.0, 0.0, texture(DIFFUSE, vUv, 0.0).a > 0.0 ? 0.85 : 0.0); // dev tint: appended splats",
          "   if (c.a == 0.0) discard;",
+         "   if (uPlants == 1) {",
+         "      // under the plants: blended with (ONE, ONE_MINUS_SRC_ALPHA) this gives T (1 - a) + P.rgb a + (1 - P.a) a blood",
+         "      vec4 P = texelFetch(uPlantTex, ivec2(gl_FragCoord.xy), 0);",
+         "      fragColor = vec4(P.rgb * c.a + (1.0 - P.a) * c.a * c.rgb, c.a);",
+         "      return;",
+         "   }",
          "   fragColor = c;",
          "}");
 
    /** Render thread. */
    static final class Gpu {
       private static int program, tex, texRows, vao;
-      private static int uData, uRow, uBase, uMVP, uRect, uOrigin, uGo, uMask, uUv, uGeom, uSq, uAppend, uTint, uDiffuse;
+      private static int uData, uRow, uBase, uMVP, uRect, uOrigin, uGo, uMask, uUv, uGeom, uSq, uAppend, uTint, uDiffuse, uPlants, uPlantTex;
       private static final long[] rowSerial = new long[Atlas.MAX_ROWS];
       private static FloatBuffer upload;
       private static final FloatBuffer mat = BufferUtils.createFloatBuffer(16);
@@ -845,6 +854,8 @@ public final class BloodDecals {
          uSq = GL20.glGetUniformLocation(program, "uSq");
          uAppend = GL20.glGetUniformLocation(program, "uAppend");
          uTint = GL20.glGetUniformLocation(program, "uTint");
+         uPlants = GL20.glGetUniformLocation(program, "uPlants");
+         uPlantTex = GL20.glGetUniformLocation(program, "uPlantTex");
          uDiffuse = GL20.glGetUniformLocation(program, "DIFFUSE");
          vao = GL30.glGenVertexArrays();
          Log.info("blood decals: instanced splat program " + program);
@@ -925,13 +936,24 @@ public final class BloodDecals {
             GL20.glUniform4fv(uSq, vec64);
             GL20.glUniform4f(uAppend, d.append ? 1F : 0F, d.minLevel, K, K * Config.BLOOD_APPEND_BIAS_PCT / 100F);
             GL20.glUniform1i(uTint, d.tint ? 1 : 0);
+            boolean plants = d.plants && PlantLayer.tex != 0;
+            GL20.glUniform1i(uPlants, plants ? 1 : 0);
+            GL20.glUniform1i(uPlantTex, 2);
+            if (plants) {
+               GL13.glActiveTexture(GL13.GL_TEXTURE2);
+               GL11.glBindTexture(GL11.GL_TEXTURE_2D, PlantLayer.tex);
+            }
             if (d.append) {
                GL11.glEnable(GL11.GL_DEPTH_TEST);
                GL11.glDepthFunc(GL11.GL_LEQUAL);
                GL11.glDepthMask(false);
                GL11.glEnable(GL32.GL_DEPTH_CLAMP);
                GL11.glEnable(GL11.GL_BLEND);
-               GL14.glBlendFuncSeparate(770, 771, 773, 1);
+               if (plants) {
+                  GL14.glBlendFuncSeparate(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ZERO, GL11.GL_ONE);
+               } else {
+                  GL14.glBlendFuncSeparate(770, 771, 773, 1);
+               }
             }
             GL30.glBindVertexArray(vao);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
@@ -951,6 +973,8 @@ public final class BloodDecals {
             Log.warn("blood decals: gpu draw failed, sprites from now on: " + t);
          } finally {
             GL20.glUseProgram(0);
+            GL13.glActiveTexture(GL13.GL_TEXTURE2);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
             GL13.glActiveTexture(GL13.GL_TEXTURE1);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
@@ -970,6 +994,7 @@ public final class BloodDecals {
    static final class Append {
       IsoChunk target, source;
       int level;
+      long plantMask; // the target's squares whose plants are drawn again over the new splats
       final ArrayList<IsoFloorBloodSplat> splats = new ArrayList<>(4);
    }
 
@@ -1002,12 +1027,15 @@ public final class BloodDecals {
          return false;
       }
       zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
-      if (!Config.BLOOD_APPEND_VEGETATION && flatAfterBlood(cell, c.wx * 8 + b.x, c.wy * 8 + b.y, zombie.core.math.PZMath.fastfloor(b.z), b.type)) {
+      int foot = Config.BLOOD_APPEND_VEGETATION ? FOOT_CLEAR : footprint(cell, c.wx * 8 + b.x, c.wy * 8 + b.y, zombie.core.math.PZMath.fastfloor(b.z), b.type);
+      if (foot == FOOT_UNSAFE || foot == FOOT_PLANTS && (!Config.BLOOD_APPEND_PLANTS || redraw == null)) {
          appendsUnsafe++;
-         // grass, a body or an item under it: stock bakes those over the blood, the depth test cannot tell them from the
-         // floor, so the level re-bakes; a short delay lets the rest of the spray (a hit throws splats over several frames)
-         // share that one re-bake
+         // stock bakes those over the blood and the depth test cannot tell them from the floor, so the level re-bakes; a
+         // short delay lets the rest of the spray (a hit throws splats over several frames) share that one re-bake
          return deferRebake(c, zombie.core.math.PZMath.fastfloor(b.z));
+      }
+      if (foot == FOOT_PLANTS) {
+         appendsPlants++;
       }
       float wx = c.wx * 8 + b.x, wy = c.wy * 8 + b.y;
       int level = zombie.core.math.PZMath.fastfloor(b.z);
@@ -1037,24 +1065,42 @@ public final class BloodDecals {
                a.target = t;
                a.source = c;
                a.level = level;
+               a.plantMask = 0L;
                a.splats.clear();
                appends.add(a);
             }
             a.splats.add(b);
             appendsQueued++;
+            for (int q = 0; q < (foot == FOOT_PLANTS ? plantSqN : 0); q++) {
+               int px = plantSq[q * 2] - t.wx * 8, py = plantSq[q * 2 + 1] - t.wy * 8;
+               if (px >= 0 && px < 8 && py >= 0 && py < 8) {
+                  a.plantMask |= 1L << (px + py * 8); // the target's own plants under the splat (a texture holds its chunk's objects only)
+               }
+            }
          }
       }
       return true;
    }
 
+   static final int FOOT_CLEAR = 0, FOOT_PLANTS = 1, FOOT_UNSAFE = 2;
+   /** FOOT_PLANTS: the world squares (x, y) under the splat whose plants the append draws again over it */
+   private static int[] plantSq = new int[64];
+   private static int plantSqN;
+
    /**
-    * Is anything the bake draws after the blood and flat on the floor (vegetation, a corpse or an item baked into the
-    * texture) on a square under the splat's sprite? Those sit at the floor's depth, so an appended splat would cover
-    * them where stock's bake puts it underneath.
+    * What the bake draws after the blood, flat on the floor, on the squares under the splat's sprite. CLEAR: nothing (the
+    * depth test keeps walls, furniture and trees in front of an appended splat). PLANTS: only grass, bushes and
+    * floor-attached plants (MinusFloor objects at the floor's depth: stock draws them over the blood), alone on their
+    * squares: the append draws them again over the splat (plantSq). UNSAFE: a body, an item, flattened vegetation, plants
+    * sharing a square with other objects, or low-quality puddles baked into the texture: the level re-bakes.
     */
-   private static boolean flatAfterBlood(zombie.iso.IsoCell cell, float wx, float wy, int z, int type) {
+   private static int footprint(zombie.iso.IsoCell cell, float wx, float wy, int z, int type) {
+      plantSqN = 0;
       if (cell == null) {
-         return true;
+         return FOOT_UNSAFE;
+      }
+      if (zombie.core.PerformanceSettings.puddlesQuality == 2 && zombie.iso.IsoPuddles.getInstance().shouldRenderPuddles()) {
+         return FOOT_UNSAFE; // low-quality puddles are baked into the texture after the blood
       }
       Texture tex = typesReady ? typeTex[type] : null;
       int ts = Math.max(1, Core.tileScale);
@@ -1063,6 +1109,7 @@ public final class BloodDecals {
       int r = (int)Math.ceil((hw / (32F * ts) + hh / (16F * ts)) * 0.5F) + 1;
       int cx = zombie.core.math.PZMath.fastfloor(wx), cy = zombie.core.math.PZMath.fastfloor(wy);
       int playerIndex = IsoCamera.frameState.playerIndex;
+      int result = FOOT_CLEAR;
       for (int y = cy - r; y <= cy + r; y++) {
          for (int x = cx - r; x <= cx + r; x++) {
             zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, z);
@@ -1070,8 +1117,9 @@ public final class BloodDecals {
                continue;
             }
             if (!sq.getStaticMovingObjects().isEmpty() || !sq.getWorldObjects().isEmpty()) {
-               return true;
+               return FOOT_UNSAFE;
             }
+            boolean plants = false, other = false;
             zombie.util.list.PZArrayList<zombie.iso.IsoObject> objects = sq.getObjects();
             for (int i = 0; i < objects.size(); i++) {
                zombie.iso.IsoObject o = objects.get(i);
@@ -1079,18 +1127,33 @@ public final class BloodDecals {
                if (sp != null && (sp.solidfloor || sp.renderLayer == 1) && !(o instanceof zombie.iso.objects.IsoFire)) {
                   continue; // the floor pass (FBORenderCell.isObjectRenderLayer_Floor): floors, road markings, rugs, drawn before the blood
                }
-               if (sp != null && (sp.isBush || sp.canBeRemoved || sp.attachedFloor)) {
-                  return true; // grass, bushes, floor-attached overlays: drawn after the blood at the floor's depth (MinusFloor unless flattened)
-               }
                zombie.iso.fboRenderChunk.ObjectRenderLayer layer = o.getRenderInfo(playerIndex).layer;
                if (layer == zombie.iso.fboRenderChunk.ObjectRenderLayer.Vegetation || layer == zombie.iso.fboRenderChunk.ObjectRenderLayer.Corpse
                      || layer == zombie.iso.fboRenderChunk.ObjectRenderLayer.WorldInventoryObject) {
-                  return true;
+                  return FOOT_UNSAFE;
                }
+               boolean plant = sp != null && (sp.isBush || sp.canBeRemoved || sp.attachedFloor) && !(o instanceof zombie.iso.objects.IsoTree);
+               if (plant && layer == zombie.iso.fboRenderChunk.ObjectRenderLayer.MinusFloor) {
+                  plants = true;
+               } else if (layer == zombie.iso.fboRenderChunk.ObjectRenderLayer.MinusFloor || layer == zombie.iso.fboRenderChunk.ObjectRenderLayer.MinusFloorSE) {
+                  other = true;
+               }
+            }
+            if (plants && other) {
+               return FOOT_UNSAFE; // a plant drawn before or after a fence on the same square: redrawn it could cover the fence's foot
+            }
+            if (plants) {
+               if (plantSqN * 2 + 2 > plantSq.length) {
+                  plantSq = java.util.Arrays.copyOf(plantSq, plantSq.length * 2);
+               }
+               plantSq[plantSqN * 2] = x;
+               plantSq[plantSqN * 2 + 1] = y;
+               plantSqN++;
+               result = FOOT_PLANTS;
             }
          }
       }
-      return false;
+      return result;
    }
 
    private static int FBORenderLevelsMin(int level) {
@@ -1103,11 +1166,12 @@ public final class BloodDecals {
     * regenerated after); a texture that is dirty will bake the splat itself; one that is missing, off screen or not in
     * this frame's composite re-bakes as stock would. Then the due settle re-bakes.
     */
-   public static void flush(int playerIndex, float zoom, SquareRules r) {
+   public static void flush(int playerIndex, float zoom, SquareRules r, PlantRedraw pr) {
       if (!APPEND) {
          return;
       }
       rules = r;
+      redraw = pr;
       flushRebakes();
       if (!appends.isEmpty()) {
          FBORenderChunkManager mgr = FBORenderChunkManager.instance;
@@ -1143,6 +1207,16 @@ public final class BloodDecals {
             SpriteRenderer.instance.glDoEndFrame();
             SpriteRenderer.instance.glDoStartFrameFlipY(rc.w, rc.h, rc.highRes ? 1.0F : 0.0F, playerIndex);
             rc.beginMainThread(false);
+            if (a.plantMask != 0L && redraw != null) {
+               // the plants stock bakes over the blood, drawn once more but into a cleared layer sharing the texture's depth
+               // (their premultiplied colour and coverage, P); the splat is then composited under them: T (1 - a) +
+               // P.rgb a + (1 - P.a) a blood, stock's floor -> blood -> plants order without drawing a plant twice
+               SpriteRenderer.instance.drawGeneric(PlantLayer.begin(rc));
+               redraw.redraw(t, rc, a.level, a.plantMask, playerIndex);
+               SpriteRenderer.instance.drawGeneric(PlantLayer.END);
+               d.plants = true;
+               plantRedraws++;
+            }
             SpriteRenderer.instance.drawGeneric(d);
             rc.endMainThread();
             SpriteRenderer.instance.glDoEndFrame();
@@ -1294,6 +1368,12 @@ public final class BloodDecals {
    private static final float[] APPEND_SQ = new float[256];
    /** FBORenderCell's square rules, handed over by its first bake (appends run outside any bake) */
    static volatile SquareRules rules;
+   /** FBORenderCell: draws a chunk level's plants on the given squares into its texture again, as its bake does */
+   static volatile PlantRedraw redraw;
+
+   public interface PlantRedraw {
+      void redraw(IsoChunk target, zombie.iso.fboRenderChunk.FBORenderChunk rc, int level, long squares, int playerIndex);
+   }
 
    /** IsoChunk reset: its pending appends and settle entry go. */
    static void forget(IsoChunk c) {
@@ -1305,6 +1385,84 @@ public final class BloodDecals {
             appends.remove(i);
          }
       }
+   }
+
+   /**
+    * bloodAppendPlants, render thread: a cleared RGBA8 layer the size of a chunk texture, attached with that texture's own
+    * depth, that the plants over a new splat are drawn into (the game's object path; its premultiplied blend and
+    * coverage alpha make the layer hold P = plant colour x coverage, coverage). The splat drawer then reads it texel for
+    * texel. Foliage sway may attach its attribute texture to the bound framebuffer while a plant draws: detached after.
+    */
+   static final class PlantLayer {
+      static int tex, fbo, w, h, prevFbo;
+
+      static TextureDraw.GenericDrawer begin(zombie.iso.fboRenderChunk.FBORenderChunk rc) {
+         BEGIN.rc = rc;
+         return BEGIN;
+      }
+
+      private static final Begin BEGIN = new Begin();
+
+      static final class Begin extends TextureDraw.GenericDrawer {
+         zombie.iso.fboRenderChunk.FBORenderChunk rc;
+
+         @Override
+         public void render() {
+            zombie.iso.fboRenderChunk.FBORenderChunk r = this.rc;
+            if (r == null || r.tex == null || r.depth == null) {
+               tex = 0;
+               return;
+            }
+            try {
+               int tw = r.tex.getWidthHW(), th = r.tex.getHeightHW();
+               if (tex == 0 || tw != w || th != h) {
+                  if (tex != 0) {
+                     GL11.glDeleteTextures(tex);
+                  }
+                  w = tw;
+                  h = th;
+                  tex = GL11.glGenTextures();
+                  GL11.glBindTexture(GL11.GL_TEXTURE_2D, tex);
+                  GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, w, h, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (java.nio.ByteBuffer)null);
+                  GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+                  GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+                  GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+                  Texture.lastTextureID = -1;
+               }
+               if (fbo == 0) {
+                  fbo = GL30.glGenFramebuffers();
+               }
+               prevFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+               GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo);
+               GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, tex, 0);
+               GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL11.GL_TEXTURE_2D, r.depth.getID(), 0);
+               GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
+               boolean scissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+               GL11.glDisable(GL11.GL_SCISSOR_TEST);
+               GL11.glClearColor(0F, 0F, 0F, 0F);
+               GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
+               if (scissor) {
+                  GL11.glEnable(GL11.GL_SCISSOR_TEST);
+               }
+            } catch (Throwable t) {
+               tex = 0;
+               Log.warn("blood decals: plant layer failed: " + t);
+            }
+         }
+      }
+
+      static final TextureDraw.GenericDrawer END = new TextureDraw.GenericDrawer() {
+         @Override
+         public void render() {
+            if (fbo == 0) {
+               return;
+            }
+            GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1, GL11.GL_TEXTURE_2D, 0, 0); // foliage sway's, if it attached one
+            GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevFbo);
+            GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
+         }
+      };
    }
 
    /** Render thread: is the texture the bound draw framebuffer's colour attachment (TreeBake's check)? */

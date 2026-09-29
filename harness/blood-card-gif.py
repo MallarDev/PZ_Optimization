@@ -33,12 +33,12 @@ FOCUS = (600, 300)  # the capture pixel each pane is centred on (the pools besid
 
 INTRO = ("Fresh blood is wet: pools catch the sun and the lamps on their rims, mirror what stands in them, "
          "and dry from the edges in. Underneath, floor blood costs a fraction of what it did: drawn in one batch per "
-         "chunk, new splats on bare floors painted straight in, pixel for pixel as before.")
+         "chunk, new splats painted straight in, under the grass where it grows, pixel for pixel as before.")
 ROWS = [
     ("Blood per chunk picture", "1,000 splats per chunk, RTX 4090 at 5K",
      (0.1305, "131 µs"), (0.0334, "33 µs"), "-74 %"),
-    ("Floor re-drawn for new blood", "a fight by the road, per second",
-     (29.4, "29"), (13.3, "13"), "-55 %"),
+    ("Floor re-drawn for new blood", "a fight by the road, grass and all, per second",
+     (29.4, "29"), (2.5, "2.5"), "-91 %"),
     ("Game thread on blood, big fight", "ms per second",
      (22.1, "22 ms"), (5.3, "5.3 ms"), "-76 %"),
     ("Wet blood", "reflections, sheen, HDR glints",

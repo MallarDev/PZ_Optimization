@@ -50,6 +50,7 @@ PzoptOptionClasses = {
     bakeSmoothMin = { "pzopt.BakeScheduler" },
     bloodAppend = { "pzopt.BloodDecals" },
     bloodAppendBiasPct = { "pzopt.BloodDecals", "pzopt.BloodWet" },
+    bloodAppendPlants = { "pzopt.BloodDecals" },
     bloodAppendVegetation = { "pzopt.BloodDecals" },
     bloodBake = { "pzopt.BloodDecals" },
     bloodFadeFix = { "pzopt.BloodDecals" },
