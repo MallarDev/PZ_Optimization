@@ -1602,15 +1602,19 @@ public final class CapsuleShadow {
       "   vec3 w = vec3(-(P.x - C.x), P.z - C.z, -(P.y - C.y));",
       "   vec3 v = Rsun * w;",
       "   vec2 tuv = v.xy / (2.0 * halfSize) + 0.5;",
-      "   float dr = 0.5 - v.z / (2.0 * ATLAS_DEPTH);",
-      "   if (any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0))) || dr >= 1.0) return 1.0;",
+      "   float drRaw = 0.5 - v.z / (2.0 * ATLAS_DEPTH);",
+      "   if (any(lessThan(tuv, vec2(0.0))) || any(greaterThan(tuv, vec2(1.0)))) return 1.0;",
       "   float tileUv = atlas.z * atlas.w;",
       "   vec2 org = vec2(mod(tile, atlas.y), floor(tile / atlas.y)) * tileUv;",
       "   float texSq = 2.0 * halfSize / atlas.z;", // squares a texel
       "   vec2 lo = org + 1.5 * atlas.w, hi = org + tileUv - 1.5 * atlas.w;",
       "   vec2 uv = org + tuv * tileUv;",
       "   float bias = 0.03 / (2.0 * ATLAS_DEPTH);",
-      "   float behind = max(0.0, (dr - 0.5) * 2.0 * ATLAS_DEPTH + halfSize);", // at most this far behind a blocker along the sun
+      // a receiver past the tile's far plane (a low sun's long shadow on the ground, more than ATLAS_DEPTH squares behind the
+      // caster's centre along the sun) is behind everything the tile holds: its compare depth is held just inside the range.
+      // It returned full light there, which cut the shadow off on a line across the torso (2026-09-29, 8 deg morning sun)
+      "   float dr = min(drRaw, 1.0 - bias);",
+      "   float behind = max(0.0, (drRaw - 0.5) * 2.0 * ATLAS_DEPTH + halfSize);", // at most this far behind a blocker along the sun
       "   float rs = clamp(behind * sil.y / texSq, 1.0, 6.0);", // the blocker search's radius (texels)
       // (four gathers of 2 x 2 depths each: 16 samples in 4 fetches)
       "   float bsum = 0.0, bn = 0.0;",
@@ -1622,7 +1626,7 @@ public final class CapsuleShadow {
       "      bn += dot(in4, vec4(1.0));",
       "   }",
       "   if (bn < 0.5) return 1.0;",
-      "   float dist = (dr - bsum / bn) * 2.0 * ATLAS_DEPTH;", // squares from the blockers along the sun
+      "   float dist = (drRaw - bsum / bn) * 2.0 * ATLAS_DEPTH;", // squares from the blockers along the sun (the true distance: the penumbra widens along a long shadow)
       "   float rad = clamp(dist * sil.y / texSq, 0.6, 8.0);", // the penumbra's half width (texels)
       "   float lit = 0.0;",
       "   for (int k = 0; k < 12; k++) {",
