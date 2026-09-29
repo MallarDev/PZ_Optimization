@@ -530,7 +530,7 @@ public final class BloodWet {
          "   // what the film mirrors, at the film's own Fresnel: the sky outdoors (or the room's light) a few %, the scene the",
          "   // reflection found (a zombie standing in the pool) boosted like the puddles' (x F / F at the camera's view)",
          "   vec3 sky = mix(vec3(vP.z * 0.5), uSky.rgb, vP.y);",
-         "   float ms = clamp(F * 1.5 * uK.x * k, 0.0, 0.2);",
+         "   float ms = clamp(F * uK.x * k, 0.0, 0.08);",
          "   float mr = clamp(kr * F / 0.050625 * 0.45 * uK.x * k, 0.0, 0.6);",
          "   vec3 env = (sky * ms * (1.0 - mr) + refl * mr) / max(ms + mr - ms * mr, 1e-4);",
          "   float m = ms + mr - ms * mr;",
@@ -553,7 +553,9 @@ public final class BloodWet {
          "      fragColor = vec4(dv, 1.0);",
          "      return;",
          "   }",
-         "   fragColor = vec4(env * m + spec, m);",
+         "   // a wet film darkens what is under it (less light scattered back out of the blood): deeper red, the gloss on top",
+         "   float dark = 0.15 * k * (1.0 - m);",
+         "   fragColor = vec4(env * m + spec, m + dark);",
          "}");
 
    static final String GLINT_FRAG_BODY = String.join("\n",
@@ -696,8 +698,16 @@ public final class BloodWet {
                GL14.glBlendFuncSeparate(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ZERO, GL11.GL_ONE);
             }
             GL11.glEnable(GL11.GL_DEPTH_TEST);
-            GL11.glDepthFunc(GL11.GL_LEQUAL);
-            GL11.glDepthMask(false);
+            if (glint) {
+               GL11.glDepthFunc(GL11.GL_LEQUAL);
+               GL11.glDepthMask(false);
+            } else {
+               // one film per pixel: the first splat's fragment writes the (floor - bias) depth, overlapping splats then fail
+               // LESS instead of blending the film in again (five layers turned 20 % of sky into 67 %); what is drawn later
+               // stands above the floor and still passes
+               GL11.glDepthFunc(GL11.GL_LESS);
+               GL11.glDepthMask(true);
+            }
             GL11.glEnable(GL32.GL_DEPTH_CLAMP);
             GL11.glDisable(GL11.GL_ALPHA_TEST);
             GL30.glBindVertexArray(vao);

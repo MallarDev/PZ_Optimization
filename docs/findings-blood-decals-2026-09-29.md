@@ -82,6 +82,8 @@ ambient occlusion and the sprite filter on; append identical after two fixes (`b
   whose sprite covers such a square re-bakes its level as stock, `bloodRebakeCoalesceMs` (250) later so the rest of the
   spray shares it (realistic fight 413 → 199 re-bakes; `bloodAppendVegetation=true` appends there too, blood over the grass).
   On the bench save's roadside most splats land near grass: 268 of 292 in the realistic run.
+- Floor-pass objects (`solidfloor` / `renderLayer 1` sprites: floors, road markings, rugs) are drawn before the blood and
+  do not stop an append (they did at first: every road splat fell back); parity with the final rule `bpu-*`: 127 pixels.
 - **Ambient occlusion / sun shadows** multiply a texture after its bake, sometimes frames later: with them on the append
   would miss or double that multiply, so it falls back (`bpz-*`: 53 pixels).
 - Density option hides the splat: nothing re-bakes (stock re-baked to draw nothing). Neighbour textures within a tile of
@@ -101,6 +103,10 @@ world-anchored micro-facet sparkles, the sky at the film's Fresnel, and with ref
 HDR output the glints go above white through HdrGlint's glint-only pass (checked with Hdr debug view 5: glints on the
 pools, dropped where a character stands over them). Placement from the baked splat's own screen position and the floor
 depth, the puddles' projection (`bw2-v1`: the coverage lines up with the baked splats).
+
+One film per pixel: the main pass writes its (floor - bias) depth with `GL_LESS`, so overlapping splats do not blend the
+film in again (dense pools turned pale pink before: five layers made 20 % of sky 67 %); the film darkens the blood under it
+by 15 % x wetness. Card: `docs/workshop/images/44-real-blood.gif` (`harness/blood-card-gif.py`, runs `rb5-card-*`).
 
 Cost: realistic fight (≤ 285 wet splats) 8.5-9.1 µs GPU + 3.5-4.6 µs render thread a frame; worst case (every on-screen
 chunk wet, 4,096 drawn) 11.7-13.4 µs GPU + 3.8-4.4 µs render thread, `BloodWet.collect` 2.3 % of the game thread. The

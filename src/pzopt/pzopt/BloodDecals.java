@@ -1076,6 +1076,9 @@ public final class BloodDecals {
             for (int i = 0; i < objects.size(); i++) {
                zombie.iso.IsoObject o = objects.get(i);
                zombie.iso.sprite.IsoSprite sp = o.sprite;
+               if (sp != null && (sp.solidfloor || sp.renderLayer == 1) && !(o instanceof zombie.iso.objects.IsoFire)) {
+                  continue; // the floor pass (FBORenderCell.isObjectRenderLayer_Floor): floors, road markings, rugs, drawn before the blood
+               }
                if (sp != null && (sp.isBush || sp.canBeRemoved || sp.attachedFloor)) {
                   return true; // grass, bushes, floor-attached overlays: drawn after the blood at the floor's depth (MinusFloor unless flattened)
                }

@@ -20,7 +20,7 @@ import zombie.iso.fboRenderChunk.FBORenderLevels;
  * eight neighbours (up to 1,000 live + the fading overflow each) on every bake of a level, and every
  * {@code IsoChunk.addBloodSplat} on the game thread marks the level {@code DIRTY_BLOOD}: a full re-bake of that chunk level.
  * <ul>
- *   <li>{@code blood_fill=N} — 1 s into the settle, N splats (stock types 0-20, fixed seed) at random points of every
+ *   <li>{@code blood_fill=N} — 3 s into the settle, N splats (stock types 0-20, fixed seed) at random points of every
  *       loaded chunk's ground level: a battlefield's resident load (1,000 = the per-chunk cap; more spill into the
  *       fade list);</li>
  *   <li>{@code blood_rate=R} — from the route start, R splats a second (fractional ok) on the player's level within
@@ -116,7 +116,7 @@ public final class BloodProbe {
          frameMaxNs = Math.max(frameMaxNs, d);
       }
       lastTickNs = nowNs;
-      if (!filled && FILL > 0 && nowNs - firstTickNs >= 1_000_000_000L) {
+      if (!filled && FILL > 0 && nowNs - firstTickNs >= 3_000_000_000L) { // the grid loaded (a fill before it missed chunks)
          filled = true;
          fill();
       }
@@ -191,8 +191,10 @@ public final class BloodProbe {
             }
             fillChunks++;
             int before = c.floorBloodSplats.size();
+            // seeded per chunk: the same splats whatever order or frame the chunks are filled in (parity screenshots)
+            Random cr = new Random(0x5B100DL ^ (c.wx * 73856093L) ^ (c.wy * 19349663L));
             for (int i = 0; i < FILL; i++) {
-               c.addBloodSplat(c.wx * 8 + rng.nextFloat() * 8f, c.wy * 8 + rng.nextFloat() * 8f, 0f, rng.nextInt(20));
+               c.addBloodSplat(c.wx * 8 + cr.nextFloat() * 8f, c.wy * 8 + cr.nextFloat() * 8f, 0f, cr.nextInt(20));
             }
             fillAdded += c.floorBloodSplats.size() - before;
          }
