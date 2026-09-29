@@ -507,8 +507,7 @@ public final class ChunkAo {
       job.sun = SunShadow.enabled() && SunShadow.dir[3] > 0F;
       boolean deferMasks = inTiles && Config.AO_CONTEXT_PARALLEL && Config.DEV_AO_DUMP_TREE <= 0 && GtAb.on(GtAb.AO_CONTEXT); // aoContextParallel
       if (!deferMasks) {
-         job.vegetation = Config.AO && Config.AO_STRENGTH_VEGETATION_PCT != Config.AO_STRENGTH_OBJECT_PCT
-            && vegetationMask(job.veg, c, minLevel, rc.getTopLevel());
+         job.vegetation = vegetationWanted() && vegetationMask(job.veg, c, minLevel, rc.getTopLevel());
          job.nTrees = job.sun && Config.SUN_SHADOW_TREES || Config.AO && Config.AO_TREE_CANOPY_PCT > 0 ? collectTrees(job, c, minLevel, rc.getTopLevel()) : 0;
          job.trees = job.nTrees > 0;
       }
@@ -632,7 +631,7 @@ public final class ChunkAo {
       IsoChunk c = job.maskChunk;
       try {
          int minLevel = job.maskMinLevel, topLevel = job.maskTopLevel;
-         job.vegetation = Config.AO && Config.AO_STRENGTH_VEGETATION_PCT != Config.AO_STRENGTH_OBJECT_PCT && vegetationMask(job.veg, c, minLevel, topLevel);
+         job.vegetation = vegetationWanted() && vegetationMask(job.veg, c, minLevel, topLevel);
          job.nTrees = job.sun && Config.SUN_SHADOW_TREES || Config.AO && Config.AO_TREE_CANOPY_PCT > 0 ? collectTrees(job, c, minLevel, topLevel) : 0;
          job.trees = job.nTrees > 0;
          if (job.sun) {
@@ -1007,12 +1006,18 @@ public final class ChunkAo {
    private static final int TREE_REACH = 3; // a baked tree's crown spans up to 7 squares along its screen row
 
    /**
-    * aoStrengthVegetationPct: which squares around the chunk hold vegetation, as bits (row-major, 16 x 16 from VEG_MARGIN
+    * aoStrengthVegetationPct / aoStrengthPlantPct / aoPlantLeafOcclusion: which squares around the chunk hold vegetation, as bits (row-major, 16 x 16 from VEG_MARGIN
     * squares before the chunk's corner): planes 0-2 for the texture's first three levels (bushes, grass, flowers: sprites
     * flagged isBush / canBeRemoved / vegitation), plane 3 for tree crowns at any height (the tree's square and the squares
     * its crown covers along its screen row, x + k, y - k). The kernel reconstructs each "object" pixel's square from its
     * depth and texture position and looks it up. Nothing to build (false) when vegetation and objects share a strength.
     */
+   /** The kernel tells trees and plants apart: their strengths differ from the objects', or plants skip their leaves' taps. */
+   private static boolean vegetationWanted() {
+      return Config.AO && (!Config.AO_PLANT_LEAF_OCCLUSION || Config.AO_STRENGTH_VEGETATION_PCT != Config.AO_STRENGTH_OBJECT_PCT
+         || Config.AO_STRENGTH_PLANT_PCT != Config.AO_STRENGTH_OBJECT_PCT);
+   }
+
    private static boolean vegetationMask(int[] veg, IsoChunk c, int minLevel, int topLevel) {
       java.util.Arrays.fill(veg, 0);
       zombie.iso.IsoCell cell = IsoWorld.instance.currentCell;
@@ -1386,7 +1391,7 @@ public final class ChunkAo {
       final int[] srcH = new int[9];
       final float[] srcDepth = new float[9]; // added to the source's depth to put it in this texture's depth
       final int[] veg = new int[32]; // vegetation squares, 4 planes of 16 x 16 bits (vegetationMask)
-      boolean vegetation; // the mask has a square set (aoStrengthVegetationPct: the plant strength applies)
+      boolean vegetation; // the mask has a square set (the tree / plant strengths, plants' leaves not shading each other)
       boolean trees; // sunShadowTrees / aoTreeCanopyPct: crown proxies in reach (collectTrees)
       int nTrees;
       final float[] treeA = new float[MAX_TREES * 4], treeB = new float[MAX_TREES * 4];
@@ -1491,7 +1496,7 @@ public final class ChunkAo {
       private final HashMap<Integer, Integer> bareByColour = new HashMap<>();
       private int aoProgram;
       private int aoOnlyProgram; // AO_PASS: no sun code (its registers)
-      private final int[] uAoOnly = new int[22];
+      private final int[] uAoOnly = new int[23];
       private int blurProgram;
       private int mulProgram;
       private int ratioProgram;
@@ -1508,7 +1513,7 @@ public final class ChunkAo {
       private int rawW;
       private int rawH;
       private final int[] viewport = new int[4];
-      private final int[] uAo = new int[22];
+      private final int[] uAo = new int[23];
       private final int[] uBlur = new int[4];
       private final int[] uMul = new int[2];
       private final int[] uRatio = new int[4];
@@ -1686,6 +1691,7 @@ public final class ChunkAo {
          // the strengths go into the kept AO (so the multiply / ratio passes run at 1); read per compute: the Enhancements tab changes them live
          GL20.glUniform4f(u[5], strength(Config.AO_STRENGTH_FLOOR_PCT), strength(Config.AO_STRENGTH_WALL_PCT), strength(Config.AO_STRENGTH_OBJECT_PCT),
             strength(Config.AO_STRENGTH_VEGETATION_PCT));
+         GL20.glUniform4f(u[22], strength(Config.AO_STRENGTH_PLANT_PCT), Config.AO_PLANT_LEAF_OCCLUSION ? 0.0F : 1.0F, 0.0F, 0.0F);
       }
 
       private static float strength(int pct) {
@@ -2218,7 +2224,7 @@ public final class ChunkAo {
 
       /** A kernel variant's uniform locations, in uAo's order (and its sources on units 0..8). */
       private static void locate(int program, int[] u) {
-         String[] names = {"rect", "off", "geo", "params", "nSrc", "strength", "veg", "iso0", "iso1", "mode", "sunDir", "sunPerp", "sunPar", "ext", "sunTree", "treeA", "treeB", "sunWorld", "wallm", "farPar", "treeC", "treeD"};
+         String[] names = {"rect", "off", "geo", "params", "nSrc", "strength", "veg", "iso0", "iso1", "mode", "sunDir", "sunPerp", "sunPar", "ext", "sunTree", "treeA", "treeB", "sunWorld", "wallm", "farPar", "treeC", "treeD", "plantPar"};
          for (int i = 0; i < names.length; i++) {
             u[i] = GL20.glGetUniformLocation(program, names[i]);
          }
@@ -2270,6 +2276,7 @@ public final class ChunkAo {
          this.uAo[19] = GL20.glGetUniformLocation(this.aoProgram, "farPar");
          this.uAo[20] = GL20.glGetUniformLocation(this.aoProgram, "treeC");
          this.uAo[21] = GL20.glGetUniformLocation(this.aoProgram, "treeD");
+         this.uAo[22] = GL20.glGetUniformLocation(this.aoProgram, "plantPar");
          GL20.glUseProgram(this.aoProgram);
          GL20.glUniform1i(GL20.glGetUniformLocation(this.aoProgram, "farH"), FAR_UNIT);
          GL20.glUniform1i(GL20.glGetUniformLocation(this.aoProgram, "treeSil"), TREE_UNIT);
@@ -2326,7 +2333,8 @@ public final class ChunkAo {
       "uniform int nSrc;",
       "uniform vec4 geo;", // texture texels per AO texel, texture texels per square, row sign
       "uniform vec4 params;", // radius in texture texels, thickness in squares, squares per unit depth, radius in squares
-      "uniform vec4 strength;", // darkening strength on floors, walls, objects, vegetation (aoStrength*Pct / 100)
+      "uniform vec4 strength;", // darkening strength on floors, walls, objects, trees (aoStrength*Pct / 100)
+      "uniform vec4 plantPar;", // x the darkening strength on plants (bushes, grass, flowers), y 1 = a plant's leaves do not shade each other
       "uniform uint veg[32];", // vegetation squares: planes 0-2 = the texture's levels, 3 = tree crowns; 16 x 16 bits from 4 squares before the chunk
       "uniform vec4 iso0;", // texels to the chunk corner's screen x, units of (x - y) per texel, texels per world pixel, world px from the top edge to the corner
       "uniform vec4 iso1;", // world px per unit of (x + y), per level, depth per unit of (x + y + 2z), 1 = test vegetation
@@ -2370,22 +2378,9 @@ public final class ChunkAo {
       "   }",
       "   return nSrc > 1 ? depthAt(p) : 1.0;",
       "}",
-      // the square under a texel from its own depth (calculateDepth: k (20 - (x + y) - 2 z) within the chunk) and its screen
-      // position (x - y from the column, (x + y) 16 - z 96 world px from the row), looked up in the vegetation mask
-      "bool vegetationAt(vec2 c, float ys) {",
-      "   float u = 20.0 - texelFetch(Src0, ivec2(c), 0).r / iso1.z;",
-      "   float p = (c.x - iso0.x) * iso0.y;",
-      "   float q = (ys < 0.0 ? c.y : rect[0].w - c.y) / iso0.z - iso0.w;",
-      "   float zl = (u * iso1.x - q) / (2.0 * iso1.x + iso1.y);",
-      "   float sum = u - 2.0 * zl;",
-      "   ivec2 sq = ivec2(floor(vec2(sum + p, sum - p) * 0.5)) + 4;",
-      "   if (sq.x < 0 || sq.y < 0 || sq.x >= 16 || sq.y >= 16) return false;",
-      "   int bit = sq.y * 16 + sq.x;",
-      "   int lvl = clamp(int(floor(zl + 0.05)), 0, 2);",
-      "   uint m = veg[lvl * 8 + (bit >> 5)] | veg[24 + (bit >> 5)];",
-      "   return ((m >> uint(bit & 31)) & 1u) != 0u;",
-      "}",
       // the square (x, y relative to the masks' origin) and level under a view-space point given as texel c + depth
+      // (calculateDepth: k (20 - (x + y) - 2 z) within the chunk; screen position: x - y from the column, (x + y) 16 - z 96
+      // world px from the row)
       "vec3 squareAt(vec2 c, float depth, float ys) {",
       "   float u = 20.0 - depth / iso1.z;",
       "   float p = (c.x - iso0.x) * iso0.y;",
@@ -2393,6 +2388,22 @@ public final class ChunkAo {
       "   float zl = (u * iso1.x - q) / (2.0 * iso1.x + iso1.y);",
       "   float sum = u - 2.0 * zl;",
       "   return vec3(floor(vec2(sum + p, sum - p) * 0.5) + 4.0, zl);",
+      "}",
+      // the vegetation mask at squareAt's result s: 1 = a plant on that level (bush, grass, flowers), 2 = a tree crown's
+      // squares, 0 = none
+      "int vegAt(vec3 s) {",
+      "   ivec2 sq = ivec2(s.xy);",
+      "   if (sq.x < 0 || sq.y < 0 || sq.x >= 16 || sq.y >= 16) return 0;",
+      "   int bit = sq.y * 16 + sq.x;",
+      "   uint b = 1u << uint(bit & 31);",
+      "   if ((veg[clamp(int(floor(s.z + 0.05)), 0, 2) * 8 + (bit >> 5)] & b) != 0u) return 1;",
+      "   return (veg[24 + (bit >> 5)] & b) != 0u ? 2 : 0;",
+      "}",
+      // a leaf: a tap on a plant's or a crown's square above that square's floor (the ground there is on the level's plane, a
+      // whole zl); a plant's texel does not count these as occluders (aoPlantLeafOcclusion off), the ground, walls and objects it does
+      "bool leafAt(vec2 c, float depth, float ys) {",
+      "   vec3 s = squareAt(c, depth, ys);",
+      "   return abs(s.z - floor(s.z + 0.5)) > 0.06 && vegAt(s) != 0;",
       "}",
       // the world position of a texel at this depth: x, y in squares from the chunk's corner, z in squares of height above the
       // texture's lowest level (squareAt without the rounding)
@@ -2749,7 +2760,9 @@ public final class ChunkAo {
       "   else if (g > 0.94) N = NG; else if (e > 0.94) N = NE; else if (so > 0.94) N = NS;",
       "   float bayer = BAYER[(t.x & 3) + 4 * (t.y & 3)];",
       "   float jitter = fract(bayer * 0.618034 + 0.5 * float((t.x ^ t.y) & 1));",
-      "   float sk = tree ? strength.w : g > 0.94 ? strength.x : (e > 0.94 || so > 0.94 ? strength.y : (iso1.w > 0.5 && vegetationAt(c, ys) ? strength.w : strength.z));", // floors, walls, vegetation, the rest
+      "   int vk = !tree && !plane && iso1.w > 0.5 ? vegAt(squareAt(c, d0, ys)) : 0;", // a plant (1) or a crown square (2)
+      "   float sk = tree || vk == 2 ? strength.w : g > 0.94 ? strength.x : (e > 0.94 || so > 0.94 ? strength.y : (vk == 1 ? plantPar.x : strength.z));", // trees, floors, walls, plants, the rest
+      "   bool leaves = vk == 1 && plantPar.y > 0.5;", // skip the leaf taps
       "   const vec3 V = vec3(0.0, 0.0, -1.0);",
       "   float radiusPx = params.x;",
       "   float thickness = params.y;",
@@ -2776,6 +2789,7 @@ public final class ChunkAo {
       "            vec2 sp = c + dir * sgn * rpx;",
       "            float sd = tapDepth(sp);",
       "            if (sd >= 0.99999) continue;",
+      "            if (leaves && leafAt(sp, sd, ys)) continue;",
       "            vec2 o = (floor(sp) + 0.5 - c) / ppu;",
       "            vec3 dF = vec3(o.x, ys * o.y, (sd - d) * kz);",
       "            if (dot(dF, dF) > radius * radius) continue;",

@@ -18,6 +18,7 @@ PzoptOptionClasses = {
     aoComputeBudget = { "pzopt.ChunkAo" },
     aoContextParallel = { "pzopt.ChunkAo" },
     aoMode = { "pzopt.AmbientOcclusion", "pzopt.ChunkAo", "pzopt.FogPass" },
+    aoPlantLeafOcclusion = { "pzopt.ChunkAo" },
     aoReuse = { "pzopt.AmbientOcclusion" },
     aoSkipSlowFrames = { "pzopt.ChunkAo" },
     aoSlowFrameComputes = { "pzopt.ChunkAo" },

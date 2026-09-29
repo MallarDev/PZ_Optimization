@@ -147,6 +147,31 @@ side). The mask is only built (and the lookup only runs) when the vegetation str
 Check `enh-aoveg` (vegetation 0, objects 150, `devAoView=1`): bush and tree bodies white, the ground under them and the
 fence shaded; a few twig-tip pixels at bush tops stay shaded (their depth slope reads as floor or wall).
 
+### Plants: no leaf-on-leaf shading, their own strength (issue #40, 2026-09-29)
+
+Report: foliage far too dark in daylight at the default 100 / 100, "the floor and vegetation strengths apply twice".
+AO-term shots (`devAoView=1`, the Rosewood house spot, one strength at 150 and the rest 0; runs `i40-aofloor`,
+`i40-aoveg`) showed four things: (1) the bulk of it: bush and grass bodies came out speckled grey to black, every leaf
+texel's horizon seeing the leaves next to it (the tree cards were exempted from the horizon for this reason, the plants
+were not); (2) plant texels whose depth slope snaps to the ground plane take the floor strength (black speckle inside
+bush outlines, on top of the intended contact ring on the ground); (3) the crown shade under trees (up to 50 % x the
+vegetation strength, 31 % darker at 100 than at 50 on the reporter's road); (4) grey bands on a house wall behind a
+hedge with the wall strength at 0.
+
+`aoPlantLeafOcclusion` (default off = the fix): a plant texel (on a plant square of its level, not snapped to a plane)
+skips horizon taps that land on a plant's or a crown's square above that square's floor (reconstructed level not within
+0.06 of a whole level); the ground, walls, fences and furniture still occlude it. The vegetation mask is now built whenever
+AO is on (it was only built when the vegetation and object strengths differed). The kernel's lookup returns plant (planes
+0-2) or crown (plane 3), so the old single vegetation strength splits: `aoStrengthVegetationPct` is the trees' (card,
+crown squares, crown shade, TreeShade) and the new `aoStrengthPlantPct` the bushes', grass' and flowers' (unset: the
+vegetation value, so options files keep their look). Every AO strength also offers 25 %. Defaults unchanged (100).
+
+Same build, runs `i40b-*` (`--install` of the worktree): plants 150, the rest 0, AO term: mean darkening over the bush
+strip 0.092 -> 0.026, texels darker than 0.5 6.4 % -> 0.3 %; the wall bands and the fence shading went with it (they were
+leaf taps too: wall / fence texels on a hedge square that miss the plane snap are classed as plants). Default strengths,
+normal view: bush strip brightness 63.8 -> 70.4 (road 104.8 / 105.7, unchanged). Kernel 28-37 us a compute in all four
+runs (no cost measurable). Left: (2) and (3) above.
+
 ## Late grass while driving (2026-09-25)
 
 Report: "grass rendered late when driving fast with AO on". The AO is what shades the ground under and around grass

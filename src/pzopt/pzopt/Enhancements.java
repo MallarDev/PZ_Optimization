@@ -11,7 +11,7 @@ package pzopt;
  *       resources are made on first use).</li>
  *   <li>the HDR sliders: {@link Hdr#retune} (read every frame). hdr and hdrAuto are not live: on Linux they pick the
  *       window (a native Wayland FP16 surface) the game is created with.</li>
- *   <li>ambientOcclusion, aoScalePct, aoRadiusPct, the four aoStrength*Pct: {@link ChunkAo#reconfigure} (every loaded
+ *   <li>ambientOcclusion, aoScalePct, aoRadiusPct, the five aoStrength*Pct: {@link ChunkAo#reconfigure} (every loaded
  *       chunk texture bakes again with the new AO, or without it); sunShadows the same, sunShadowStrengthPct and
  *       sunShadowSoftnessPct through {@link SunShadow#update} (the kept shadows compute again, no re-bake).</li>
  *   <li>reflections, reflectionStrengthPct, reflectionPuddles: read every frame by {@link Ssr}.</li>
@@ -42,7 +42,7 @@ final class Enhancements {
          case "upscaler", "upscalerQuality", "upscalerScalePct", "dlssPreset", "dlssOutputPct", "dlssOutputFilter", "dlssSharpen" ->
             RenderScale.reconfigure();
          case "ambientOcclusion", "aoScalePct", "aoRadiusPct", "aoStrengthFloorPct", "aoStrengthWallPct", "aoStrengthObjectPct",
-               "aoStrengthVegetationPct", "sunShadows", "sunShadowTreeCards" -> ChunkAo.reconfigure();
+               "aoStrengthVegetationPct", "aoStrengthPlantPct", "sunShadows", "sunShadowTreeCards" -> ChunkAo.reconfigure();
          case "darknessFloorPct", "darknessFloorBasements", "memoryTint", "memoryLightPct" -> Darkness.reconfigure();
          case "memoryTintPct" -> {
             // read every frame by the remembered-places pass
