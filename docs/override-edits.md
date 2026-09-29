@@ -5332,3 +5332,38 @@ black and shimmered while the player walked in circles. No override edit; all in
   frames, 0 inside the store.
 - `zombie.iso.fboRenderChunk.FBORenderCell`: two dev hooks for `devSquareTrace` (`pzopt.SquareTrace`): `noteBake(c)` beside
   `PixelLight.bakeBegin` and `frame(playerIndex)` after `FBORenderItems.update()`; both return at once with the key empty.
+
+## Floor blood without its bake cost; wet blood (2026-09-29; IsoChunk, FBORenderCell; `pzopt.BloodDecals`, `pzopt.BloodWet`)
+
+Findings and numbers: `docs/findings-blood-decals-2026-09-29.md`.
+
+- **zombie.iso.IsoChunk**: two fields, `pzoptBlood` (the chunk's `BloodDecals.Cache`) and `pzoptBloodVersion` (bumped in
+  `addBloodSplat` after the splat joins the queue and in the load loop that fills the queue from the save).
+  `addBloodSplat`'s `invalidateRenderChunkLevel(sq.z, 1L)` first asks `BloodDecals.added(this, b)` (`bloodAppend`): true =
+  the splat is queued to be drawn into the finished textures this frame, or the density option hides it (nothing to
+  re-bake); false = stock's re-bake (append off, grass / a body / an item under the splat, a level outside -32..31). The
+  reset that clears the queue calls `BloodDecals.reset(this)` (the cache's atlas row back to the pool, its appends and
+  settle entry dropped).
+- **zombie.iso.fboRenderChunk.FBORenderCell**: `renderOneLevel_Blood(chunk, zza, minX, minY, maxX, maxY)`, right after
+  stock's option checks, hands the call to `BloodDecals.bake` (`bloodBake` gpu / cpu) and returns when it drew; the new
+  `pzoptBloodRules` field is the per-square half of the stock loop (cutaway flag, blacked-out building, the average of the
+  four vertex lights, computed with the same float operations) that the cache's draws take per square instead of per
+  splat. After `pzoptFlushTreeAppends` (before the composite) `BloodDecals.flush` draws the frame's appends into their
+  textures inside a bake's begin / end, as treeAppend does. Wet blood: `BloodWet.collect` before `Ssr.beforeComposite`
+  (the wet level-0 squares join the reflection map), `BloodWet.queueMain` after the puddles (GPU section `bloodWet`),
+  `BloodWet.queueGlint` in the HDR glint-only pass after the puddles'.
+- `pzopt.Ssr.beforeComposite` (not an override): a chunk's wet-blood squares are OR-ed into its puddle bits and its slot
+  fingerprint, and `f.puddles` is set while any are on screen, so the composite and the characters scatter into them.
+- Picture: `bloodBake=gpu` and `cpu` measured pixel-identical to stock (runs `bp-stock` / `bp-cpu` / `bp2-gpu`: 14-99
+  pixels > 8 of 11 M, all animation). `bloodAppend` draws the same splats in the same place; it differs from stock only
+  where stock would never have drawn them (neighbour textures, which stock left cut at the chunk edge until another
+  re-bake) and in draw order under things the depth test can tell from the floor (a wall's foot: 2 % of a square's depth);
+  vegetation, bodies and items under a splat fall back to the re-bake.
+
+## Blood decal probe (2026-09-29; FBORenderCell, dev rig only)
+
+`pzopt.BloodProbe` (harness flags `blood_fill` / `blood_rate` / `blood_probe`, off otherwise) times three places of
+**zombie.iso.fboRenderChunk.FBORenderCell**: `renderOneChunk` takes `nanoTime` around each `renderOneLevel`,
+`renderOneLevel` hands the level's dirty flags to the probe where the bake census reads them, and the nine
+`renderOneLevel_Blood` calls of a bake are timed as one section. Nothing is drawn differently; with the rig off each hook
+is one static-final check. Findings: `docs/findings-blood-decals-2026-09-29.md`.

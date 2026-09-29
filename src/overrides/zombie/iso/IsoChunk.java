@@ -232,6 +232,8 @@ public final class IsoChunk {
    public LotHeader lotheader;
    public final BoundedQueue<IsoFloorBloodSplat> floorBloodSplats = new BoundedQueue(1000);
    public final ArrayList<IsoFloorBloodSplat> floorBloodSplatsFade = new ArrayList<>();
+   public Object pzoptBlood; // pzopt: bloodBake, the chunk's sorted splat cache (pzopt.BloodDecals.Cache)
+   public int pzoptBloodVersion; // pzopt: bloodBake, bumped whenever the splat queue changes
    private static final int MAX_BLOOD_SPLATS = 1000;
    private int nextSplatIndex;
    public static final byte[][] renderByIndex = new byte[][]{
@@ -479,7 +481,9 @@ public final class IsoChunk {
                }
 
                this.floorBloodSplats.add(b);
+               this.pzoptBloodVersion++; // pzopt: bloodBake
                if (PerformanceSettings.fboRenderChunk && Thread.currentThread() == GameWindow.gameThread) {
+                  if (!pzopt.BloodDecals.added(this, b)) // pzopt: bloodAppend, drawn into the finished textures instead of re-baking
                   this.invalidateRenderChunkLevel(sq.z, 1L);
                }
 
@@ -3686,6 +3690,7 @@ public final class IsoChunk {
                }
 
                this.floorBloodSplats.add(s);
+               this.pzoptBloodVersion++; // pzopt: bloodBake
             }
          }
 
@@ -5505,6 +5510,7 @@ public final class IsoChunk {
       this.nextSplatIndex = 0;
       this.floorBloodSplats.clear();
       this.floorBloodSplatsFade.clear();
+      pzopt.BloodDecals.reset(this); // pzopt: bloodBake, the splat cache and its atlas row go
       this.jobType = IsoChunk.JobType.None;
 
       for (int z = this.minLevel; z <= this.maxLevel; z++) {

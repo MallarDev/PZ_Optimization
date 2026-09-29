@@ -369,6 +369,8 @@ public final class Harness {
       IsoPlayer p = IsoPlayer.getInstance();
       if (p != null && (state == SETTLE || state == RUN || state == PLAY)) {
          Scene.tick(p, nowNs); // keeps the forced weather pinned and fires the scheduled lightning
+         BloodProbe.tick(p, nowNs); // blood_fill= / blood_rate= / blood_probe=: the floor blood decal rig
+         BloodProbe.spray(p, dt);
       }
       switch (state) {
          case WAIT_WORLD -> {
@@ -637,6 +639,7 @@ public final class Harness {
                   goUpstairs(p, upstairs); // dev: upper-floor rig (issue #12, FSR black squares upstairs)
                }
                Scene.routeStart(nowNs);
+               BloodProbe.routeStart(nowNs);
                Showcase.routeStart(p); // showcase=horde: the HDR horde video scene
                Explore.routeStart(p); // explore=restaurant: out of the car, the walk begins
                TreeWalk.routeStart(p); // explore=trees
@@ -924,6 +927,7 @@ public final class Harness {
                 + "\nrenderer_backend=OpenGL\nrenderer_opengl33=" + (!core.getUseOpenGL21())
                 + "\ndashboard=" + HarnessFlags.get("dashboard", "enabled")
                 + "\n" + Scene.summary()
+                + BloodProbe.summary()
                 + "\nroute_start_epoch_ms=" + runStartEpochMs + "\nroute_end_epoch_ms=" + runEndEpochMs
                 + "\nroute_seconds=" + secs + "\nchunks_loaded=" + chunks + "\nchunks_per_second=" + (secs > 0f ? chunks / secs : 0f)
                 + "\nsettings=" + Config.describe()

@@ -305,6 +305,11 @@ import java.util.Properties;
  *                            CellularAutomatonRNG per idle square of every on-screen chunk level per frame; same
  *                            per-square start probability, timing, sprites and positions (pzopt.RainSplashes)
  *                            (default true)
+ *   bloodBake       gpu/cpu/off  floor blood in the chunk bakes: gpu = instanced from a per-chunk cache, cpu = the cache as
+ *                            sprites, off = stock (pzopt.BloodDecals; default gpu)
+ *   bloodAppend     true/false   a new blood splat is drawn into the finished textures instead of re-baking (default true)
+ *   bloodSettleSec  int          seconds after an append before one exact re-bake of the level (default 30, 0 = never)
+ *   bloodFadeFix    true/false   drop splats pushed out at the per-chunk cap instead of drawing them forever (default false)
  *   treeAppend      true/false   tree pass: when a chunk exports trees into a neighbour's texture for the first time
  *                            (a newly loaded chunk next to baked ones while driving), the quads are drawn on top of
  *                            that finished texture (same draw, same depth test, mipmaps regenerated) instead of
@@ -846,6 +851,16 @@ public final class Config {
    public static final float DLSS_JITTER_SIGN = integer("dlssJitterSign", 1) < 0 ? -1.0F : 1.0F; // dlss: the sign the viewport offset is reported to NGX with (1 or -1, an A/B of the convention)
    public static final float DLSS_MV_SIGN = integer("dlssMvSign", 1) < 0 ? -1.0F : 1.0F; // dlss: the sign of the motion vectors (1 = current to previous position, NGX's convention; -1 the other way)
    public static final boolean TREE_APPEND = bool("treeAppend", true); // a new chunk's trees are drawn into the finished neighbour textures they reach instead of re-baking those textures (tree pass, issue #5)
+   // floor blood decals (pzopt.BloodDecals, 2026-09-29, docs/findings-blood-decals-2026-09-29.md)
+   public static final String BLOOD_BAKE = string("bloodBake", "gpu").trim().toLowerCase(java.util.Locale.ROOT); // how a chunk bake draws the floor splats: gpu = one instanced draw per chunk level from a cached per-chunk splat list (stock placement, colour, density, light per square); cpu = the same cache as sprites without the per-splat state (the exact stock picture, any GL); off = stock's walk of nine chunks' queues per bake
+   public static final boolean BLOOD_APPEND = bool("bloodAppend", true); // a new splat is drawn into the finished chunk textures it lands in (its chunk's and the neighbours' within a tile of the edge, which stock never re-baked) instead of re-baking its chunk level; hidden by the density option: nothing at all
+   public static final int BLOOD_SETTLE_SEC = integer("bloodSettleSec", 30); // with bloodAppend: a level that got appended splats re-bakes once, this many seconds after its first append (stock's exact order: blood under flat floor objects); 0 = never
+   public static final boolean BLOOD_FADE_FIX = bool("bloodFadeFix", false); // splats pushed out at the 1,000-per-chunk cap are dropped at the next bake (stock keeps drawing them: their fade counter only runs down per bake, so in chunk textures they never fade)
+   public static final int BLOOD_APPEND_BIAS_PCT = integer("bloodAppendBiasPct", 2); // bloodAppend: the floor plane is moved this % of one square's depth toward the camera for the depth test (a wall's foot within that of the floor gets the blood over it: 1 % = 1/800 of a level)
+   public static final int BLOOD_REBAKE_COALESCE_MS = integer("bloodRebakeCoalesceMs", 250); // bloodAppend: a splat that must re-bake its level (grass, a body or an item under it) waits this long, so the splats a hit throws over the next frames share one re-bake; 0 = at once (stock)
+   public static final boolean BLOOD_APPEND_VEGETATION = bool("bloodAppendVegetation", false); // bloodAppend: also append where vegetation, a body or an item lies under the splat (stock bakes those over the blood; appended, the blood covers them); off = those splats re-bake their level as stock
+   public static final int DEV_BLOOD_WET_VIEW = integer("devBloodWetView", 0); // dev: the wet blood layer shows 1 its coverage (magenta), 2 the reflection found (orange + the colour), 3 the sun term, 4 the film normal
+   public static final boolean DEV_BLOOD_APPEND_TINT = bool("devBloodAppendTint", false); // dev: appended splats draw solid green (where the appends land and what hides them)
    public static final boolean PUDDLE_VBO = bool("puddleVbo", true); // cached puddle batches kept in per-chunk-level GL buffers, jiggle as a matrix translation (pzopt.PuddleVbo)
    public static final boolean RAIN_TILES = bool("rainTiles", true); // weather particles rendered once as a template and drawn once per screen cell (pzopt.RainTiles)
    public static final int VBO_BATCH_KB = integer("vboBatchKb", 1024); // VBORenderer element buffer (4 = stock): rain particles flush every 28 quads at 4 KB
@@ -1088,6 +1103,11 @@ public final class Config {
    public static final String HDR_ENCODE = string("hdrEncode", "auto").toLowerCase(java.util.Locale.ROOT); // on: ext_linear description + encode pass at the swap (standard, exact roll-off); off: no description, the compositor's own SDR decode shows the FP16 values above 1.0 (KWin; ~0.3 ms a frame cheaper at 4K); auto: off on KDE Plasma, on elsewhere
    public static volatile boolean SSR; // screen-space reflections of the scene in the water and the puddles (pzopt.Ssr)
    public static volatile int SSR_STRENGTH_PCT; // how strongly the water mirrors the scene, % (a deep river at the camera's angle reflects ~6 % physically)
+   public static volatile boolean BLOOD_WET; // wet blood (pzopt.BloodWet): fresh floor splats reflect the scene (with reflections on) and catch the sun and the lamps (a GGX sheen; with HDR output, glints above white) until they dry (live)
+   public static volatile int BLOOD_WET_MINUTES; // wet blood: game minutes a splat stays wet (drying from its edges in) (live)
+   public static volatile int BLOOD_REFLECT_PCT; // wet blood: strength of the reflection in the film, % of the water's Fresnel (live)
+   public static volatile int BLOOD_SHEEN_PCT; // wet blood: strength of the SDR sun / lamp sheen, % (live)
+   public static volatile int BLOOD_GLINT_PCT; // wet blood: strength of the HDR glints, % (live)
    public static volatile boolean SSR_PUDDLES; // reflections in the puddles too (once they are big enough to reflect)
    public static final String SSR_MODE = string("ssrMode", "ppr"); // reflections: ppr = pixel-projected (the chunk composite writes each surface into the pixel it mirrors to; the water reads one texel), march = a ray march up the column in the water shader
    public static final int SSR_REACH_PCT = integer("ssrReachPct", 150); // reflections: the reflection fades out between half and all of this height above the water, % of a level
@@ -1236,6 +1256,11 @@ public final class Config {
       SSR = bool("reflections", false);
       SSR_STRENGTH_PCT = Math.max(0, Math.min(100, integer("reflectionStrengthPct", 45)));
       SSR_PUDDLES = bool("reflectionPuddles", true);
+      BLOOD_WET = bool("bloodWet", false);
+      BLOOD_WET_MINUTES = Math.max(1, integer("bloodWetMinutes", 120));
+      BLOOD_REFLECT_PCT = Math.max(0, Math.min(200, integer("bloodReflectPct", 100)));
+      BLOOD_SHEEN_PCT = Math.max(0, Math.min(200, integer("bloodSheenPct", 45)));
+      BLOOD_GLINT_PCT = Math.max(0, Math.min(300, integer("bloodGlintPct", 100)));
       SUN_SHADOWS = bool("sunShadows", false);
       SUN_SHADOW_STRENGTH_PCT = integer("sunShadowStrengthPct", 45);
       SUN_SHADOW_SOFTNESS_PCT = integer("sunShadowSoftnessPct", 25); // 25 since 2026-09-27 (detailed shadows: a tree's leaves and a body's limbs stay readable; 100 blurred every shadow past a square from its caster into a blob)
@@ -1375,7 +1400,7 @@ public final class Config {
       String[][] groups = {
          // the switch of each feature on the Enhancements tab; the rest of each section only tunes it
          {"enhancementsEnabled", "upscaler", "off", "spriteFilter", "stock", "hdr", "false", "hdrAuto", "false",
-            "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "darknessFloorPct", "0",
+            "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "bloodWet", "false", "darknessFloorPct", "0",
             "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false"},
          // everything that makes the overlay measure or show (Overlay.configure; harness runs still measure)
          {"profilerEnabled", "overlaySampling", "false", "overlay", "false", "overlayLog", "false"},

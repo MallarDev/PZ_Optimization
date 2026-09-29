@@ -446,6 +446,7 @@ public final class Ssr {
       // level peaks near 3
       f.puddles = Config.SSR_PUDDLES && zombie.core.PerformanceSettings.puddlesQuality < 2 && zombie.iso.IsoPuddles.getInstance().shouldRenderPuddles()
          && zombie.iso.IsoPuddles.getInstance().getPuddlesSizeFinalValue() > 0.11F && !zombie.iso.fboRenderChunk.FBORenderSnow.getInstance().isSnowAnywhere();
+      f.puddles |= BloodWet.anyWetLevel0(); // wet blood: the scatter writes the puddle-kind squares while there are any
       gameFrame = f;
       // two hashes, each written for EPOCHS frames (epochs 1..EPOCHS) while the other is cleared a slice a frame
       f.buffer = (int)(epochCounter / EPOCHS & 1L);
@@ -464,7 +465,8 @@ public final class Ssr {
          zombie.iso.fboRenderChunk.FBORenderLevels rl = ch.getRenderLevels(playerIndex);
          java.util.List<zombie.iso.IsoGridSquare> water = rl.getCachedSquares_Water(0), shore = rl.getCachedSquares_WaterShore(0);
          java.util.List<zombie.iso.IsoGridSquare> puddles = rl.getCachedSquares_Puddles(0);
-         int size = (water.size() * 4099 + shore.size()) * 65 + puddles.size();
+         long wetBlood = BloodWet.ssrBits(ch); // wet blood: its fresh splats reflect like puddle squares
+         int size = (water.size() * 4099 + shore.size()) * 65 + puddles.size() + (int)(wetBlood ^ (wetBlood >>> 32)) * 1_000_003;
          int slot = Math.floorMod(ch.wx, SLOTS) + Math.floorMod(ch.wy, SLOTS) * SLOTS;
          if (slotOwner[slot] == ch && slotSize[slot] == size) {
             continue;
@@ -472,7 +474,7 @@ public final class Ssr {
          long bits = 0L;
          bits |= waterBits(water, ch);
          bits |= waterBits(shore, ch);
-         long pbits = puddleBits(puddles, ch) & ~bits;
+         long pbits = (puddleBits(puddles, ch) | wetBlood) & ~bits;
          slotOwner[slot] = ch;
          slotSize[slot] = size;
          if ((bits != slotBits[slot] || pbits != slotPuddle[slot]) && f.uploads < f.uploadSlot.length) {

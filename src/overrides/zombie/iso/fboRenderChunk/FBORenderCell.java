@@ -1615,10 +1615,12 @@ public final class FBORenderCell {
       FBORenderItems.getInstance().update();
       pzopt.SquareTrace.frame(playerIndex); // pzopt: devSquareTrace, after the chunk loop
       this.pzoptFlushTreeAppends(playerIndex, Core.getInstance().getZoom(playerIndex)); // pzopt: treeAppend, before the textures are composited
+      pzopt.BloodDecals.flush(playerIndex, Core.getInstance().getZoom(playerIndex), this.pzoptBloodRules); // pzopt: bloodAppend, new splats into their finished textures before the composite
       pzopt.PixelLight.bakeEnd(); pzopt.SpriteFilter.bakeEnd(); // pzopt: pixelLight; sprite filter, the finished texture gets its sharp level 1, no square stays white past the bakes
       long pzoptAoT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
       pzopt.ChunkAo.flush(playerIndex); // pzopt: ambient occlusion, this frame's budget of AO computes, before the textures are composited
       pzopt.GtAb.end(pzopt.GtAb.S_AO_FLUSH, pzoptAoT); // pzopt
+      pzopt.BloodWet.collect(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: wet blood, this frame's fresh splats (their squares join the reflection map below)
       pzopt.Ssr.beforeComposite(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: reflections, the water square map and the scatter's frame, ahead of the chunk composite
       long pzoptPpl = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
       pzopt.PixelLight.beforeComposite(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: pixelLight, the lattice uploads and the camera, ahead of the chunk composite that lights each pixel
@@ -1685,6 +1687,7 @@ public final class FBORenderCell {
          }
       }
 
+      pzopt.GpuSections.begin("bloodWet"); pzopt.BloodWet.queueMain(); pzopt.GpuSections.end("bloodWet"); // pzopt: wet blood, the film's reflection and sheen over the floor, before what stands on it
       this.renderOpaqueObjectsEvent(playerIndex);
       SpriteRenderer.instance.beginProfile(movingObjectsProbe);
       if (!pzopt.ResumeShot.noMoving) { // pzopt: resumeShot's exit capture (below "full"): no vehicles or characters
@@ -1705,6 +1708,7 @@ public final class FBORenderCell {
             this.renderWater(playerIndex); // pzopt: HDR output
             this.pzoptWaterOnly = false; // pzopt: HDR output
             this.renderPuddles(playerIndex); // pzopt: HDR output
+            pzopt.BloodWet.queueGlint(); // pzopt: wet blood, its sun / sky / lamp glints
             pzopt.HdrGlint.queueOff(); // pzopt: HDR output
          }
       } catch (Throwable var26) {
@@ -1889,7 +1893,9 @@ public final class FBORenderCell {
                AbstractPerformanceProfileProbe var10 = renderOneChunkLevel.profile();
 
                try {
+                  long pzoptBloodT0 = pzopt.BloodProbe.ON ? System.nanoTime() : 0L; // pzopt: blood probe, bake time by dirty flags
                   this.renderOneLevel(c, zza, perPlayerRender, playerIndex, currentTimeMillis, floorRenderShader, wallRenderShader);
+                  if (pzopt.BloodProbe.ON) pzopt.BloodProbe.levelDone(pzoptBloodT0); // pzopt: blood probe
                } catch (Throwable var14) {
                   if (var10 != null) {
                      try {
@@ -2163,6 +2169,7 @@ public final class FBORenderCell {
          boolean canRender = true;
          boolean pzoptWasDirty = renderLevels.isDirty(level, zoom); // pzopt: per-frame bake census
          if (pzopt.BakeLog.ON && pzoptWasDirty) pzopt.BakeLog.bake(c, renderLevels, level, zoom); // pzopt: per-frame bake census
+         if (pzopt.BloodProbe.ON && pzoptWasDirty) pzopt.BloodProbe.bake(renderLevels, level, zoom); // pzopt: blood probe
          boolean isDirty = FBORenderChunkManager.instance.beginRenderChunkLevel(c, level, zoom, canRender, true);
          if (pzopt.BakeLog.ON && isDirty && !pzoptWasDirty) pzopt.BakeLog.hidden(c, level); // pzopt: a texture made here without prior dirt (bypasses every budget)
          if (isDirty && pzopt.PixelLight.ACTIVE) pzopt.PixelLight.bakeBegin(c, playerIndex); // pzopt: pixelLight, the chunk's squares hand out white light while its texture bakes
@@ -2514,6 +2521,7 @@ public final class FBORenderCell {
                      try {
                         if (IsoCamera.frameState.camCharacterZ >= 0.0F || level <= PZMath.fastfloor(IsoCamera.frameState.camCharacterZ)) {
                            int chunksPerWidth = 8;
+                           long pzoptBloodS0 = pzopt.BloodProbe.ON ? System.nanoTime() : 0L; // pzopt: blood probe
                            this.renderOneLevel_Blood(c, level, c.wx * 8, c.wy * 8, (c.wx + 1) * 8, (c.wy + 1) * 8);
                            this.renderOneLevel_Blood(c, -1, -1, level);
                            this.renderOneLevel_Blood(c, 0, -1, level);
@@ -2523,6 +2531,7 @@ public final class FBORenderCell {
                            this.renderOneLevel_Blood(c, -1, 1, level);
                            this.renderOneLevel_Blood(c, 0, 1, level);
                            this.renderOneLevel_Blood(c, 1, 1, level);
+                           if (pzopt.BloodProbe.ON) pzopt.BloodProbe.section(c, level, System.nanoTime() - pzoptBloodS0); // pzopt: blood probe
                         }
                      } catch (Throwable var48) {
                         if (var59 != null) {
@@ -5711,6 +5720,9 @@ public final class FBORenderCell {
       if (DebugOptions.instance.terrain.renderTiles.bloodDecals.getValue()) {
          int optionBloodDecals = Core.getInstance().getOptionBloodDecals();
          if (optionBloodDecals != 0) {
+            if (pzopt.BloodDecals.ON && pzopt.BloodDecals.bake(chunk, zza, minX, minY, maxX, maxY, optionBloodDecals, this.pzoptBloodRules)) { // pzopt: bloodBake
+               return; // pzopt
+            } // pzopt
             float worldAge = (float)GameTime.getInstance().getWorldAgeHours();
             int playerIndex = IsoCamera.frameState.playerIndex;
             ChunkLevelData cutawayLevel = chunk.getCutawayDataForLevel(zza);
@@ -5857,6 +5869,34 @@ public final class FBORenderCell {
          }
       }
    }
+
+   /**
+    * pzopt: bloodBake. The per-square half of renderOneLevel_Blood's per-splat work, for pzopt.BloodDecals: for each square
+    * in {@code mask} of chunk {@code c}'s level, whether a splat on it is drawn (the level's cutaway flags) and the factor
+    * its colour takes (0 in a blacked-out building, else the average of the square's four vertex lights), as the stock
+    * loop computes them per splat.
+    */
+   private final pzopt.BloodDecals.SquareRules pzoptBloodRules = (c, level, playerIndex, mask, out) -> {
+      ChunkLevelData cutawayLevel = c.getCutawayDataForLevel(level);
+      for (int i = 0; i < 64; i++) {
+         if ((mask >>> i & 1L) == 0L) {
+            continue;
+         }
+         IsoGridSquare square = c.getGridSquare(i & 7, i >> 3, level);
+         if (cutawayLevel == null || !cutawayLevel.shouldRenderSquare(playerIndex, square)) {
+            continue;
+         }
+         int l0 = square.getVertLight(0, playerIndex);
+         int l1 = square.getVertLight(1, playerIndex);
+         int l2 = square.getVertLight(2, playerIndex);
+         int l3 = square.getVertLight(3, playerIndex);
+         boolean black = this.isBlackedOutBuildingSquare(square);
+         out[i * 4] = black ? 0.0F : (Color.getRedChannelFromABGR(l0) + Color.getRedChannelFromABGR(l1) + Color.getRedChannelFromABGR(l2) + Color.getRedChannelFromABGR(l3)) / 4.0F;
+         out[i * 4 + 1] = black ? 0.0F : (Color.getGreenChannelFromABGR(l0) + Color.getGreenChannelFromABGR(l1) + Color.getGreenChannelFromABGR(l2) + Color.getGreenChannelFromABGR(l3)) / 4.0F;
+         out[i * 4 + 2] = black ? 0.0F : (Color.getBlueChannelFromABGR(l0) + Color.getBlueChannelFromABGR(l1) + Color.getBlueChannelFromABGR(l2) + Color.getBlueChannelFromABGR(l3)) / 4.0F;
+         out[i * 4 + 3] = 1.0F;
+      }
+   };
 
    private void renderOneLevel_Blood(IsoChunk chunk, int dwx, int dwy, int zza) {
       IsoChunk chunk2 = IsoWorld.instance.currentCell.getChunk(chunk.wx + dwx, chunk.wy + dwy);
