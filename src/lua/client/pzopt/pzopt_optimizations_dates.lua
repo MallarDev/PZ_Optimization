@@ -61,6 +61,7 @@ PzoptOptionDates = {
     bakeSmoothMin = "2026-09-25",
     bloodAppend = "2026-09-29",
     bloodAppendBiasPct = "2026-09-29",
+    bloodAppendPlants = "2026-09-29",
     bloodAppendVegetation = "2026-09-29",
     bloodBake = "2026-09-29",
     bloodFadeFix = "2026-09-29",

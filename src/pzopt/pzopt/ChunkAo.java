@@ -317,6 +317,8 @@ public final class ChunkAo {
          job.key = key;
          job.w = rc.w;
          job.h = rc.h;
+         job.n = 0;
+         job.addSource(rc.depth.getID(), 0.0F, 0.0F, rc.w, rc.h, 0.0F); // aoEdgeAware: the depth-aware read
          SpriteRenderer.instance.drawGeneric(job);
       }
       if (geometry || !info.has) {
@@ -1499,6 +1501,7 @@ public final class ChunkAo {
       private final int[] uAoOnly = new int[23];
       private int blurProgram;
       private int mulProgram;
+      private static final float EDGE_TOLERANCE_SQUARES = 0.12F; // aoEdgeAware: a depth step of this many squares halves a tap's weight (roughly)
       private int ratioProgram;
       private int copyProgram;
       private int mipFbo;
@@ -1515,8 +1518,8 @@ public final class ChunkAo {
       private final int[] viewport = new int[4];
       private final int[] uAo = new int[23];
       private final int[] uBlur = new int[4];
-      private final int[] uMul = new int[2];
-      private final int[] uRatio = new int[4];
+      private final int[] uMul = new int[4];
+      private final int[] uRatio = new int[6];
       private final int[] uCopy = new int[2];
       private boolean logged;
       private boolean cardsBound; // this compute's kernel reads the tree silhouettes
@@ -1596,6 +1599,21 @@ public final class ChunkAo {
          restore(this.viewport);
       }
 
+      /**
+       * aoEdgeAware: the texture's own depth on unit 2 for the multiply's depth-aware read of the half-resolution AO (the
+       * bilinear read put the occlusion of the wall behind a thin object onto its edge); off, or no depth: plain bilinear.
+       */
+      private void edgeUniforms(int depthLoc, int eLoc, Job job, float sc) {
+         boolean on = Config.AO_EDGE_AWARE && job.n > 0 && job.srcTex[0] > 0;
+         if (on) {
+            GL13.glActiveTexture(GL13.GL_TEXTURE2);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, job.srcTex[0]);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+         }
+         GL20.glUniform1i(depthLoc, 2);
+         GL20.glUniform4f(eLoc, on ? 1.0F : 0.0F, sc, AmbientOcclusion.UNITS_PER_DEPTH / EDGE_TOLERANCE_SQUARES, 0.0F);
+      }
+
       /** The texture's colour (its framebuffer bound) times its AO; the first time after a compute under an occlusion query. */
       private void drawMultiply(Job job, Entry e, float sc, int aw, int ah) {
          boolean dev = Config.DEV_AO_VIEW > 0;
@@ -1603,6 +1621,7 @@ public final class ChunkAo {
          GL20.glUseProgram(this.mulProgram);
          GL20.glUniform1i(this.uMul[0], 0);
          GL20.glUniform4f(this.uMul[1], sc / aw, sc / ah, 1.0F, Config.DEV_AO_VIEW);
+         this.edgeUniforms(this.uMul[2], this.uMul[3], job, sc);
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, e.tex);
          GL11.glEnable(GL11.GL_BLEND);
          if (Config.DEV_AO_VIEW > 0) {
@@ -1816,6 +1835,7 @@ public final class ChunkAo {
          GL20.glUniform1i(this.uRatio[1], 1);
          GL20.glUniform4f(this.uRatio[2], sc / aw, sc / ah, 1.0F, hadOld ? 1.0F : 0.0F);
          GL20.glUniform4f(this.uRatio[3], direct ? 1.0F : (float)aw / this.rawW, direct ? 1.0F : (float)ah / this.rawH, Config.DEV_AO_VIEW, 0.0F);
+         this.edgeUniforms(this.uRatio[4], this.uRatio[5], job, sc);
          GL13.glActiveTexture(GL13.GL_TEXTURE1);
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, e.tex);
          GL13.glActiveTexture(GL13.GL_TEXTURE0);
@@ -1843,6 +1863,7 @@ public final class ChunkAo {
                GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, job.colorTex, k);
                GL11.glViewport(0, 0, Math.max(1, job.w >> k), Math.max(1, job.h >> k));
                GL20.glUniform4f(this.uRatio[2], sc / aw * (1 << k), sc / ah * (1 << k), 1.0F, hadOld ? 1.0F : 0.0F);
+               GL20.glUniform4f(this.uRatio[5], 0.0F, sc, 0.0F, 0.0F); // mip levels: plain bilinear (the depth is level 0's)
                GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
             }
             GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, 0, 0);
@@ -2293,6 +2314,10 @@ public final class ChunkAo {
          this.uBlur[3] = GL20.glGetUniformLocation(this.blurProgram, "sunS");
          this.uMul[0] = GL20.glGetUniformLocation(this.mulProgram, "Ao");
          this.uMul[1] = GL20.glGetUniformLocation(this.mulProgram, "m");
+         this.uMul[2] = GL20.glGetUniformLocation(this.mulProgram, "Depth"); // aoEdgeAware
+         this.uMul[3] = GL20.glGetUniformLocation(this.mulProgram, "e");
+         this.uRatio[4] = GL20.glGetUniformLocation(this.ratioProgram, "Depth");
+         this.uRatio[5] = GL20.glGetUniformLocation(this.ratioProgram, "e");
          this.uRatio[0] = GL20.glGetUniformLocation(this.ratioProgram, "NewAo");
          this.uRatio[1] = GL20.glGetUniformLocation(this.ratioProgram, "OldAo");
          this.uRatio[2] = GL20.glGetUniformLocation(this.ratioProgram, "m");
@@ -2909,9 +2934,34 @@ public final class ChunkAo {
       "#version 140",
       "uniform sampler2D Ao;",
       "uniform vec4 m;", // AO uv per texture texel x, y; strength; dev view
+      "uniform sampler2D Depth;", // the texture's own depth (aoEdgeAware)
+      "uniform vec4 e;", // x: edge-aware on, y: AO texels per texture texel, z: squares per unit depth / tolerance in squares
+      // the AO at this texel from the four around it, each weighted by how close its texel's depth is to this texel's: a
+      // plain bilinear read at half resolution gave a thin object (a canopy's front edge, a cabinet door) the occlusion of
+      // the wall right behind it (dark lines along the lower edges of canopies)
+      "float aoRead(sampler2D A, vec2 uv, vec2 uvPerAo, vec2 scale) {",
+      "   if (e.x < 0.5) return textureLod(A, uv * scale, 0.0).r;",
+      "   vec2 a = gl_FragCoord.xy * e.y - 0.5;",
+      "   vec2 i0 = floor(a), f = a - i0;",
+      "   ivec2 ds = textureSize(Depth, 0) - 1;",
+      "   float d0 = texelFetch(Depth, clamp(ivec2(gl_FragCoord.xy), ivec2(0), ds), 0).r;",
+      "   float sum = 0.0, wsum = 0.0;",
+      "   for (int j = 0; j < 2; j++) {",
+      "      for (int i = 0; i < 2; i++) {",
+      "         vec2 t = i0 + vec2(float(i), float(j));",
+      "         float wb = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y);",
+      "         float dt = texelFetch(Depth, clamp(ivec2((t + 0.5) / e.y), ivec2(0), ds), 0).r;",
+      "         float z = (dt - d0) * e.z;",
+      "         float w = wb * exp(-z * z) + 1e-5 * wb;",
+      "         sum += textureLod(A, (t + 0.5) * uvPerAo * scale, 0.0).r * w;",
+      "         wsum += w;",
+      "      }",
+      "   }",
+      "   return sum / wsum;",
+      "}",
       "out vec4 fragColor;",
       "void main() {",
-      "   float ao = textureLod(Ao, gl_FragCoord.xy * m.xy, 0.0).r;",
+      "   float ao = aoRead(Ao, gl_FragCoord.xy * m.xy, m.xy / e.y, vec2(1.0));",
       "   ao = clamp(1.0 - (1.0 - ao) * m.z, 0.0, 1.0);",
       "   if (m.w < 0.5 && ao > 0.996) discard;",
       "   fragColor = vec4(vec3(ao), 1.0);",
@@ -2927,12 +2977,37 @@ public final class ChunkAo {
       "uniform sampler2D OldAo;",
       "uniform vec4 m;", // AO uv per texture texel x, y; strength; 1 = there is an old AO
       "uniform vec4 n;", // the scratch's used share x, y; dev view
+      "uniform sampler2D Depth;", // the texture's own depth (aoEdgeAware)
+      "uniform vec4 e;", // x: edge-aware on, y: AO texels per texture texel, z: squares per unit depth / tolerance in squares
+      // the AO at this texel from the four around it, each weighted by how close its texel's depth is to this texel's: a
+      // plain bilinear read at half resolution gave a thin object (a canopy's front edge, a cabinet door) the occlusion of
+      // the wall right behind it (dark lines along the lower edges of canopies)
+      "float aoRead(sampler2D A, vec2 uv, vec2 uvPerAo, vec2 scale) {",
+      "   if (e.x < 0.5) return textureLod(A, uv * scale, 0.0).r;",
+      "   vec2 a = gl_FragCoord.xy * e.y - 0.5;",
+      "   vec2 i0 = floor(a), f = a - i0;",
+      "   ivec2 ds = textureSize(Depth, 0) - 1;",
+      "   float d0 = texelFetch(Depth, clamp(ivec2(gl_FragCoord.xy), ivec2(0), ds), 0).r;",
+      "   float sum = 0.0, wsum = 0.0;",
+      "   for (int j = 0; j < 2; j++) {",
+      "      for (int i = 0; i < 2; i++) {",
+      "         vec2 t = i0 + vec2(float(i), float(j));",
+      "         float wb = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y);",
+      "         float dt = texelFetch(Depth, clamp(ivec2((t + 0.5) / e.y), ivec2(0), ds), 0).r;",
+      "         float z = (dt - d0) * e.z;",
+      "         float w = wb * exp(-z * z) + 1e-5 * wb;",
+      "         sum += textureLod(A, (t + 0.5) * uvPerAo * scale, 0.0).r * w;",
+      "         wsum += w;",
+      "      }",
+      "   }",
+      "   return sum / wsum;",
+      "}",
       "out vec4 fragColor;",
       "void main() {",
       "   vec2 uv = gl_FragCoord.xy * m.xy;",
-      "   float a = clamp(1.0 - (1.0 - textureLod(NewAo, uv * n.xy, 0.0).r) * m.z, 0.0, 1.0);",
+      "   float a = clamp(1.0 - (1.0 - aoRead(NewAo, uv, m.xy / max(e.y, 1e-6), n.xy)) * m.z, 0.0, 1.0);",
       "   if (n.z > 0.5) { fragColor = vec4(vec3(a), 1.0); return; }",
-      "   float b = m.w > 0.5 ? clamp(1.0 - (1.0 - textureLod(OldAo, uv, 0.0).r) * m.z, 0.0, 1.0) : 1.0;",
+      "   float b = m.w > 0.5 ? clamp(1.0 - (1.0 - aoRead(OldAo, uv, m.xy / max(e.y, 1e-6), vec2(1.0))) * m.z, 0.0, 1.0) : 1.0;",
       "   float r = a / max(b, 0.02);",
       "   if (abs(r - 1.0) < 0.004) discard;",
       "   fragColor = vec4(vec3(clamp(r, 0.0, 2.0) * 0.5), 1.0);",

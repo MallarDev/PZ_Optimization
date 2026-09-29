@@ -15,6 +15,8 @@ package pzopt;
  *       chunk texture bakes again with the new AO, or without it); sunShadows the same, sunShadowStrengthPct and
  *       sunShadowSoftnessPct through {@link SunShadow#update} (the kept shadows compute again, no re-bake).</li>
  *   <li>reflections, reflectionStrengthPct, reflectionPuddles: read every frame by {@link Ssr}.</li>
+ *   <li>ambientOcclusion, sunShadows and reflections also switch {@link TileDepthFix}'s fitted tile depth in or out
+ *       (tileDepthFix=auto; the chunk textures it touched bake again).</li>
  *   <li>darknessFloorPct, darknessFloorBasements, memoryTint, memoryLightPct: {@link Darkness#reconfigure} (every loaded
  *       square re-derives its light from the native's values, every chunk texture bakes again); memoryTintPct is read
  *       every frame; colorGrading, colorGradingPct, colorGradingNightPct: {@link Grade#reconfigure} (a new LUT).</li>
@@ -64,6 +66,9 @@ final class Enhancements {
                Hdr.retune();
             }
          }
+      }
+      if (key.equals("ambientOcclusion") || key.equals("sunShadows") || key.equals("reflections")) {
+         TileDepthFix.sync(); // the fitted cabinet depth follows the features that read the depth (tileDepthFix=auto)
       }
    }
 }

@@ -58,6 +58,7 @@ public final class SpriteWindow {
    private static void rewalk() {
       zombie.tileDepth.TileDepthTextureManager.getInstance().initSprites();
       zombie.tileDepth.TileDepthTextureAssignmentManager.getInstance().initSprites();
+      TileDepthFix.reapply();
    }
 
    /** Main thread, every file-system pump: the finishes kept during the window, once it has closed. */

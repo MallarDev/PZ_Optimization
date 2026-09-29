@@ -682,6 +682,9 @@ public final class Config {
    public static final int FILE_INFLIGHT = Math.max(1, integer("fileInflight", 4 * FILE_THREADS));
    public static final boolean PNG_PAETH_FAST = bool("pngPaethFast", true);
    public static final boolean DEPTH_MAP_FAST = bool("depthMapFast", true);
+   public static final String TILE_DEPTH_FIX = string("tileDepthFix", "auto").trim().toLowerCase(java.util.Locale.ROOT); // issue #38: fitted depth for the tiles that share a generic box (pzopt.TileDepthFix); auto = while pixelLight / AO / sun shadows / reflections read the depth, on, off
+   public static final boolean TILE_DEPTH_CANOPIES = bool("tileDepthCanopies", true); // tileDepthFix for the store canopies too: fitted sloped slabs, depth only on the sprite's own texels (2026-09-29: canopies closer to the features-off look, no frame cost, ~+200 ms once at load)
+   public static final boolean TILE_DEPTH_CEILING = bool("tileDepthCeiling", false); // measured and off (2026-09-29): every depth texture's top rows clamped under the ceiling at upload (boot); no visible change on the canopies
    public static final boolean ZONE_EDGE_PREFILTER = bool("zoneEdgePrefilter", true);
    public static final boolean ELECTRICITY_LEVEL_RANGE = bool("electricityLevelRange", true);
    public static final boolean LAZY_OPTIONS_SCREEN = bool("lazyOptionsScreen", true); // the options screen built when first opened, key bindings at once (Lua)
@@ -878,6 +881,7 @@ public final class Config {
    public static final boolean AO_CHUNK_FLIP = bool("aoChunkFlip", true); // chunk AO: the bake writes texture rows top-down (FlipY); false = bottom-up
    public static final boolean AO_REUSE = bool("aoReuse", true); // the AO buffer is kept while the camera, zoom and chunk textures stay the same (no AO work on such frames)
    public static volatile int AO_SCALE_PCT; // AO buffer size per axis, % of the viewport (25..100)
+   public static final boolean AO_EDGE_AWARE = bool("aoEdgeAware", false); // measured and off (2026-09-29): the AO multiplied in with a depth-aware read of its half-resolution term; no visible change on the canopies (max zoom shows the mips), small elsewhere
    public static volatile int AO_RADIUS_PCT; // how far occluders reach, % of a square
    public static final int AO_STRENGTH_PCT = integer("aoStrengthPct", 100); // the one darkening strength before 2026-09-25; now only the fallback of the three per-surface strengths below while they are unset
    // darkening strength per receiving surface, % (100 = the computed occlusion), picked in the AO kernel from the normal it snaps

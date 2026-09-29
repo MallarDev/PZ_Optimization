@@ -5372,3 +5372,47 @@ Findings and numbers: `docs/findings-blood-decals-2026-09-29.md`.
 `renderOneLevel` hands the level's dirty flags to the probe where the bake census reads them, and the nine
 `renderOneLevel_Blood` calls of a bake are timed as one section. Nothing is drawn differently; with the rig off each hook
 is one static-final check. Findings: `docs/findings-blood-decals-2026-09-29.md`.
+
+## Fitted depth for the floating wall cabinets (`tileDepthFix`, 2026-09-29, issue #38)
+
+The game's tile depth assignments give 88 "Floating" wall cabinets (71 of `fixtures_counters_01`, 8 of the Sunstar motel's
+`location_hospitality_sunstarmotel_02`, 8 of `location_trailer_02`) the depth texture of `fixtures_counters_01_16`: a box
+over the whole square from 1.8 to the ceiling. Stock only sorts with it. Per-pixel lighting, ambient occlusion, sun shadows
+and reflections read the chunk textures' depth as the surface, so the cabinets' doors lay half on the box's top and half on
+its front a full square out from the wall (a light seam through every door, AO darkening round a box that is not there).
+`pzopt.TileDepthFix` keeps one texture per distinct fitted shape (17 for the 88 tiles): the boxes
+`harness/tiledepth/fit-boxes.py` fitted to each sprite's opaque pixels (against the wall behind the doors, ~0.55 squares
+deep, corner pieces as an L of two), drawn with the game's own box depth, on exactly the texels the stock box covers (the
+stock depth where the boxes miss, ≤ 3 % of a sprite's opaque pixels), so nothing is drawn or discarded differently. No texel
+is nearer than a plane 0.04 units under the ceiling (the stock upload clamps to just under it): pixel light takes a texel
+within 0.006 levels under a level for that level and then the brighter of the two, so tops on the ceiling plane, and the top
+rows of the fronts, took the light of the roof or the room upstairs (a 0.1 drop smudged the tops with AO: the wall behind
+rose above them). With `tileDepthFix=auto` (default) the fitted textures are swapped into the sprites only while one of those
+four features is on; `on` / `off` force it. The 17 textures build in ~130 ms, once, at the load or at the live switch (there
+the swap waits for the render thread's upload: a re-bake before it read a blank depth texture and the cabinets vanished from
+those chunk textures). Rig: `--flag find=cabinets` (the player in front of the nearest cabinet), the Rosewood medical room
+`--flag start=8086,11526` (a row of cabinets with corner pieces), runs `cab-*` 2026-09-29; `tests/pzopt/TileDepthFixTest`.
+
+`tileDepthCanopies` (default on, same auto rule): 32 straight store canopies, which borrow flat boxes up to the ceiling and are
+Translucent (the stock shader writes the box's depth on their transparent texels: the air under the canopy), get sloped slabs
+fitted by `harness/tiledepth/fit-canopies.py`, and every texture of a tile that is not OpaquePixelsOnly leaves out the texels
+its sprite's alpha mask leaves empty. `tileDepthCeiling` (measured, off): the general alternative, below. Comparison in
+`docs/findings-cabinet-depth-2026-09-29.md`.
+
+### zombie.tileDepth.TileDepthTexture
+
+- `updateGPUTexture` (`tileDepthCeiling`, off by default): with the key and a depth-reading feature on at boot, every non-roof
+  texture's texels in the rows the ceiling crosses are clamped under a plane 0.04 units below it (stock's own clamp, deeper).
+  Measured: no visible change on the canopies; kept off.
+- New method `pzoptFilled`: clears the empty flag of a texture filled in memory, which stock only clears when a PNG loads or
+  when the render thread uploads, so a fitted texture is used from the frame it is swapped in.
+
+### zombie.tileDepth.TileDepthTextures
+
+- `LoadTask.done`: after the manager's finish (whose last call runs both stock assignment walks) `TileDepthFix.reapply()`
+  puts the fitted textures back on the sprites those walks reset. `pzopt.SpriteWindow`'s re-walk does the same.
+
+### zombie.iso.IsoWorld
+
+- `loadedTileDefinitions`: `TileDepthFix.reapply()` after the depth manager's own walk over the new sprites and the geometry
+  manager's sprite properties (the OpaquePixelsOnly flag decides whether a tile's texture takes the sprite mask).

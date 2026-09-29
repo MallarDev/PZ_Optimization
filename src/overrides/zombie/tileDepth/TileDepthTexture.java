@@ -80,6 +80,11 @@ public final class TileDepthTexture {
       this.pixels[this.index(x, y)] = pixel;
    }
 
+   /** pzopt: tileDepthFix, a texture filled in memory (pzopt.TileDepthFix) counts as drawn before the render thread's upload clears the flag */
+   public void pzoptFilled() { // pzopt: tileDepthFix
+      this.empty = false; // pzopt: tileDepthFix
+   } // pzopt: tileDepthFix
+
    public float getPixel(int x, int y) {
       return this.pixels == null ? -1.0F : this.pixels[this.index(x, y)];
    }
@@ -261,6 +266,7 @@ public final class TileDepthTexture {
          if (this.tileset.getName().startsWith("roofs_")) {
             bClamp = false;
          }
+         boolean pzoptCeiling = bClamp && pzopt.TileDepthFix.ceilingClamp(); // pzopt: tileDepthCeiling, the top rows under the ceiling (pixel light read the level above there)
 
          this.empty = true;
 
@@ -270,6 +276,10 @@ public final class TileDepthTexture {
                if (pixel >= 0.0F && y < 64 && bClamp) {
                   pixel = this.clampPixelToUpperFloor(x, y, pixel);
                }
+
+               if (pixel >= 0.0F && pzoptCeiling) { // pzopt: tileDepthCeiling
+                  pixel = PZMath.max(pixel, pzopt.TileDepthFix.underCeiling(x, y, this.getWidth(), this.getHeight())); // pzopt: tileDepthCeiling
+               } // pzopt: tileDepthCeiling
 
                if (pixel < 0.0F) {
                   pixels.put(x * 1 + y * this.getWidth() * 1, (byte)0);

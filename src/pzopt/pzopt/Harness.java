@@ -630,6 +630,14 @@ public final class Harness {
                if ("shore".equals(HarnessFlags.get("find", ""))) {
                   goToShore(p); // dev: HDR water glint scenes, the player on dry land with the water in view
                }
+               if ("cabinets".equals(HarnessFlags.get("find", ""))) {
+                  int[] spot = findCabinets(p); // dev: issue #38, a kitchen's floating wall cabinets in view
+                  if (spot != null) {
+                     x = spot[0] + 0.5F;
+                     y = spot[1] + 0.5F;
+                     routeZ = spot[2];
+                  }
+               }
                if ("translucent".equals(HarnessFlags.get("find", ""))) {
                   findTranslucent(p); // dev: which Translucent-flagged tiles bake near the player (gas canopy lights)
                }
@@ -1641,6 +1649,47 @@ public final class Harness {
     * drawn per frame by stock, baked with translucentTilesInChunkTexture), with the floor of the square above them.
     * find_box=x0,y0,x1,y1 lists every object in that box instead, with its attached and overlay sprites.
     */
+   /**
+    * find=cabinets (issue #38): the loaded square nearest the player that holds one of pzopt.TileDepthFix's floating
+    * wall cabinets on level 0, and the spot two squares in front of it (its facing) where the route starts, so the
+    * cabinet and its neighbours fill the view. Logs the cabinets found.
+    */
+   private static int[] findCabinets(IsoPlayer p) {
+      java.util.HashSet<String> names = new java.util.HashSet<>();
+      for (String row : TileDepthFix.BOXES) {
+         String r = row.trim();
+         names.add(r.substring(0, r.indexOf(' ')));
+      }
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = p.getXi(), py = p.getYi(), n = 0;
+      int[] best = null;
+      long bestD = Long.MAX_VALUE;
+      for (int y = py - 100; y <= py + 100; y++) {
+         for (int x = px - 100; x <= px + 100; x++) {
+            zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, 0);
+            if (sq == null) continue;
+            for (int i = 0; i < sq.getObjects().size(); i++) {
+               zombie.iso.sprite.IsoSprite s = sq.getObjects().get(i).getSprite();
+               if (s == null || s.getName() == null || !names.contains(s.getName())) continue;
+               String facing = s.getProperties().get("Facing");
+               int fx = "E".equals(facing) ? 2 : "W".equals(facing) ? -2 : 0, fy = "S".equals(facing) ? 2 : "N".equals(facing) ? -2 : 0;
+               zombie.iso.IsoGridSquare stand = cell.getGridSquare(x + fx, y + fy, 0);
+               if (n < 40) {
+                  Log.info("harness: find=cabinets: " + x + "," + y + " " + s.getName() + " facing " + facing + " room=" + (sq.getRoom() == null ? "outside" : sq.getRoom().getName()));
+               }
+               n++;
+               long d = (long)(x - px) * (x - px) + (long)(y - py) * (y - py);
+               if (stand != null && stand.getRoom() != null && d < bestD && ("S".equals(facing) || "E".equals(facing))) { // doors towards the camera
+                  bestD = d;
+                  best = new int[]{x + fx, y + fy, 0};
+               }
+            }
+         }
+      }
+      Log.info("harness: find=cabinets: " + n + " floating wall cabinets within 100 tiles of " + px + "," + py + (best == null ? ", none to stand at" : ", standing at " + best[0] + "," + best[1]));
+      return best;
+   }
+
    private static void findTranslucent(IsoPlayer p) {
       zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
       int px = p.getXi(), py = p.getYi(), n = 0;

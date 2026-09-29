@@ -1691,6 +1691,7 @@ public final class IsoWorld {
       SpriteModelManager.getInstance().loadedTileDefinitions();
       TileDepthTextureManager.getInstance().loadedTileDefinitions();
       TileGeometryManager.getInstance().loadedTileDefinitions();
+      pzopt.TileDepthFix.reapply(); // pzopt: tileDepthFix, the fitted depth after the assignment walk and the sprites' depth flags
       this.getAttachmentsHandler().loadAttachments();
    }
 
