@@ -5316,3 +5316,19 @@ DEPTH16 rounding picked the winner row by row under GL_LEQUAL. Stock staggers it
   columns apart, at most 3e-4 (a fifth of a row's 1.44e-3). Of two trees on one row the one further right is in front
   (stock showed the same at that spot; the choice is arbitrary for equally far trees). The issue #5 spot
   (`start=11023,6720`) is unchanged against `treesInChunkTexture=false`.
+
+## The shelf blink: where pixelLight takes a texel's light from (`pplSeenEdge`, `pplJiggle`, `pplDepthOpaqueOnly`, 2026-09-29; PixelLight + a dev hook in FBORenderCell)
+
+The maintainer's save (Riverside Fossoil, night, pixelLight on): the goods on the shelves behind the store counter blinked
+black and shimmered while the player walked in circles. No override edit; all in `pzopt.PixelLight` (details and numbers:
+`docs/findings-shelf-blink-2026-09-29.md`):
+
+- `pplSeenEdge`: a lit point within 0.03 past a square's west / north edge, across a wall, in a never-seen square takes the
+  seen square before the edge (the goods' depth box put their face on the square edge, the plane of the unlit garage's wall);
+  the pack puts the square's "seen" bit in the connectivity texture's alpha next to "outdoors".
+- `pplJiggle`: `Gl.mapping()` includes the camera jiggle fix the game applies to every chunk texture (screen and depth).
+- `pplDepthOpaqueOnly`: `patchShader` makes `tileWithDepth.frag` write no depth where the sprite is fully transparent.
+- Counter crop 400.7 -> 3.0 one-frame flip px/frame (pixelLight off: 1.1); Jev walk through the store 825 -> 7 blink
+  frames, 0 inside the store.
+- `zombie.iso.fboRenderChunk.FBORenderCell`: two dev hooks for `devSquareTrace` (`pzopt.SquareTrace`): `noteBake(c)` beside
+  `PixelLight.bakeBegin` and `frame(playerIndex)` after `FBORenderItems.update()`; both return at once with the key empty.

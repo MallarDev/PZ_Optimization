@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Jev directs the explore=restaurant scene (2026-09-25, the flip HDR "north-facing bloom" report) and the
 explore=stairs scene (2026-09-25, walls flicker on the stairs: up to the top floor, down to the basement; the state
-says "scene": "stairs").
+says "scene": "stairs") and the explore=circle scene with director=jev (2026-09-29, the gas-station shelves flicker while
+the player walks in circles: circles round the start square and the aisles beside the shelves; "scene": "circle").
 
 The game (pzopt.Explore, flags explore=restaurant director=jev) writes the scene's facts every 0.3 s to
 ~/Zomboid/pzopt-explore-state.json; this loop asks TypeSafe's Jev what the character does next and writes
@@ -70,6 +71,26 @@ STAIRS = choice(
         "hold": "Stand still. Right only while nothing else applies.",
         "done": "Finish. Right when back_at_lowest_after_top is true and looked_around_on_this_level is true, or when "
                 "neither a staircase up nor down can be used.",
+    },
+)
+
+CIRCLE = choice(
+    "You direct a character in Project Zomboid who walks in circles to show a flicker on the shelves of a store, one "
+    "decision at a time, from the scene state. At every spot, in order: circle clockwise until clockwise_laps_done is "
+    "true, then counter-clockwise until counterclockwise_laps_done is true, then walk to the next spot; when both are "
+    "done at the last spot (is_last_spot true), finish. A spot where blocked_here is true (the character cannot move "
+    "round it) counts as done. Pick the character's next action.",
+    {
+        "circle_cw": "Walk in a circle clockwise round the spot. Right only while clockwise_laps_done is false and the "
+                     "character is at the spot (at_spot true).",
+        "circle_ccw": "Walk in a circle counter-clockwise round the spot. Right only when clockwise_laps_done is true "
+                      "and counterclockwise_laps_done is false.",
+        "next_spot": "Walk to the next spot. Right when clockwise_laps_done and counterclockwise_laps_done are both true "
+                     "and is_last_spot is false, or when blocked_here is true and is_last_spot is false; also right to keep "
+                     "going while current_action is next_spot and at_spot is false.",
+        "hold": "Stand still. Right only while nothing else applies.",
+        "done": "Finish the walk. Right when is_last_spot is true and either clockwise_laps_done and "
+                "counterclockwise_laps_done are both true or blocked_here is true.",
     },
 )
 
@@ -187,7 +208,8 @@ def main():
         last_t = st["t"]
         lat = []
         try:
-            ans = ask(st, {"action": STAIRS if st.get("scene") == "stairs" else QUESTION}, log=lat)["action"]
+            q = {"stairs": STAIRS, "circle": CIRCLE}.get(st.get("scene"), QUESTION)
+            ans = ask(st, {"action": q}, log=lat)["action"]
         except Exception as e:  # keep the last command; the next state gets another try
             log.write(f"{st['seconds_since_start']:6.1f}s  jev error: {e}\n")
             time.sleep(0.5)
@@ -197,6 +219,12 @@ def main():
         decisions += 1
         io.send(f"{seq} {act}\n")
         probs = " ".join(f"{k}={v:.2f}" for k, v in sorted(ans.get("probabilities", {}).items(), key=lambda kv: -kv[1]))
+        if st.get("scene") == "circle":
+            p, s = st["player"], st["spot"]
+            log.write(f"{st['seconds_since_start']:6.1f}s  {act:<12} conf {ans.get('confidence', 0):.2f}  {lat[0]['ms'] if lat else '?'} ms | "
+                      f"spot {s['number']}/{s['spots_total']} at {p['at_spot']} dist {p['distance_to_spot_tiles']:.1f} "
+                      f"laps cw {s['laps_clockwise_here']:.2f} ccw {s['laps_counterclockwise_here']:.2f} | {probs}\n")
+            continue
         if st.get("scene") == "stairs":
             p, g = st["player"], st["progress"]
             log.write(f"{st['seconds_since_start']:6.1f}s  {act:<12} conf {ans.get('confidence', 0):.2f}  {lat[0]['ms'] if lat else '?'} ms | "

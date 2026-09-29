@@ -1613,6 +1613,7 @@ public final class FBORenderCell {
       SpriteRenderer.instance.endProfile(tilesProbe);
       FBORenderCorpses.getInstance().update();
       FBORenderItems.getInstance().update();
+      pzopt.SquareTrace.frame(playerIndex); // pzopt: devSquareTrace, after the chunk loop
       this.pzoptFlushTreeAppends(playerIndex, Core.getInstance().getZoom(playerIndex)); // pzopt: treeAppend, before the textures are composited
       pzopt.PixelLight.bakeEnd(); pzopt.SpriteFilter.bakeEnd(); // pzopt: pixelLight; sprite filter, the finished texture gets its sharp level 1, no square stays white past the bakes
       long pzoptAoT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
@@ -2165,6 +2166,7 @@ public final class FBORenderCell {
          boolean isDirty = FBORenderChunkManager.instance.beginRenderChunkLevel(c, level, zoom, canRender, true);
          if (pzopt.BakeLog.ON && isDirty && !pzoptWasDirty) pzopt.BakeLog.hidden(c, level); // pzopt: a texture made here without prior dirt (bypasses every budget)
          if (isDirty && pzopt.PixelLight.ACTIVE) pzopt.PixelLight.bakeBegin(c, playerIndex); // pzopt: pixelLight, the chunk's squares hand out white light while its texture bakes
+         if (isDirty) pzopt.SquareTrace.noteBake(c); // pzopt: devSquareTrace
          if (isDirty && canRender) pzopt.GpuSections.begin("bake"); // pzopt: GPU section
          if (isDirty && canRender) pzopt.AmbientOcclusion.changed(); // pzopt: ambient occlusion, a chunk texture changes: recompute
          if (isDirty && canRender && pzopt.BakeMips.ON && FBORenderChunkManager.instance.renderChunk != null) { // pzopt: bakeMipLevels

@@ -940,8 +940,9 @@ public final class PixelLight {
                air |= above;
             }
             int v0 = 0, v1 = 0, v2 = 0, v3 = 0, t0 = 0, t1 = 0, t2 = 0, t3 = 0;
-            int info = 0, conn = 0, tvis = 255;
+            int info = 0, conn = 0, tvis = 255, visible = 0;
             if (sq != null && sq.lighting[playerIndex] instanceof LightingJNI.JNILighting jl) {
+               visible = (jl.pzoptVis() & 7) != 0 ? 1 : 0; // pplSeenEdge: seen (explored), in sight, or in line of sight; 0: never seen (blacked out)
                if (above) {
                   v0 = t0 = jl.pzoptVert(4);
                   v1 = t1 = jl.pzoptVert(5);
@@ -1042,8 +1043,9 @@ public final class PixelLight {
                      + (grad == 0 ? 0x808080 : wallDelta(v0, v1, v2, v3, t0, t1, t2, t3)));
             }
             b.putInt(base + cell8, info & 0xFFFFFF | simple << 24); // base light; a: a simple square (the shader's one-fetch path)
-            int outdoor = sq != null && sq.isOutside() ? 255 : 0;
-            b.putInt(base + 256 + cell8, conn | tvis << 8 | grad << 16 | outdoor << 24); // connectivity bits, torch visibility, vertical gradient, outdoors (wet in rain)
+            // a: outdoors (>= 128: wet in rain) and, in bit 6, visible to the player (pplSeenEdge): 0 / 64 indoors, 128 / 255 outdoors
+            int outdoor = (sq != null && sq.isOutside() ? 128 : 0) | (visible != 0 ? (sq.isOutside() ? 127 : 64) : 0);
+            b.putInt(base + 256 + cell8, conn | tvis << 8 | grad << 16 | outdoor << 24); // connectivity bits, torch visibility, vertical gradient, outdoors + visible
             b.putInt(base + 512 + cell8, grad == 0 ? 0x808080 : wallDelta(v0, v1, v2, v3, t0, t1, t2, t3)); // top corners' mean - bottom corners' mean, 0.5 = none
          }
       }
@@ -1855,12 +1857,22 @@ public final class PixelLight {
          double vx = this.viewportF[0], vy = this.viewportF[1], vwF = this.viewportF[2], vhF = this.viewportF[3];
          double sxPerPx = this.screenW / vwF, syPerPx = this.screenH / vhF;
          double a32 = 32.0 * this.ts, a16 = 16.0 * this.ts;
+         // pplJiggle: the game draws every chunk texture moved by the camera's jiggle fix (FBORenderChunk.renderInWorldMainThread:
+         // fixJigglyModelsX / Y on screen, fixJigglyModelsSquareX + Y off its chunkDepth), i.e. the whole layer moved by (jx, jy)
+         // squares; a point rebuilt without it lay (jx, jy) off (its height unchanged). The offset changes every frame while the
+         // camera moves, and a surface at a square's edge took its light from the square beside it every other frame: the goods
+         // on the Fossoil shelves against the wall of the unlit garage went black and back (2026-09-29)
+         double jx = 0.0, jy = 0.0;
+         if (Config.PPL_JIGGLE && !zombie.debug.DebugOptions.instance.fboRenderChunk.combinedFbo.getValue()) {
+            jx = this.jx;
+            jy = this.jy;
+         }
          out[0] = (float)(sxPerPx * this.zoom / a32);
-         out[1] = (float)(((-vx * sxPerPx) * this.zoom + this.offX) / a32 - (this.ox - this.oy));
+         out[1] = (float)(((-vx * sxPerPx) * this.zoom + this.offX) / a32 - (this.ox - this.oy) - (jx - jy));
          out[2] = (float)(-syPerPx * this.zoom / a16);
-         out[3] = (float)((((vy + vhF) * syPerPx) * this.zoom + this.offY) / a16 - (this.ox + this.oy));
+         out[3] = (float)((((vy + vhF) * syPerPx) * this.zoom + this.offY) / a16 - (this.ox + this.oy) - (jx + jy));
          out[4] = (float)(-1.0 / DEPTH_PER_XY);
-         out[5] = (float)(this.d0 / DEPTH_PER_XY);
+         out[5] = (float)(this.d0 / DEPTH_PER_XY - (jx + jy));
       }
 
       private final float[] map = new float[6];
@@ -2307,6 +2319,28 @@ public final class PixelLight {
    static volatile boolean chunkShaderPatched;
 
    /** ShaderUnit hook: the chunk composite's fragment shader gets the per-pixel light (test-compiled; stock on failure). */
+   /**
+    * pplDepthOpaqueOnly: stock's tileWithDepth.frag writes a sprite's depth wherever its depth texture has a value, also
+    * where the sprite itself is fully transparent (opaqueWithDepth.frag, the OpaquePixelsOnly tiles, does not). A tile
+    * drawn over another in a chunk bake (the goods overlay of a shelf, pixel art full of gaps) stamped its box depth into
+    * the gaps, where the texture shows the shelf behind: the lit point of those texels lay up to a square away, some of
+    * them across the wall in the unlit garage, and with the upscaler's jitter and the camera's jiggle moving which texel a
+    * pixel shows, the Fossoil shelf goods shimmered dark (2026-09-29). With pixelLight the lit point comes from the depth:
+    * a fragment of zero alpha writes neither colour (premultiplied, nothing to blend) nor depth.
+    */
+   private static String depthOpaqueOnly(String code) {
+      if (!Config.PPL_DEPTH_OPAQUE_ONLY || !Config.PIXEL_LIGHT || !Overrides.enabled() || System.getProperty("os.name", "").contains("OS X")) {
+         return code;
+      }
+      String cond = code.contains("if(d > 0)") ? "if(d > 0)" : code.contains("if (d > 0)") ? "if (d > 0)" : null;
+      if (cond == null || !code.contains("c *= col;")) {
+         Log.warn("pixel light: tileWithDepth.frag not as expected; transparent texels keep writing depth");
+         return code;
+      }
+      Log.info("pixel light: tileWithDepth.frag writes depth only where the sprite is not fully transparent");
+      return code.replace(cond, "if(d > 0 && c.a > 0.0)"); // c = the sprite's texel x the vertex colour (col.a = the object's alpha)
+   }
+
    public static String patchShader(String fileName, String code) {
       if (fileName == null || code == null) {
          return code;
@@ -2323,6 +2357,9 @@ public final class PixelLight {
       }
       if (fn.endsWith("/pzopt_chunkStock.frag")) {
          return stockFrag != null ? stockFrag : code;
+      }
+      if (fn.endsWith("/tileWithDepth.frag")) {
+         return depthOpaqueOnly(code);
       }
       if (!fn.endsWith("/chunkShader.frag")) {
          return code;
@@ -2430,6 +2467,7 @@ public final class PixelLight {
       "layout(binding = 11) uniform sampler2DArray pplInfo;", // INFO_UNIT: one texel per square, rgb its light without torches, a the torches reach it (a wall does not hide it)
       "layout(binding = 10) uniform sampler2DArray pplConn;", // CONN_UNIT: one texel per square, r its connected neighbours (bits E S W N SE SW NW NE)
       "vec4 pplInfoAt(ivec2 s, int lvl) { return texelFetch(pplInfo, ivec3(s & pplOrg.z, lvl), 0); }",
+      "bool pplVisible(float a) { return mod(floor(a * 255.0 + 0.5), 128.0) >= 32.0; }", // the conn texture's alpha: 64 / 255 visible (pplSeenEdge)
       // the facing of a surface to a light, relative to a floor's (floors unchanged; wrap softens the sprites' own shading)
       "float pplFacing(vec3 P, vec3 n, vec3 lp) {",
       "   vec3 ld = normalize(lp - P * vec3(1.0, 1.0, PPL_LEVEL));",
@@ -2465,6 +2503,21 @@ public final class PixelLight {
       "   }",
       "   float fz = clamp(P.z - lz, 0.0, 1.0);",
       "   int lvl = int(lz) & pplOrg.w;",
+      // pplSeenEdge: a point just past a square's west or north edge (the +0.004 nudge above, a DEPTH16 step) across a wall,
+      // in a square the player has never seen, next to one it has: the surface is the seen room's (an object flush against the
+      // wall, its depth box's face on the square's edge; the Fossoil shelf goods took the unlit garage's light behind the
+      // wall, a dark speckle that moved with the upscaler's jitter and the camera's jiggle, 2026-09-29)
+      "#ifdef PPL_SEEN_EDGE",
+      "   if (fxy.x < 0.03 || fxy.y < 0.03) {",
+      "      vec4 c0 = texelFetch(pplConn, ivec3(s, lvl), 0);",
+      "      if (!pplVisible(c0.a)) {",
+      "         int cb = int(c0.r * 255.0 + 0.5);",
+      "         ivec2 sx = (s - ivec2(1, 0)) & pplOrg.z, sy = (s - ivec2(0, 1)) & pplOrg.z;",
+      "         if (fxy.x < 0.03 && (cb & 4) == 0 && pplVisible(texelFetch(pplConn, ivec3(sx, lvl), 0).a)) { s = sx; sq.x -= 1.0; fxy.x = 1.0; }",
+      "         else if (fxy.y < 0.03 && (cb & 8) == 0 && pplVisible(texelFetch(pplConn, ivec3(sy, lvl), 0).a)) { s = sy; sq.y -= 1.0; fxy.y = 1.0; }",
+      "      }",
+      "   }",
+      "#endif",
       "   int view = int(pplMapC.w + 0.5);",
       // 1. the base light is the native's sample at each square's centre (lightInfo without the torches: what stock draws
       // objects with; the corners are the max over the four squares around them, which is what makes stock's light
@@ -2575,6 +2628,7 @@ public final class PixelLight {
       "   if (view == 4) L = n * 0.5 + 0.5;",
       "#if !defined(PPL_BASE) && defined(PPL_DEV)",
       "   if (view == 3) { float c = mod(sq.x + sq.y + lz, 2.0); L = vec3(0.35 + 0.5 * c, 0.35 + 0.3 * fxy.x, 0.35 + 0.3 * fxy.y); }",
+      "   if (view == 16) L = vec3(fract(P.x), fract(P.y), (mod(floor(P.x), 4.0) * 4.0 + mod(floor(P.y), 4.0) + 0.5) / 16.0);", // dev: the lit point itself, unshaded (the Fossoil shelf speckle)
       "   if (view == 8) L = vec3(float(conn & 15) / 15.0, float(conn >> 4) / 15.0, V);", // dev: connectivity, torch visibility
       "   if (view == 9) L = vec3(pplOpt2.y >= 0.0 ? pplMask(P) : 0.5);", // dev: the torch shadow mask as read (reprojected)
       "#endif",
@@ -2774,7 +2828,7 @@ public final class PixelLight {
       "      int view = int(pplMapC.w + 0.5);",
       "      if (c.a > 0.0 && view != 2) {",
       "         vec3 L = pplLight(P, dz, n);",
-      "         c.rgb = view == 1 || view == 3 || view == 13 || view == 14 || view == 15 ? L * c.a : c.rgb * L + pplSpec * c.a;", // premultiplied; the glints on top
+      "         c.rgb = view == 16 ? L : view == 1 || view == 3 || view == 13 || view == 14 || view == 15 ? L * c.a : c.rgb * L + pplSpec * c.a;", // premultiplied; the glints on top
       "      }",
       "#else",
       "      if (c.a > 0.0) c.rgb = c.rgb * pplLight(P, dz, n) + pplSpec * c.a;", // premultiplied; the glints on top
@@ -2788,7 +2842,7 @@ public final class PixelLight {
 
    /** The game's chunkShader.frag (DIFFUSE x vertex colour, depth = chunkDepth + the texture's depth) with the light multiplied in. */
    private static final String TINT = (Config.DEV_PPL_TINT ? "#define PPL_TINT\n" : "") + (Config.PPL_TEXEL_POS ? "#define PPL_TEXEL\n#define PPL_NSPAN " + Config.PPL_NORMAL_SPAN + "\n" : "")
-      + (Config.PPL_TEXEL_HEIGHT ? "#define PPL_TEXEL_Z\n" + (Config.PPL_FLOOR_SNAP ? "#define PPL_FLOOR_SNAP\n" : "") : ""); // the defines every chunk program gets
+      + (Config.PPL_TEXEL_HEIGHT ? "#define PPL_TEXEL_Z\n" + (Config.PPL_FLOOR_SNAP ? "#define PPL_FLOOR_SNAP\n" : "") : "") + (Config.PPL_SEEN_EDGE ? "#define PPL_SEEN_EDGE\n" : ""); // the defines every chunk program gets
    private static final String CHUNK_FRAG = "#version 420\n" + (Config.DEV_PPL_VIEW != 0 ? "#define PPL_DEV\n" : "") + TINT + CHUNK_FRAG_BODY; // dev views compiled in only when asked: they keep values alive to the end (registers)
    /** The same without the dynamic lights (chunk textures no light reaches): 32 registers, full occupancy on the 890M (64 with). */
    private static final String CHUNK_BASE_FRAG = "#version 420\n#define PPL_BASE\n" + CHUNK_FRAG_BODY;

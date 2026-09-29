@@ -35,6 +35,8 @@ import zombie.iso.objects.IsoThumpable;
  * <p>{@code explore=circle} (2026-09-25, the flip report: textures flicker at the top left of the screen while the player
  * walks in circles on a real save): the player walks round the square it loaded on, on foot through the same movement
  * keys, {@code circle_radius} tiles (1.5) away, clockwise ({@code circle_dir=ccw} the other way), until the route ends.
+ * With {@code director=jev} Jev directs the circles instead, round the start square and the aisles beside the shelves of
+ * the nearest building: pzopt.CircleWalk.
  *
  * <p>{@code explore=stairs} (2026-09-25, walls flicker on the stairs with every lighting key on): pzopt.StairsWalk.
  */
@@ -47,7 +49,7 @@ public final class Explore {
    private static final String[] DIRS = {"E", "SE", "S", "SW", "W", "NW", "N", "NE"}; // k * 45 deg, 0 = east, +y = south
 
    private static boolean on, director, started, finished, restaurantLit;
-   private static boolean circle, stairs;
+   private static boolean circle, circleJev, stairs;
    private static float circleX, circleY, circleRadius, circleSign, circleTurned, circleLastAngle;
    private static long circleLogNs;
    private static String command = "hold";
@@ -75,7 +77,7 @@ public final class Explore {
 
    /** The harness ends the route when the director (or the autopilot) says done. */
    public static boolean done() {
-      return finished || stairs && StairsWalk.finished();
+      return finished || stairs && StairsWalk.finished() || circleJev && CircleWalk.finished();
    }
 
    /** World-ready (game thread): out of harm's way, find the restaurant. */
@@ -89,6 +91,11 @@ public final class Explore {
       circle = "circle".equalsIgnoreCase(HarnessFlags.get("explore", "").trim());
       if (circle) {
          on = true;
+         circleJev = "jev".equalsIgnoreCase(HarnessFlags.get("director", "").trim());
+         if (circleJev) {
+            CircleWalk.worldReady(p); // director=jev: Jev circles the start square, then the aisles beside the shelves (the shelf flicker report)
+            return;
+         }
          circleX = p.getX();
          circleY = p.getY();
          circleRadius = Float.parseFloat(HarnessFlags.get("circle_radius", "1.5").trim());
@@ -156,12 +163,17 @@ public final class Explore {
       }
       command = director ? "hold" : "go_to_restaurant";
       if (stairs) StairsWalk.routeStart(p);
+      if (circleJev) CircleWalk.routeStart(p);
       circleLastAngle = (float)Math.atan2(p.getY() - circleY, p.getX() - circleX);
    }
 
    /** Per frame while the run is live (game thread). */
    static void tick(IsoPlayer p, long nowNs) {
       if (!on || !started || finished) return;
+      if (circleJev) {
+         CircleWalk.tick(p, nowNs);
+         return;
+      }
       if (circle) {
          walkCircle(p, nowNs);
          return;
@@ -355,7 +367,7 @@ public final class Explore {
       if (run && cur.isOutside()) Showcase.holdKey("Run"); // outside it runs to save time; inside it walks
    }
 
-   private static void openDoorBetween(IsoPlayer p, IsoGridSquare a, IsoGridSquare b) {
+   static void openDoorBetween(IsoPlayer p, IsoGridSquare a, IsoGridSquare b) {
       if (a == null || b == null || a == b) return;
       IsoObject o = a.getDoorTo(b);
       if (o instanceof IsoDoor d && !d.IsOpen() && !d.isBarricaded()) {
@@ -370,7 +382,7 @@ public final class Explore {
       }
    }
 
-   private static long pack(int x, int y) {
+   static long pack(int x, int y) {
       return ((long)x << 32) ^ (y & 0xFFFFFFFFL);
    }
 
@@ -433,7 +445,7 @@ public final class Explore {
       if (n <= 1) pathLen = 0;
    }
 
-   private static boolean passable(IsoGridSquare a, IsoGridSquare b) {
+   static boolean passable(IsoGridSquare a, IsoGridSquare b) {
       if (b == null || b.z != a.z || blocked.contains(pack(b.x, b.y))) return false;
       if (!b.isFree(false)) return false;
       if (a.isWallTo(b) || a.isWindowBlockedTo(b) || a.isStairBlockedTo(b)) return false;
