@@ -74,6 +74,23 @@ wheels and bars), seen from the sun, not the camera. Per caster a 128 x 128 tile
   average, in bursts of at least `sunShadowMeshBurst` (6) draws (a flush's fixed cost shared), new casters at once; the pass
   places the last pose at the character's position now (only the pose lags), the tile's parameters double-buffered
   (scheduled -> drawn at the frame's end -> read by the next frame's pass).
+- 2026-09-29, the maintainer: the shadows looked choppy next to the character (a 15 Hz pose one frame late under a model
+  animated every frame). New Enhancements setting "Sun shadows: update rate", `sunShadowRate` (live): `frame` (default,
+  recommended) draws every caster's pose again every frame, at most `sunShadowMeshFrameBudget` (32) a frame; past it the
+  casters take turns (a drawn one waits casters / budget frames) and a player's own shadow never waits; with
+  `sunShadowMeshSameFrame` (on) the flush is queued right before the caster pass (the models are all drawn by then;
+  `ShadowAtlas.FLUSH_WORLD` restores the pass's cached world framebuffer, not TextureFBO.lastID) and the tile's parameters
+  go straight to the pass, so the shadow shows the pose the model shows in the same frame. `15` (any number: that many a
+  second) is the earlier behaviour: `sunShadowMeshBudget` (12) / `sunShadowMeshBurst`, flushed at the composite, read a
+  frame later (it replaces the dev key `sunShadowMeshHz`). Desktop, the sh-cost-mesh8b scene (40 zombies, 8 animals, the
+  car, uncapped ~850 fps, `devSunAlternate=1000`, `harness/shadows/abframes.py`, paired): 15 a second +27 +- 9 us a frame
+  (GPU +31, shsync-cost-old), every frame + same frame +91 +- 2 us (GPU +87, shsync-cost-new), every frame with the flush
+  left at the composite +129 +- 15 us (shsync-cost-nosame): the extra cost is the redraws, the flush in the middle of the
+  world costs nothing more. ~1.5 % of a 240 fps frame. Recordings shsync-rec-old / -new (60 fps capture, a walking
+  zombie's shadow box, mean abs change a frame): 15 a second 0.00 for 3-4 frames then a 0.3-0.5 jump (42 of 89 frames
+  steps); every frame 0.01-0.16 each frame (1 of 89). Live switch (shsync-live, `live_set=sunShadowRate=15@5,
+  sunShadowRate=frame@10`): unchanged shadow frames 4-5 % -> 60-70 % -> 3-16 %.
+  The flip (~25 us of render thread a sun draw) is not measured yet: up to 32 draws is ~0.8 ms of its render thread.
 - costs found and removed on the way: a glGet per caster (the bound framebuffer / viewport / scissor; ~90 us each on
   NVIDIA's threaded driver: the world framebuffer from a TextureFBO.lastID cache as GodRays does, the viewport on the
   attribute stack); a render target switch and a scissored clear per caster in the middle of the world pass (~30 us of GPU

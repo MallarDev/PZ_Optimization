@@ -279,7 +279,7 @@ public final class ShadowAtlas {
     * world framebuffer from the cache, the viewport (the upscaler's jittered one included) and the scissor box on the
     * attribute stack.
     */
-   static void flush() {
+   static void flush(boolean midWorld) {
       if (PENDING.isEmpty()) {
          return;
       }
@@ -290,7 +290,9 @@ public final class ShadowAtlas {
       long t0 = System.nanoTime();
       // after the world pass the game's own tracked binding (TextureFBO.lastID) is the one to put back: no glGet (a query
       // here missed the mid-world cache every frame, a ~90 us wait for the threaded driver, sh-cost-mesh7)
-      int previousFbo = zombie.core.textures.TextureFBO.lastID;
+      // in the middle of the world (sunShadowMeshSameFrame, before the caster pass) the bound framebuffer can be one the
+      // game's tracking does not know (the upscaler's): the pass's own cache of it
+      int previousFbo = midWorld ? worldFbo() : zombie.core.textures.TextureFBO.lastID;
       ModelCamera prev = ModelCamera.instance;
       GL11.glPushAttrib(GL11.GL_VIEWPORT_BIT | GL11.GL_SCISSOR_BIT);
       Tracked saved = Tracked.save();
@@ -367,19 +369,29 @@ public final class ShadowAtlas {
       renderNs += System.nanoTime() - t0;
    }
 
-   /** Queued at the screen composite (CapsuleShadow.queueAtlasFlush): the frame's sun draws. */
-   static final TextureDraw.GenericDrawer FLUSH = new TextureDraw.GenericDrawer() {
+   /** Queued at the screen composite (CapsuleShadow.queueAtlasFlush): the frame's sun draws (none left after FLUSH_WORLD). */
+   static final TextureDraw.GenericDrawer FLUSH = new Flush(false);
+   /** Queued right before the caster pass (sunShadowMeshSameFrame): the frame's sun draws, read by the pass that follows. */
+   static final TextureDraw.GenericDrawer FLUSH_WORLD = new Flush(true);
+
+   private static final class Flush extends TextureDraw.GenericDrawer {
+      private final boolean midWorld;
+
+      Flush(boolean midWorld) {
+         this.midWorld = midWorld;
+      }
+
       @Override
       public void render() {
          try {
-            flush();
+            flush(this.midWorld);
          } catch (Throwable t) {
             failed = true;
             recycle();
             Log.warn("shadow atlas: flush " + t + "; off for the rest of the session");
          }
       }
-   };
+   }
 
    private static void recycle() {
       for (int i = 0; i < PENDING.size(); i++) {

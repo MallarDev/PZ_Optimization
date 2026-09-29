@@ -593,7 +593,6 @@ PzoptOptionDates = {
     sunShadowMeshBudget = "2026-09-27",
     sunShadowMeshBurst = "2026-09-27",
     sunShadowMeshes = "2026-09-27",
-    sunShadowMeshHz = "2026-09-27",
     sunShadowMeshVehicles = "2026-09-27",
     sunShadowPassLate = "2026-09-27",
     sunShadows = "2026-09-25",

@@ -119,23 +119,39 @@ public final class CapsuleShadow {
       castersNow = 0;
       drawsNow = 0;
       lampDrawsNow = 0;
-      // sunShadowMeshHz: each caster's pose redrawn so many times a second whatever the frame rate (the draws a frame follow
-      // the casters and the last frame's time), at least one a frame, at most sunShadowMeshBudget
-      long nowNs = System.nanoTime();
-      double dt = lastQueueNs == 0L ? 1.0 / 240.0 : Math.min(0.1, (nowNs - lastQueueNs) / 1e9);
-      lastQueueNs = nowNs;
-      // the draws come in bursts of at least sunShadowMeshBurst (a flush has a fixed cost: the atlas bound, its tiles cleared,
-      // the state put back; ~44 us of the flip's render thread against ~26 us a draw): the frame's share of the redraws is
-      // credited, and a frame spends it once it covers a burst
-      meshCredit = Math.min(64.0, meshCredit + castersLast * Math.max(1, Config.SUN_SHADOW_MESH_HZ) * dt);
-      int burst = Math.max(1, Config.SUN_SHADOW_MESH_BURST);
-      if (meshCredit >= Math.min(burst, Math.max(1, castersLast))) {
-         meshBudget = Math.min(Math.max(1, Config.SUN_SHADOW_MESH_BUDGET), (int)meshCredit);
-         meshCredit -= meshBudget;
+      lampViewsLast = lampViewsNow;
+      lampViewsNow = 0;
+      atlasSameFrame = false;
+      rateHz = Config.SUN_SHADOW_RATE_HZ;
+      if (rateHz <= 0) {
+         // sunShadowRate=frame, like the model: sunShadowMeshFrameBudget draws a frame; past it the casters take turns (one
+         // drawn waits casters / budget frames), so the budget goes to the oldest poses
+         int budget = Math.max(1, Config.SUN_SHADOW_MESH_FRAME_BUDGET);
+         meshBudget = budget;
+         meshCredit = 0.0;
+         meshStaleFrames = Math.max(1L, (castersLast + budget - 1L) / budget);
+         int lampBudget = Math.max(1, Config.SUN_SHADOW_LAMP_BUDGET);
+         lampStaleFrames = Math.max(1L, (lampViewsLast + lampBudget - 1L) / lampBudget);
       } else {
-         meshBudget = 0; // (a new caster still draws: its first pose)
+         // sunShadowRate N: each caster's pose redrawn so many times a second whatever the frame rate (the draws a frame follow
+         // the casters and the last frame's time), at least one a frame, at most sunShadowMeshBudget
+         long nowNs = System.nanoTime();
+         double dt = lastQueueNs == 0L ? 1.0 / 240.0 : Math.min(0.1, (nowNs - lastQueueNs) / 1e9);
+         lastQueueNs = nowNs;
+         // the draws come in bursts of at least sunShadowMeshBurst (a flush has a fixed cost: the atlas bound, its tiles cleared,
+         // the state put back; ~44 us of the flip's render thread against ~26 us a draw): the frame's share of the redraws is
+         // credited, and a frame spends it once it covers a burst
+         meshCredit = Math.min(64.0, meshCredit + castersLast * rateHz * dt);
+         int burst = Math.max(1, Config.SUN_SHADOW_MESH_BURST);
+         if (meshCredit >= Math.min(burst, Math.max(1, castersLast))) {
+            meshBudget = Math.min(Math.max(1, Config.SUN_SHADOW_MESH_BUDGET), (int)meshCredit);
+            meshCredit -= meshBudget;
+         } else {
+            meshBudget = 0; // (a new caster still draws: its first pose)
+         }
+         meshStaleFrames = Math.max(1L, (long)(0.8 / (rateHz * Math.max(1e-4, dt)))); // a pose older than ~0.8 / Hz is due
+         lampStaleFrames = meshStaleFrames;
       }
-      meshStaleFrames = Math.max(1L, (long)(0.8 / (Math.max(1, Config.SUN_SHADOW_MESH_HZ) * Math.max(1e-4, dt)))); // a pose older than ~0.8 / Hz is due
       // the draws scheduled last frame were drawn at its end: their content is the tiles' now
       for (int t = 0; t < ShadowAtlas.MAX_TILES; t++) {
          if (TILE_SCHED[t] == stamp - 1L && TILE_SCHED[t] != 0L) {
@@ -197,6 +213,8 @@ public final class CapsuleShadow {
       if (f.meshes) {
          // the atlas starts here in the sprite stream: cleared, the frame's sun, before any model of the frame draws
          SpriteRenderer.instance.drawGeneric(ShadowAtlas.begin(f.sun[0], f.sun[1], f.sun[2], true));
+         // sunShadowMeshSameFrame: the pass (after the moving objects: f.silhouette) follows the frame's flush
+         atlasSameFrame = rateHz <= 0 && Config.SUN_SHADOW_MESH_SAME_FRAME;
       }
       if (f.silhouette) {
          deferred = f; // drawn after the moving objects (afterMoving): the march reads their depth
@@ -217,7 +235,19 @@ public final class CapsuleShadow {
       Frame f = deferred;
       deferred = null;
       if (f != null && f.n > 0) {
+         flushSameFrame();
          SpriteRenderer.instance.drawGeneric(f);
+      }
+   }
+
+   /**
+    * sunShadowMeshSameFrame: the frame's sun and lamp draws of the casters flushed into the atlas right before the caster
+    * pass reads it (the casters' models are all drawn by then; their tiles' parameters went straight to TILE_OFF). The
+    * screen composite's flush (queueAtlasFlush) then finds nothing left.
+    */
+   private static void flushSameFrame() {
+      if (atlasSameFrame && drawsNow > 0) {
+         SpriteRenderer.instance.drawGeneric(ShadowAtlas.FLUSH_WORLD);
       }
    }
 
@@ -233,6 +263,7 @@ public final class CapsuleShadow {
       Frame f = deferred;
       deferred = null;
       if (f != null && f.n > 0) {
+         flushSameFrame();
          SpriteRenderer.instance.drawGeneric(f);
       }
    }
@@ -333,9 +364,12 @@ public final class CapsuleShadow {
    private static int lampDrawsNow;
    private static long lampDraws, lampLooks;
    private static int castersNow, castersLast, drawsNow, meshBudget = 1;
+   private static int rateHz; // game thread: this frame's sunShadowRate (0 every frame)
+   private static boolean atlasSameFrame; // game thread: this frame's atlas is flushed before its pass (sunShadowMeshSameFrame)
    private static long lastQueueNs;
    private static double meshCredit;
-   private static long meshStaleFrames = 1L;
+   private static long meshStaleFrames = 1L, lampStaleFrames = 1L;
+   private static int lampViewsNow, lampViewsLast;
    private static long meshDraws;
    private static int tileScan;
 
@@ -343,9 +377,10 @@ public final class CapsuleShadow {
     * The caster just appended (the frame's last, a model) keeps its atlas tile from frame to frame (a free one the first
     * time). The tile is drawn again from the sun when it is new, drawn under another sun step, or its turn in the frame's
     * budget has come (sunShadowMeshBudget draws a frame, the casters taking turns: each is redrawn every casters / budget
-    * frames); in between the pass reads the last pose, placed at the character's position now (only the pose lags, by a
-    * few frames). Its tile, half size and centre go into the caster's data; a draw's centre and half size on the character
-    * for tileFor.
+    * frames, every frame up to sunShadowMeshFrameBudget with sunShadowRate=frame; a player every frame then); in between the pass reads the last
+    * pose, placed at the character's position now. With sunShadowRate=frame (+ sunShadowMeshSameFrame) a draw is flushed before this frame's pass
+    * and read by it (the shadow shows the model's pose of this frame); without, by the next frame's. Its tile, half size
+    * and centre go into the caster's data; a draw's centre and half size on the character for tileFor.
     */
    private static void assignTile(Frame f, zombie.iso.IsoMovingObject chr, boolean sun) {
       int base = (f.n - 1) * TEXELS * 4;
@@ -367,7 +402,7 @@ public final class CapsuleShadow {
    /**
     * sunShadowLampMeshes: the character's views from the (at most two) strongest lamps it stands in (the frame's lights are
     * sorted strongest first), each in a tile of its own, drawn again when new, when its lamp moved round the character by a
-    * fifth of a square or its pose is older than sunShadowMeshHz allows (sunShadowLampBudget draws a frame); the lamp at the
+    * fifth of a square or its pose is older than sunShadowRate allows (sunShadowLampBudget draws a frame); the lamp at the
     * draw goes with the tile's content, so the pass reads a consistent view in between.
     */
    private static void lampTiles(Frame f, zombie.iso.IsoMovingObject chr, int base) {
@@ -419,12 +454,14 @@ public final class CapsuleShadow {
             lv.tile[j] = t;
          }
          TILE_SEEN[t] = stamp;
+         lampViewsNow++;
          int o = t * 4, o3 = t * 3;
          float lox = lx - mx, loy = ly - my, loz = lz - mz; // the lamp from the caster's centre now
          float mdx = lox - TILE_LAMP_NEXT[o3], mdy = loy - TILE_LAMP_NEXT[o3 + 1], mdz = loz - TILE_LAMP_NEXT[o3 + 2];
          boolean moved = mdx * mdx + mdy * mdy + mdz * mdz > 0.04F;
          boolean due = TILE_DRAWN[t] == 0L
-            || lampDrawsNow < Math.max(1, Config.SUN_SHADOW_LAMP_BUDGET) && (moved || stamp - TILE_DRAWN[t] >= meshStaleFrames);
+            || lampDrawsNow < Math.max(1, Config.SUN_SHADOW_LAMP_BUDGET) && (moved || stamp - TILE_DRAWN[t] >= lampStaleFrames)
+            || rateHz <= 0 && chr instanceof zombie.characters.IsoPlayer && TILE_DRAWN[t] != stamp;
          if (due) {
             TILE_NEXT[o] = f.ox + mx - px;
             TILE_NEXT[o + 1] = f.oy + my - py;
@@ -433,6 +470,11 @@ public final class CapsuleShadow {
             TILE_LAMP_NEXT[o3] = lox;
             TILE_LAMP_NEXT[o3 + 1] = loy;
             TILE_LAMP_NEXT[o3 + 2] = loz;
+            if (atlasSameFrame) {
+               System.arraycopy(TILE_NEXT, o, TILE_OFF, o, 4); // drawn before this frame's pass: its content now
+               System.arraycopy(TILE_LAMP_NEXT, o3, TILE_LAMP, o3, 3);
+               TILE_HAS[t] = true;
+            }
             TILE_SCHED[t] = stamp;
             TILE_DRAWN[t] = stamp;
             drawsNow++;
@@ -496,7 +538,8 @@ public final class CapsuleShadow {
       long period = meshStaleFrames;
       long sunStep = SunShadow.stepSerial();
       boolean due = TILE_DRAWN[tile] == 0L
-         || drawsNow < budget && (stamp - TILE_DRAWN[tile] >= period || TILE_SUN[tile] != sunStep);
+         || drawsNow < budget && (stamp - TILE_DRAWN[tile] >= period || TILE_SUN[tile] != sunStep)
+         || rateHz <= 0 && chr instanceof zombie.characters.IsoPlayer && TILE_DRAWN[tile] != stamp; // a player's own shadow never waits a turn
       int o = tile * 4;
       if (due) {
          // the draw happens at the end of this frame's world pass (ShadowAtlas.flush): its parameters wait in TILE_NEXT and
@@ -525,6 +568,10 @@ public final class CapsuleShadow {
             vs[3] = py + TILE_NEXT[o + 1];
             vs[4] = pz + TILE_NEXT[o + 2];
             vs[5] = half;
+         }
+         if (atlasSameFrame) {
+            System.arraycopy(TILE_NEXT, o, TILE_OFF, o, 4); // drawn before this frame's pass: its content now
+            TILE_HAS[tile] = true;
          }
       }
       if (!TILE_HAS[tile]) {

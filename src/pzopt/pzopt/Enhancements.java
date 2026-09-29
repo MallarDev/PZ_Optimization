@@ -56,10 +56,10 @@ final class Enhancements {
          }
          case "colorGrading", "colorGradingPct", "colorGradingNightPct" -> Grade.reconfigure();
          case "sunShadowStrengthPct", "sunShadowSoftnessPct", "sunShadowCharacters", "sunShadowVehicles", "sunShadowTorches",
-               "sunShadowMeshes", "sunShadowAnimals", "sunShadowStockFadePct",
+               "sunShadowMeshes", "sunShadowAnimals", "sunShadowStockFadePct", "sunShadowRate",
                "moonShadows", "moonShadowPct", "cloudShadows", "cloudOpacityPct", "cloudSpeedPct", "cloudScalePct" -> {
             // SunShadow.update sees the new strength / penumbra next frame and recomputes the kept shadows (no re-bake);
-            // the capsule pass reads its three switches every frame; the moon and the clouds are read every frame too
+            // the capsule pass reads its three switches and the shadow update rate every frame; the moon and the clouds too
          }
          default -> {
             if (key.startsWith("hdr")) {

@@ -909,13 +909,16 @@ public final class Config {
    public static final int SUN_SHADOW_SILHOUETTE_STEPS = integer("sunShadowSilhouetteSteps", 24); // sunShadowSilhouette: depth samples per pixel along the ray's stretch inside the caster's bounding capsule (at most)
    public static volatile boolean SUN_SHADOW_MESHES; // sunShadows: characters and animals cast the shadow of their own model: right after its draw the model is drawn again from the sun into its tile of a depth atlas (pzopt.ShadowAtlas, 128 x 128 a caster), the shadow pass reads it with a percentage-closer soft shadow (every limb, hair, clothes, bags, weapons, an animal's legs and tail); off: capsules (+ the depth shell of sunShadowSilhouette) (live)
    public static final boolean SUN_SHADOW_MESH_VEHICLES = bool("sunShadowMeshVehicles", true); // sunShadowMeshes: vehicles too (their body, wheels, doors, bars as drawn); off: their three capsules
-   public static final int SUN_SHADOW_MESH_BURST = integer("sunShadowMeshBurst", 6); // sunShadowMeshes: redraws come in bursts of at least this many (the atlas flush's fixed cost shared), sunShadowMeshHz on average
-   public static final int SUN_SHADOW_MESH_BUDGET = integer("sunShadowMeshBudget", 12); // sunShadowMeshes: at most this many casters drawn again from the sun a frame (new ones always); the rest keep an earlier pose at their position now
-   public static final int SUN_SHADOW_MESH_HZ = integer("sunShadowMeshHz", 15); // sunShadowMeshes: how many times a second each caster's pose is drawn again (the draws a frame follow the casters and the frame time, within 1..sunShadowMeshBudget)
+   public static final int SUN_SHADOW_MESH_BURST = integer("sunShadowMeshBurst", 6); // sunShadowMeshes, sunShadowRate N a second: redraws come in bursts of at least this many (the atlas flush's fixed cost shared), N a second on average
+   public static final int SUN_SHADOW_MESH_BUDGET = integer("sunShadowMeshBudget", 12); // sunShadowMeshes, sunShadowRate N a second: at most this many casters drawn again from the sun a frame (new ones always); the rest keep an earlier pose at their position now
+   public static final int SUN_SHADOW_MESH_FRAME_BUDGET = integer("sunShadowMeshFrameBudget", 32); // sunShadowMeshes, sunShadowRate=frame: at most this many casters drawn again from the sun a frame (new ones and players always); past it the casters take turns (a drawn one waits casters / budget frames)
+   public static final boolean SUN_SHADOW_MESH_SAME_FRAME = bool("sunShadowMeshSameFrame", true); // sunShadowMeshes, sunShadowRate=frame: the atlas drawn right before the caster pass, so the shadow shows the pose the model shows this frame; off: at the screen composite, read by the next frame's pass (one frame behind the model)
    public static final boolean SUN_SHADOW_LAMP_MESHES = bool("sunShadowLampMeshes", true); // sunShadowMeshes + sunShadowTorches: a character's shadow from a torch or a headlight is its own model too, drawn from the lamp (a perspective view into its atlas tile, the two strongest lamps a character); off: capsules
    public static final int SUN_SHADOW_LAMP_SPREAD_PCT = integer("sunShadowLampSpreadPct", 100); // sunShadowTorches: a torch / headlight shadow's quad widens with its cone up to this % of the caster's width near it; the rest fades out at the quad's sides (flip, 8 zombies in a torch beam: 100 ~260 us, 200 ~420-700, 400 ~500-830: the quads are long)
    public static final int SUN_SHADOW_LAMP_BUDGET = integer("sunShadowLampBudget", 8); // sunShadowLampMeshes: at most this many lamp views drawn again a frame (new ones and a lamp that moved round its caster first); the rest keep an earlier pose at their position now
    public static final boolean SUN_SHADOW_SHELL_LIMBS = bool("sunShadowShellLimbs", true); // sunShadowSilhouette: a person's limbs and an animal's legs come from the depth shell alone (the capsules keep the torso and head, an animal's trunk): 2 capsule tests a pixel instead of 10; off: all ten capsules as well
+   public static volatile String SUN_SHADOW_RATE; // sunShadowMeshes: how often a caster's shadow pose is drawn again: frame = every frame, in the same frame as the model (2026-09-30, recommended: 15 a second read as choppy next to the character; desktop 40 casters +91 us a frame against +27); a number = that many times a second, one frame behind the model (15: the 2026-09-27 behaviour) (live)
+   public static volatile int SUN_SHADOW_RATE_HZ; // sunShadowRate as a rate: 0 every frame, else times a second
    public static volatile int SUN_SHADOW_STOCK_FADE_PCT; // sunShadows: how much of the stock blob shadow under a character or vehicle fades where it casts a real sun shadow (x its sun share; overcast, at night and indoors the stock blob stays), % (live)
    public static volatile boolean SUN_SHADOW_ANIMALS; // sunShadows: animals cast sun shadows too (their bounding capsule from every bone of their skeleton; with sunShadowSilhouette their drawn shape) (live)
    public static final boolean SUN_SHADOW_MARCH = bool("sunShadowMarch", false); // sunShadows, characters: per pixel, a receiver the static world hides from the sun takes no second shadow (8 depth taps); off: per caster (its own sun share)
@@ -1276,6 +1279,16 @@ public final class Config {
       SUN_SHADOW_MESHES = bool("sunShadowMeshes", true);
       SUN_SHADOW_ANIMALS = bool("sunShadowAnimals", true);
       SUN_SHADOW_STOCK_FADE_PCT = Math.max(0, Math.min(100, integer("sunShadowStockFadePct", 85)));
+      SUN_SHADOW_RATE = string("sunShadowRate", "frame").trim().toLowerCase(java.util.Locale.ROOT);
+      int rateHz = 0;
+      if (!SUN_SHADOW_RATE.equals("frame")) {
+         try {
+            rateHz = Math.max(1, Math.min(240, Integer.parseInt(SUN_SHADOW_RATE)));
+         } catch (NumberFormatException e) {
+            rateHz = 0; // unknown: every frame
+         }
+      }
+      SUN_SHADOW_RATE_HZ = rateHz;
       MOON_SHADOWS = bool("moonShadows", true);
       MOON_SHADOW_PCT = integer("moonShadowPct", 100);
       CLOUD_SHADOWS = bool("cloudShadows", true);
