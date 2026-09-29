@@ -285,7 +285,7 @@ public final class BloodDecals {
       if (typesReady && ts == typeTileScale) {
          return true;
       }
-      boolean all = true;
+      boolean all = true, create = false;
       for (int t = 0; t < TYPES; t++) {
          String name = IsoFloorBloodSplat.FLOOR_BLOOD_TYPES[t];
          IsoSprite sp = IsoFloorBloodSplat.spriteMap.get(name);
@@ -300,6 +300,15 @@ public final class BloodDecals {
             all = false;
             continue;
          }
+         if (tex.getTextureId().getID() == -1) {
+            // loaded but its GL texture not created yet: TextureID creates it at its first bind on the render thread, and
+            // stock's Texture.render is the only caller that binds it (the bake and the wet layer bind the raw id; the wet
+            // layer's runs threw on the -1 id every rebuild, each one aborting that frame's cell render: the maintainer's
+            // "burn-in image" after a torch toggle, 2026-09-29). Create it and use stock's splats until it exists
+            all = false;
+            createPending[t] = tex;
+            create = true;
+         }
          typeUv[t * 4] = tex.getXStart();
          typeUv[t * 4 + 1] = tex.getYStart();
          typeUv[t * 4 + 2] = tex.getXEnd();
@@ -312,8 +321,30 @@ public final class BloodDecals {
       }
       typesReady = all;
       typeTileScale = ts;
+      if (create && !createQueued) {
+         createQueued = true;
+         SpriteRenderer.instance.drawGeneric(CREATE);
+      }
       return all;
    }
+
+   private static final Texture[] createPending = new Texture[TYPES];
+   private static volatile boolean createQueued;
+
+   /** Render thread: the pending type textures' GL textures created (TextureID's lazy create at a bind). */
+   private static final TextureDraw.GenericDrawer CREATE = new TextureDraw.GenericDrawer() {
+      @Override
+      public void render() {
+         for (int t = 0; t < TYPES; t++) {
+            Texture tex = createPending[t];
+            createPending[t] = null;
+            if (tex != null && tex.getTextureId() != null) {
+               tex.getTextureId().bind();
+            }
+         }
+         createQueued = false;
+      }
+   };
 
    static Texture typeTexture(int t) {
       return typeTex[t];

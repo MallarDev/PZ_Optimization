@@ -219,6 +219,20 @@ public final class BloodWet {
     * square, and the set is rebuilt and uploaded only when that, the camera's chunk or a quarter game minute changed.
     */
    public static void collect(int playerIndex, java.util.List<IsoChunk> chunks) {
+      try {
+         collectSplats(playerIndex, chunks);
+      } catch (RuntimeException e) {
+         // thrown out of here it would end FBORenderCell's render of this frame (no chunk composite: a stale picture)
+         cur = null;
+         lastBuilt = null;
+         anyLevel0 = false;
+         wetBits.clear();
+         failed = true;
+         Log.warn("blood wet: collect failed, wet blood off: " + e);
+      }
+   }
+
+   private static void collectSplats(int playerIndex, java.util.List<IsoChunk> chunks) {
       cur = null;
       anyLevel0 = false;
       wetBits.clear();
@@ -360,7 +374,7 @@ public final class BloodWet {
          int id = (int)(sortKeys[i] >>> 32);
          int src = (int)(sortKeys[i] & 0xFFFFFFFFL);
          System.arraycopy(d, src * TEXELS * 4, sorted, i * TEXELS * 4, TEXELS * 4);
-         if (id != prev && f.runs < f.runTex.length) {
+         if (f.runs == 0 || id != prev && f.runs < f.runTex.length) { // (the first run opens whatever its id: -1 threw here)
             f.runTex[f.runs] = id;
             f.runFrom[f.runs] = i;
             f.runTo[f.runs] = i + 1;
