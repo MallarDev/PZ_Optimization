@@ -23,6 +23,13 @@ To additionally test KI5/DAMNLib, set `PZ_DAMNLIB_SHADERS` to its `common/media/
 alongside `PZ_DIR`. The suite uses the actual mod files without copying them into the repo, resolves
 their stock shader includes, and checks body/roof/wheel depth, glass exclusion and fading.
 
+## Upstream composite integration
+
+Run `pzopt.OutlineCompositeLoaderProbe` with the same EGL/native-access setup as the loader probe.
+It links the actual full and base PixelLight composites after the CloudShadow, Relief, sway and
+filtered outline-depth transforms. This covers the shader-chain integration with upstream release
+`1274f92` without opening the game or a save.
+
 ## Optional grass/bush exclusion
 
 After building, run `PZ_DIR=/path/to/projectzomboid python tests/render/outline_plants.py` for the

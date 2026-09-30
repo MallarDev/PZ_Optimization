@@ -367,7 +367,6 @@ PzoptOptionClasses = {
     noIntroWait = { "GameLoadingState" },
     noLoadFade = { "GameLoadingState", "MainScreenState" },
     noLoadingScreen = { "pzopt.NoLoadingScreen" },
-    occludedOutlineColour = { "pzopt.OccludedOutline" },
     occludedOutlineIgnorePlants = { "pzopt.OccludedOutline", "pzopt.OutlinePlantDepth" },
     occludedOutlineOpacityPct = { "pzopt.OccludedOutline" },
     occludedOutlineWidth = { "pzopt.OccludedOutline" },
