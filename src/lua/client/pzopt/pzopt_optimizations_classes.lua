@@ -410,6 +410,7 @@ PzoptOptionClasses = {
     pplPointLights = { "pzopt.PixelLight" },
     pplSeenEdge = { "pzopt.PixelLight" },
     pplShadowDepthTest = { "pzopt.PixelLight" },
+    pplShadowMaxSteps = { "pzopt.PixelLight" },
     pplShadows = { "pzopt.PixelLight" },
     pplShadowSquares = { "pzopt.PixelLight" },
     pplSmooth = { "pzopt.PixelLight" },

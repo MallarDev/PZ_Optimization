@@ -152,6 +152,7 @@ PzoptOptionDates = {
     devDlssWaterFilter = "2026-09-25",
     devDriveJitter = "2026-09-26",
     devElectricityCheck = "2026-09-23",
+    devFarDump = "2026-09-30",
     devFogDepthView = "2026-09-21",
     devFogFlat = "2026-09-21",
     devFogNoDraw = "2026-09-21",

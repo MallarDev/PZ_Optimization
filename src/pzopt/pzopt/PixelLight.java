@@ -2014,7 +2014,7 @@ public final class PixelLight {
                Log.warn("pixel light: the shadow mask shaders did not compile, shadows off");
                return;
             }
-            String[] names = {"SceneDepth", "pplMapA", "pplMapC", "pplSv", "pplSa", "pplSb", "pplOpt"};
+            String[] names = {"SceneDepth", "pplMapA", "pplMapC", "pplSv", "pplSa", "pplSb", "pplOpt", "pplSteps"};
             for (int i = 0; i < names.length; i++) {
                this.su[i] = GL20.glGetUniformLocation(this.shadowProgram, names[i]);
             }
@@ -2075,6 +2075,7 @@ public final class PixelLight {
          GL20.glUniform4f(this.su[4], this.la[k], this.la[k + 1], this.la[k + 2], this.la[k + 3]);
          GL20.glUniform4f(this.su[5], this.lb[k], this.lb[k + 1], this.lb[k + 2], this.lb[k + 3]);
          GL20.glUniform4f(this.su[6], 1.0F, 0.0F, 1.0F, Config.PPL_SHADOW_SQUARES);
+         GL20.glUniform1f(this.su[7], Config.PPL_SHADOW_MAX_STEPS);
          GL13.glActiveTexture(GL13.GL_TEXTURE0);
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, depthTex);
          GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
@@ -2684,7 +2685,13 @@ public final class PixelLight {
       "float pplDepthAt(vec2 f) { return texelFetch(SceneDepth, ivec2(f), 0).r; }",
       "uniform vec4 pplSv;", // viewport origin x, y (window px), window px per mask texel
       "uniform vec4 pplSa, pplSb;", // the torch
+      "uniform float pplSteps;", // most march steps (pplShadowMaxSteps)
       "out vec4 fragColor;",
+      "bool pplShadowHit(vec3 Q) {", // a surface in front of the ray point, within the thickness window
+      "   vec2 fq = vec2((Q.x - Q.y - pplMapA.y) / pplMapA.x, (Q.x + Q.y - 6.0 * Q.z - pplMapA.w) / pplMapA.z);",
+      "   float gap = (Q.x + Q.y + 2.0 * Q.z - pplMapC.y) / pplMapC.x - pplDepthAt(fq);",
+      "   return gap > 0.00016 && gap < 0.0035;",
+      "}",
       "void main() {",
       "   vec2 f = pplSv.xy + (floor(gl_FragCoord.xy) + 0.5) * pplSv.z;",
       "   float d = texelFetch(SceneDepth, ivec2(f), 0).r;",
@@ -2698,12 +2705,32 @@ public final class PixelLight {
       "         float span = min(len - 0.35, pplOpt.w);",
       "         if (span > 0.05) {",
       "            vec3 st = dd / len;",
-      "            for (int k = 0; k < 16; k++) {",
-      "               vec3 Q = P + st * ((float(k) + 0.5) / 16.0 * span + 0.06);",
-      "               vec2 fq = vec2((Q.x - Q.y - pplMapA.y) / pplMapA.x, (Q.x + Q.y - 6.0 * Q.z - pplMapA.w) / pplMapA.z);",
-      "               float dq = (Q.x + Q.y + 2.0 * Q.z - pplMapC.y) / pplMapC.x;",
-      "               float gap = dq - pplDepthAt(fq);", // > 0: a surface in front of the ray point
-      "               if (gap > 0.00016 && gap < 0.0035) { vis = 0.0; break; }",
+      // the samples sit on a grid across the screen shared by every pixel (x - y, or x + y - 6z at half weight when the
+      // ray runs more up / down the screen: tiles are 2:1), 1/8 apart, so a thin post (a carport pole is ~0.2 of x - y
+      // across) holds a sample wherever a ray crosses it, and neighbouring pixels test it at the same columns: the
+      // shadow's edge follows the depth test smoothly. A fixed 16 steps over 4 squares (0.35 across) cut every pole's
+      // shadow into stripes; per-pixel fractions of the ray at any count left toothed edges (2026-09-30). The grid
+      // doubles while a step is under 1.5 window px or the count passes pplShadowMaxSteps; a ray that barely moves on
+      // the screen (along the view) keeps 16 even steps
+      "            float dA = st.x - st.y, dB = 0.5 * (st.x + st.y - 6.0 * st.z);",
+      "            bool alongA = abs(dA) >= abs(dB);",
+      "            float du = alongA ? dA : dB;",
+      "            float u0 = alongA ? P.x - P.y : 0.5 * (P.x + P.y - 6.0 * P.z);",
+      "            float g = 0.125;",
+      "            float cnt = abs(du) * span / g;",
+      "            if (cnt < 4.0) {",
+      "               for (int k = 0; k < 16; k++) {",
+      "                  if (pplShadowHit(P + st * ((float(k) + 0.5) / 16.0 * span + 0.06))) { vis = 0.0; break; }",
+      "               }",
+      "            } else {",
+      "               float px = alongA ? abs(pplMapA.x) : 0.5 * abs(pplMapA.z);", // u per window px
+      "               g *= exp2(max(max(ceil(log2(1.5 * px / g)), ceil(log2(cnt / max(pplSteps, 16.0)))), 0.0));",
+      "               float ua = u0 + du * 0.06, ub = u0 + du * (span + 0.06);",
+      "               float m0 = ceil(min(ua, ub) / g - 0.5);",
+      "               int steps = int(floor(max(ua, ub) / g - 0.5) - m0) + 1;",
+      "               for (int k = 0; k < steps; k++) {",
+      "                  if (pplShadowHit(P + st * (((m0 + float(k) + 0.5) * g - u0) / du))) { vis = 0.0; break; }",
+      "               }",
       "            }",
       "         }",
       "      }",

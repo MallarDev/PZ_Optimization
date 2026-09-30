@@ -325,3 +325,22 @@ left is one faint line under a single exterior wall's top trim. Jev before the f
 `kind` fixed 0.49 / still_lines 0.50 (all on), fixed 0.58 (`pixelLight` alone). Remaining: a thin dark rim on some sprite
 tops (lamp shades); odd-level floors of a two-level texture could in principle still drop to the level below at a chunk
 edge (the brighter-level rule covers it when the lower square is darker).
+
+## Torch shadows of thin posts cut into stripes, fixed (2026-09-30, desktop)
+
+Maintainer's report (save `Sandbox/2026-09-30_00-33-03`, a house carport at night, `pplShadows` on): each carport pole cast
+several parallel shadows instead of one. Cause: the shadow-mask march took a fixed 16 steps over `pplShadowSquares` (4), a
+step of 0.25 squares, up to 0.35 of `x - y` across the screen, while a pole is ~0.2 across. Only the pixels whose ray put a
+sample on the pole were shadowed: one stripe per step behind every post.
+
+First fix (more steps per pixel, 16..64 fractions of each pixel's own ray): one shadow, but the maintainer saw "steps" on it:
+its edge had square teeth 8-20 px apart. At the edge a ray only clips the post, and whether a sample lands on it depended on
+where that pixel's samples fell, which jumped from pixel to pixel. Final fix: the samples sit on a grid across the screen
+shared by every pixel (`x - y` at 1/8 square, or `x + y - 6z` at half weight when the ray runs more up / down the screen;
+the grid doubles while a step is under 1.5 window px or the count passes `pplShadowMaxSteps`, 64), so neighbouring pixels
+test a post at the same columns and the edge follows the depth test: a straight line (half-res mask aliasing only). A ray
+that barely moves on the screen keeps 16 even steps. Runs `pole-before2` / `pole-after2` (sweep; `--source-save
+Sandbox/2026-09-30_00-33-03 --flag time_of_day=2 --flag torch=on --flag zoom=0.25 --flag route=W:0.1 --flag speed=0.1
+--flag turn=30 --flag hold=14`, `devCapture` crops) and `pole-steps` / `pole-steps2` (still, the edge). Cost
+(`devPplTiming`, same scene, most zoomed in): shadow-mask pass 44 us (fixed 16) -> 62 (per-pixel 64) -> 45 us (grid) on the
+4090 at 5120x2160 (runs `pole-cost-16`, `pole-cost-64`, `pole-cost-grid`); fps and tails unchanged. Not measured on the flip.
