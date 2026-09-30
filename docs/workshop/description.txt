@@ -27,7 +27,9 @@ No need to run the installer again: the main menu shows UPDATE PZ OPTIMIZATION w
 [url=https://github.com/xD3I/PZ_Optimization#readme][img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/00-showcase-thumbnail.gif[/img][/url]
 [i]Uncapped at 5120x2160, the in-game overlay (F9 / L3 + R3) live at the bottom; video on the repository page.[/i]
 
-[h1]New! Zero Lag UI[/h1]
+[h1]New! Relief[/h1]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/46-relief.gif[/img]
+
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/45-zero-lag-ui.gif[/img]
 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/44-real-blood.gif[/img]
@@ -75,8 +77,6 @@ No need to run the installer again: the main menu shows UPDATE PZ OPTIMIZATION w
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/21-low-latency.jpg[/img]
 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/20-zombie-cores.jpg[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/19-overlay-item.jpg[/img]
 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/17-upscaler.jpg[/img]
 Turn it on: Options > Enhancements > Upscaler (fsr1 on any GPU, dlss on RTX).
