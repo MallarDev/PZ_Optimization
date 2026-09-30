@@ -5416,3 +5416,106 @@ its sprite's alpha mask leaves empty. `tileDepthCeiling` (measured, off): the ge
 
 - `loadedTileDefinitions`: `TileDepthFix.reapply()` after the depth manager's own walk over the new sprites and the geometry
   manager's sprite properties (the OpaquePixelsOnly flag decides whether a tile's texture takes the sprite mask).
+
+## The UI snappiness pass (2026-09-30; UIManager, UIElement, GameWindow, GameKeyboard, Lua Event, KahluaTableImpl, LuaCompiler, PerformanceSettings, WorldMapStreet, WorldMapStreets, StreetRenderData)
+
+Keys `uiProfile` (on in instrumented runs), `uiRetained`, `uiRetainedChildren`, `uiHoverHz`, `uiRetainedMaxMs`,
+`uiRetainedCheapUs`, `uiRetainedChildCheapUs`, `uiRetainedStreak`, `uiRetainedStaticMs`, `uiRetainedSettleMs`,
+`uiTickStagger`, `luaIndexCache`, `luaInternConstants`, `luaSkipEmpty`, `mapStreetMemo`, `mapStreetCache`, dev keys
+`devUiDiff`, `devUiRetainedCheck`, `devMapStreetCheck`. Findings: `docs/findings-ui-snappy-2026-09-30.md`.
+
+### zombie.ui.UIManager (new override)
+
+- `render`: `pzopt.UiProfile.renderBegin` after the stencil level is reset and `renderEnd` at the end of a UI frame.
+  In the element loop's non-profiler branch, each top-level element is first offered to `pzopt.UiRetained.replay`
+  (which copies its recorded draw commands into the UI render state when nothing can have changed it); otherwise it is
+  rendered as stock between `UiRetained.freshBegin` / `freshEnd` (which records its commands) and
+  `UiProfile.elementBegin` / `elementEnd`; a replay is reported to `UiProfile.elementReplayed`. After the loop
+  `UiRetained.loopEnd` (every cached GL state marked dirty) before the tooltip and the paused text.
+- `update`: `UiProfile.updateMark(0..6)` at the boundaries of its sections (list upkeep, mouse buttons, click and
+  wheel, mouse move, world pick and OnMouseMove, element updates, tooltip).
+- `updateUIElements`: with `uiTickStagger`, each top-level element's update runs with `doTick` and
+  `uiUpdateIntervalMS` set from its own 100 ms tick (`pzopt.UiTicks`), both restored after the loop; each element's
+  update time goes to `UiProfile.elementUpdated`.
+
+### zombie.ui.UIElement (new override)
+
+- `render`: a child element (one with a parent), after the stock visibility and clipping tests, is offered to
+  `UiRetained.replayChild` and returns when its recorded commands were copied in; otherwise its render is recorded
+  (`childBegin` before its prerender, `freshEnd` after the debug outline). The prerender and render Lua calls are
+  skipped when the function is an empty Lua function (`luaSkipEmpty`, `pzopt.LuaFast.skipEmpty`) and timed by
+  element type (`UiProfile.callBegin` / `callEnd`).
+- `update`: the Lua update call the same (empty skip, timing); `onMouseMoveOutside`: the Lua call skipped for an
+  empty function.
+- Decompiler fixes (the audit's mismatches): `onConsumeMouseWheel` returns `onMouseWheel`'s Boolean as is,
+  `getUIName` concatenates through `String.valueOf`, `isKeyConsumed` unboxes per branch, as in the jar.
+
+### zombie.GameWindow
+
+- `UiProfile.updateBegin` before and `updateEnd` after `UIManager.update`; `UiRetained.decideFrame` just before the
+  render phase (after the whole update, so input and Lua ticks of the frame count): it sets
+  `Core.uiRenderAccumulator` so the UI renders this frame (the stock rate, or at once after input / a change) or keeps
+  the previous UI texture.
+
+### zombie.input.GameKeyboard
+
+- `update`: a key whose state changed bumps `UiRetained.keyEvents` (every UI element renders fresh).
+
+### zombie.Lua.Event
+
+- A flag set in the constructor for the events after which UI elements show something else (OnContainerUpdate,
+  OnClothingUpdated, OnEquipPrimary / Secondary, AddXP, LevelPerk, OnPlayerGetDamage,
+  OnRefreshInventoryWindowContainers); `trigger` of such an event calls `UiRetained.uiEvent`.
+
+### se.krka.kahlua.j2se.KahluaTableImpl
+
+- `luaIndexCache`: a table used as some table's metatable is marked; `rawget` on a miss of the table's own map asks
+  its metatable's `pzoptChainGet`, which returns the stock recursive `rawget` result cached per key until a static
+  version changes; the version is bumped by `rawset` / `wipe` on a marked table, `setMetatable` and `setRewriteTable`.
+- `pzoptWrites`: bumped when `rawset` changes a value (the previous value returned by the map's put / remove differs)
+  and on `wipe`; `UiRetained` renders an element fresh when its table's count changed since it was recorded.
+
+### se.krka.kahlua.luaj.compiler.LuaCompiler
+
+- `luaInternConstants`: the prototype of a freshly compiled chunk and of a precompile-cache hit goes through
+  `pzopt.LuaFast.intern` (string constants interned, recursively).
+
+### zombie.core.PerformanceSettings
+
+- Harness UI rig methods for Lua: `pzoptMicros`, `pzoptUiMark`, `pzoptUiInput`, `pzoptUiMouse`, `pzoptUiMouseOff`.
+
+### zombie.worldMap.streets.WorldMapStreet (new override)
+
+- `mapStreetMemo`: `getLength(ui)` keeps the UI-space length per (view stamp of `pzopt.MapStreets`, map UI, points
+  object, point count, edit count); `getTranslatedText` keeps the translation per (untranslated text, language). An
+  edit counter is bumped by `init` and every point edit method. Decompiler fix: `countUpsideDownCharacters`
+  multiplies by the jar's double constant (the float 180/PI widened) instead of dividing by a float PI.
+
+### zombie.worldMap.streets.WorldMapStreets (new override)
+
+- `mapStreetMemo`: the visible streets are sorted by `pzopt.MapStreets.sortByIndex` (each street's first index in the
+  street list from one pass; the same comparator values and stable sort as stock's indexOf comparator).
+
+### zombie.worldMap.streets.StreetRenderData (new override)
+
+- `mapStreetCache`: in `init`, the non-editor branch reuses the last street-label layout of this map UI (the
+  characters list copied from a kept copy into pooled CharLayouts) when the view stamp, the combined streets object,
+  `MapStreets.labelKey` (every renderer option's value, the map style's layers, the language) are unchanged and no
+  street edit or dirty rebuild happened this frame; otherwise the stock layout runs and a copy is kept.
+  `devMapStreetCheck` lays out anyway on a reuse and logs a difference.
+
+### zombie.iso.IsoMetaGrid, zombie.iso.ChunkSaveWorker, zombie.gameStates.GameLoadingState (the transfer hitch)
+
+- `devHotsaveTiming` (dev, off): `IsoMetaGrid.save()` and its per-file `save(String, Consumer)` log serialise / write time
+  per file; `saveToBufferMap` logs its four parts; `ChunkSaveWorker.HotsaveAncilliarySystems`'s game-thread lambda logs
+  each system's time.
+- `hotsaveWarmup`: `GameLoadingState`'s loader calls `pzopt.HotsaveWarmup.run()` right after `IsoWorld.instance.init()`
+  (map_meta's grid part, zones and animal zones serialised three times into a private buffer, so the first hot save of
+  the session runs compiled code).
+
+### zombie.worldMap.WorldMapVisited (new override)
+
+- `mapVisitedFast`: `updateTextureData` builds each changed texture row in a byte array (the packed flags read with the
+  row span computed once) and puts it in one call; the same bytes as the stock per-texel loop, which stays for the off
+  case. `devMapVisitedCheck` re-runs the stock computation over the region and logs differing texels.
+- Decompiler fix: `setBounds` zeroes the four bounds with one chained assignment, as the jar does.

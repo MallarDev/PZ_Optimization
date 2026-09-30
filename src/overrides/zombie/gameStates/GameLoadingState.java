@@ -366,6 +366,7 @@ public final class GameLoadingState extends GameState {
             IsoWorld.instance.setSpawnRegion(spawnRegion);
             DebugOptions.testThreadCrash(0);
             IsoWorld.instance.init();
+            pzopt.HotsaveWarmup.run(); // pzopt: hotsaveWarmup, the first hot save runs compiled serialisers
             if (GameWindow.serverDisconnected) {
                GameLoadingState.done = true;
             } else if (!GameLoadingState.playerWrongIP) {

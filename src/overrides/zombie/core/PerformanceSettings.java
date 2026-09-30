@@ -94,6 +94,33 @@ public final class PerformanceSettings {
       return pzopt.Config.knows(key);
    }
 
+   /** Harness UI rig: a microsecond clock (System.nanoTime / 1000) for timing Lua handlers. */
+   public double pzoptMicros() {
+      return System.nanoTime() / 1000.0;
+   }
+
+   /** Harness UI rig: one interaction happened (name, its handler's microseconds); UiProfile traces the frames after it. */
+   public void pzoptUiMark(String name, double handlerUs) {
+      pzopt.UiProfile.mark(name, handlerUs);
+   }
+
+   /** Harness UI rig: the input a scripted click / key stands for (uiRetained renders every element fresh, as for a real one). */
+   public void pzoptUiInput() {
+      pzopt.UiRetained.keyEvents++;
+   }
+
+   /** Harness UI rig: put the game's mouse at (x, y) UI pixels (the showcase aim override feeds Mouse.getXA / getYA). */
+   public void pzoptUiMouse(double x, double y) {
+      pzopt.Showcase.aimXA = (int)x;
+      pzopt.Showcase.aimYA = (int)y;
+      pzopt.Showcase.aimOverride = true;
+   }
+
+   /** Harness UI rig: give the mouse back. */
+   public void pzoptUiMouseOff() {
+      pzopt.Showcase.aimOverride = false;
+   }
+
    /** The value in force since boot ("" for an unknown key). */
    public String getPzoptOption(String key) {
       String v = pzopt.Config.value(key);

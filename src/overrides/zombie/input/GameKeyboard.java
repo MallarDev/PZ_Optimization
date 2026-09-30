@@ -39,6 +39,9 @@ public final class GameKeyboard {
          for (int n = 1; n < c; n++) {
             lastDown[n] = down[n];
             down[n] = s_keyboardStateCache.getState().isKeyDown(n);
+            if (down[n] != lastDown[n]) { // pzopt: uiRetained, a key changed: every UI element renders fresh
+               pzopt.UiRetained.keyEvents++; // pzopt: uiRetained
+            } // pzopt: uiRetained
             if (!down[n] && lastDown[n]) {
                if (eatKey[n]) {
                   eatKey[n] = false;

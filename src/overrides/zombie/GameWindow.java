@@ -394,8 +394,11 @@ public final class GameWindow {
 
       uiVoice = profiler.profile("UI");
 
+      pzopt.UiProfile.updateBegin(); // pzopt: uiProfile
+
       try {
          UIManager.update();
+         pzopt.UiProfile.updateEnd(); // pzopt: uiProfile
       } catch (Throwable var22) {
          if (uiVoice != null) {
             try {
@@ -977,6 +980,7 @@ public final class GameWindow {
             }
 
             pzopt.InputLag.beforeRender(); // pzopt: harness input-lag probe, player 0 after this frame's update
+            pzopt.UiRetained.decideFrame(); // pzopt: uiRetained, after the whole update (input, Lua ticks): render the UI this frame or keep it
             pzopt.VehicleSmooth.beforeRender(); // pzopt: vehicleSmooth, vehicles drawn between the physics steps
             pzopt.DriveJitter.beforeRender(startTime); // pzopt: devDriveJitter, the frame's vehicle / camera state
             renderInternal();

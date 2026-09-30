@@ -1035,6 +1035,7 @@ public final class IsoMetaGrid {
       this.savePart(output, 1, false);
    }
 
+
    public void savePart(ByteBuffer output, int part, boolean fromServer) {
       if (part == 0) {
          output.put((byte)77);
@@ -1683,6 +1684,7 @@ public final class IsoMetaGrid {
    }
 
    public void save() {
+      long pzoptT0 = pzopt.Config.DEV_HOTSAVE_TIMING ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
       try {
          this.save("map_meta.bin", this::save);
          this.save("map_zone.bin", this::saveZone);
@@ -1691,7 +1693,17 @@ public final class IsoMetaGrid {
       } catch (Exception ex) {
          ExceptionLogger.logException(ex);
       }
+      if (pzoptT0 != 0L) { // pzopt: devHotsaveTiming
+         pzopt.Log.info("hotsave timing: meta grid " + (System.nanoTime() - pzoptT0) / 1000L + " us, serialize " + pzoptSerNs / 1000L + " us, write " + pzoptWriteNs / 1000L + " us, cells " + this.cellsToSave.size() + ", " + pzoptParts); // pzopt: devHotsaveTiming
+         pzoptSerNs = 0L; // pzopt: devHotsaveTiming
+         pzoptWriteNs = 0L; // pzopt: devHotsaveTiming
+         pzoptParts.setLength(0); // pzopt: devHotsaveTiming
+      } // pzopt: devHotsaveTiming
    }
+
+   private static long pzoptSerNs; // pzopt: devHotsaveTiming
+   private static long pzoptWriteNs; // pzopt: devHotsaveTiming
+   private static final StringBuilder pzoptParts = new StringBuilder(); // pzopt: devHotsaveTiming
 
    public void addCellToSave(IsoMetaCell cell) {
       this.cellsToSave.add(cell);
@@ -1706,8 +1718,15 @@ public final class IsoMetaGrid {
       ) {
          synchronized (SliceY.SliceBufferLock) {
             SliceY.SliceBuffer.clear();
+            long pzoptT0 = pzopt.Config.DEV_HOTSAVE_TIMING ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
             saveMethod.accept(SliceY.SliceBuffer);
+            long pzoptT1 = pzoptT0 != 0L ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
             bos.write(SliceY.SliceBuffer.array(), 0, SliceY.SliceBuffer.position());
+            if (pzoptT0 != 0L) { // pzopt: devHotsaveTiming
+               pzoptSerNs += pzoptT1 - pzoptT0; // pzopt: devHotsaveTiming
+               pzoptWriteNs += System.nanoTime() - pzoptT1; // pzopt: devHotsaveTiming
+               pzoptParts.append(outFilePath).append(' ').append((pzoptT1 - pzoptT0) / 1000L).append("us/").append(SliceY.SliceBuffer.position() / 1024).append("KB "); // pzopt: devHotsaveTiming
+            } // pzopt: devHotsaveTiming
          }
       }
    }
@@ -1733,14 +1752,26 @@ public final class IsoMetaGrid {
    }
 
    public void saveToBufferMap(SaveBufferMap bufferMap) {
+      long pzoptT0 = pzopt.Config.DEV_HOTSAVE_TIMING ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
+      int pzoptCells = this.cellsToSave.size(); // pzopt: devHotsaveTiming
+      long pzoptT1 = 0L; // pzopt: devHotsaveTiming
+      long pzoptT2 = 0L; // pzopt: devHotsaveTiming
+      long pzoptT3 = 0L; // pzopt: devHotsaveTiming
       try {
          this.saveToSaveBufferMap(bufferMap, ZomboidFileSystem.instance.getFileNameInCurrentSave("map_meta.bin"), this::save);
+         pzoptT1 = pzoptT0 != 0L ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
          this.saveToSaveBufferMap(bufferMap, ZomboidFileSystem.instance.getFileNameInCurrentSave("map_zone.bin"), this::saveZone);
+         pzoptT2 = pzoptT0 != 0L ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
          this.saveToSaveBufferMap(bufferMap, ZomboidFileSystem.instance.getFileNameInCurrentSave("map_animals.bin"), this::saveAnimalZones);
+         pzoptT3 = pzoptT0 != 0L ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
          this.saveCellsToSaveBufferMap(bufferMap, "metagrid", "metacell_%d_%d.bin", IsoMetaCell::save);
       } catch (Exception ex) {
          ExceptionLogger.logException(ex);
       }
+      if (pzoptT0 != 0L && pzoptT3 != 0L) { // pzopt: devHotsaveTiming
+         pzopt.Log.info("hotsave timing (meta grid parts): meta " + (pzoptT1 - pzoptT0) / 1000L + " us, zones " + (pzoptT2 - pzoptT1) / 1000L // pzopt: devHotsaveTiming
+            + " us, animal zones " + (pzoptT3 - pzoptT2) / 1000L + " us, " + pzoptCells + " cells " + (System.nanoTime() - pzoptT3) / 1000L + " us"); // pzopt: devHotsaveTiming
+      } // pzopt: devHotsaveTiming
    }
 
    public void saveToSaveBufferMap(SaveBufferMap bufferMap, String fileName, Consumer<ByteBuffer> saveMethod) {

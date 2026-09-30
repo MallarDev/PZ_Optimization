@@ -22,6 +22,12 @@ public final class KahluaTableImpl implements KahluaTable {
 
    public final Map<Object, Object> delegate;
    private KahluaTable metatable;
+   private boolean pzoptMeta; // pzopt: luaIndexCache, some table uses this one as its metatable (a class)
+   /** pzopt: uiRetained, bumped by every rawset that changes a value (a UI element whose Lua table changed renders fresh). */
+   public int pzoptWrites;
+   private java.util.HashMap<Object, KahluaTableImpl.PzoptChain> pzoptChain; // pzopt: luaIndexCache, key -> what rawget's metatable walk finds from here
+   /** pzopt: luaIndexCache, bumped by every write to a table that is some table's metatable (any class change drops every cached walk). */
+   public static long pzoptMetaVersion = 1L;
    private KahluaTable reloadReplace;
    private static final byte SBYT_NO_SAVE = -1;
    private static final byte SBYT_STRING = 0;
@@ -35,6 +41,10 @@ public final class KahluaTableImpl implements KahluaTable {
 
    public void setMetatable(KahluaTable metatable) {
       this.metatable = metatable;
+      if (metatable instanceof KahluaTableImpl pzoptMt) { // pzopt: luaIndexCache
+         pzoptMt.pzoptMeta = true; // pzopt: luaIndexCache
+      } // pzopt: luaIndexCache
+      pzoptMetaVersion++; // pzopt: luaIndexCache, an ancestry change
    }
 
    public KahluaTable getMetatable() {
@@ -46,6 +56,9 @@ public final class KahluaTableImpl implements KahluaTable {
    }
 
    public void rawset(Object key, Object value) {
+      if (this.pzoptMeta) { // pzopt: luaIndexCache, a class table changed
+         pzoptMetaVersion++; // pzopt: luaIndexCache
+      } // pzopt: luaIndexCache
       if (this.reloadReplace != null) {
          this.reloadReplace.rawset(key, value);
       }
@@ -60,7 +73,9 @@ public final class KahluaTableImpl implements KahluaTable {
             UIManager.debugBreakpoint(LuaManager.thread.currentfile, LuaManager.thread.lastLine);
          }
 
-         this.delegate.remove(key);
+         if (this.delegate.remove(key) != null) { // pzopt: uiRetained, a value removed
+            this.pzoptWrites++; // pzopt: uiRetained
+         } // pzopt: uiRetained
       } else {
          if (Core.debug && LuaManager.thread != null && LuaManager.thread.hasDataBreakpoint(this, key) && !value.equals(lastVal)) {
             int a = GlobalObject.getCurrentCoroutine().currentCallFrame().pc;
@@ -71,7 +86,10 @@ public final class KahluaTableImpl implements KahluaTable {
             UIManager.debugBreakpoint(LuaManager.thread.currentfile, GlobalObject.getCurrentCoroutine().currentCallFrame().closure.prototype.lines[a] - 1);
          }
 
-         this.delegate.put(key, value);
+         Object pzoptPrev = this.delegate.put(key, value); // pzopt: uiRetained, the previous value comes back for free
+         if (pzoptPrev != value && (pzoptPrev == null || !pzoptPrev.equals(value))) { // pzopt: uiRetained
+            this.pzoptWrites++; // pzopt: uiRetained
+         } // pzopt: uiRetained
       }
    }
 
@@ -96,7 +114,44 @@ public final class KahluaTableImpl implements KahluaTable {
       // pzopt: one hash lookup instead of containsKey + get. rawset never stores a null value (a nil assignment
       // removes the key), so a null from get means the key is absent, which is exactly the stock containsKey test.
       Object pzoptValue = this.delegate.get(key);
+      if (pzoptValue == null && this.metatable instanceof KahluaTableImpl pzoptMt && pzopt.Config.LUA_INDEX_CACHE && !Core.debug) { // pzopt: luaIndexCache
+         return pzoptMt.pzoptChainGet(key); // pzopt: luaIndexCache, one lookup for the class walk
+      } // pzopt: luaIndexCache
       return pzoptValue == null && this.metatable != null ? this.metatable.rawget(key) : pzoptValue;
+   }
+
+   /** pzopt: luaIndexCache, one cached result of this.rawget(key) (this table and its metatable walk). */
+   static final class PzoptChain {
+      Object value; // pzopt: luaIndexCache
+      long version; // pzopt: luaIndexCache
+   }
+
+   /** pzopt: luaIndexCache, this.rawget(key) remembered until any class table changes. */
+   private Object pzoptChainGet(Object key) {
+      if (this.reloadReplace != null) { // pzopt: luaIndexCache
+         return this.rawget(key); // pzopt: luaIndexCache
+      } // pzopt: luaIndexCache
+      java.util.HashMap<Object, KahluaTableImpl.PzoptChain> m = this.pzoptChain; // pzopt: luaIndexCache
+      if (m == null) { // pzopt: luaIndexCache
+         m = new java.util.HashMap<>(); // pzopt: luaIndexCache
+         this.pzoptChain = m; // pzopt: luaIndexCache
+      } // pzopt: luaIndexCache
+      KahluaTableImpl.PzoptChain e = m.get(key); // pzopt: luaIndexCache
+      long v = pzoptMetaVersion; // pzopt: luaIndexCache
+      if (e != null && e.version == v) { // pzopt: luaIndexCache
+         return e.value; // pzopt: luaIndexCache
+      } // pzopt: luaIndexCache
+      Object value = this.rawget(key); // pzopt: luaIndexCache, the stock walk
+      if (e == null) { // pzopt: luaIndexCache
+         if (m.size() > 4096) { // pzopt: luaIndexCache, a table indexed by many distinct keys: stop caching new ones
+            return value; // pzopt: luaIndexCache
+         } // pzopt: luaIndexCache
+         e = new KahluaTableImpl.PzoptChain(); // pzopt: luaIndexCache
+         m.put(key, e); // pzopt: luaIndexCache
+      } // pzopt: luaIndexCache
+      e.value = value; // pzopt: luaIndexCache
+      e.version = v; // pzopt: luaIndexCache
+      return value; // pzopt: luaIndexCache
    }
 
    public void rawset(int key, Object value) {
@@ -184,6 +239,10 @@ public final class KahluaTableImpl implements KahluaTable {
    }
 
    public void wipe() {
+      if (this.pzoptMeta) { // pzopt: luaIndexCache
+         pzoptMetaVersion++; // pzopt: luaIndexCache
+      } // pzopt: luaIndexCache
+      this.pzoptWrites++; // pzopt: uiRetained
       this.delegate.clear();
    }
 
@@ -354,6 +413,7 @@ public final class KahluaTableImpl implements KahluaTable {
    }
 
    public void setRewriteTable(Object value) {
+      pzoptMetaVersion++; // pzopt: luaIndexCache, a Lua reload redirects this table
       this.reloadReplace = (KahluaTableImpl)value;
    }
 

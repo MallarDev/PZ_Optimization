@@ -22,8 +22,12 @@ public final class Event {
    public final ArrayList<LuaClosure> callbacks = new ArrayList<>();
    public String name;
    private final int index;
+   private final boolean pzoptUiEvent; // pzopt: uiRetained, an event after which the UI shows something else
 
    public boolean trigger(KahluaTable env, LuaCaller caller, Object[] params) {
+      if (this.pzoptUiEvent) { // pzopt: uiRetained, every UI element renders fresh
+         pzopt.UiRetained.uiEvent(); // pzopt: uiRetained
+      } // pzopt: uiRetained
       if (this.callbacks.isEmpty()) {
          return false;
       }
@@ -108,6 +112,7 @@ public final class Event {
    public Event(String name, int index) {
       this.index = index;
       this.name = name;
+      this.pzoptUiEvent = pzopt.UiRetained.isUiEvent(name); // pzopt: uiRetained
       this.add = new Event.Add(this);
       this.remove = new Event.Remove(this);
    }

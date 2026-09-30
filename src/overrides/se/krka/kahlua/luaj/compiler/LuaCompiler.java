@@ -98,7 +98,7 @@ public class LuaCompiler implements JavaFunction {
          String content = sb.toString();
          Prototype cached = pzopt.LuaPrecompiler.lookup(name, content);
          if (cached != null) {
-            return new LuaClosure(cached, environment);
+            return new LuaClosure(pzopt.LuaFast.intern(cached), environment); // pzopt: luaInternConstants
          }
          return loadis(new java.io.StringReader(content), name, null, environment);
       }
@@ -111,7 +111,7 @@ public class LuaCompiler implements JavaFunction {
    }
 
    private static LuaClosure loadis(Reader reader, String name, String source, KahluaTable environment) throws IOException {
-      return new LuaClosure(LexState.compile(reader.read(), reader, name, source), environment);
+      return new LuaClosure(pzopt.LuaFast.intern(LexState.compile(reader.read(), reader, name, source)), environment); // pzopt: luaInternConstants
    }
 
    private static LuaClosure loadis(InputStream inputStream, String name, String source, KahluaTable environment) throws IOException {

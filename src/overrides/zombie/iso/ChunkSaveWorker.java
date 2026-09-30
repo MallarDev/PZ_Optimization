@@ -147,12 +147,23 @@ public class ChunkSaveWorker {
       }
       saveBufferMap.clear();
       MainThread.invokeOnMainThread(() -> {
+         long pzoptT0 = pzopt.Config.DEV_HOTSAVE_TIMING ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming, the game thread's part per system
          IsoWorld.instance.metaGrid.saveToBufferMap(saveBufferMap);
+         long pzoptT1 = pzoptT0 != 0L ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
          AnimalPopulationManager.getInstance().saveToBufferMap(saveBufferMap);
+         long pzoptT2 = pzoptT0 != 0L ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
          GameTime.instance.saveToBufferMap(saveBufferMap);
+         long pzoptT3 = pzoptT0 != 0L ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
          MapItem.SaveWorldMapToBufferMap(saveBufferMap);
+         long pzoptT4 = pzoptT0 != 0L ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
          WorldMapVisited.getInstance().saveToBufferMap(saveBufferMap);
+         long pzoptT5 = pzoptT0 != 0L ? System.nanoTime() : 0L; // pzopt: devHotsaveTiming
          GameEntityManager.saveToBufferMap(saveBufferMap);
+         if (pzoptT0 != 0L) { // pzopt: devHotsaveTiming
+            pzopt.Log.info("hotsave timing (game thread): metagrid " + (pzoptT1 - pzoptT0) / 1000L + " us, animals " + (pzoptT2 - pzoptT1) / 1000L // pzopt: devHotsaveTiming
+               + " us, gametime " + (pzoptT3 - pzoptT2) / 1000L + " us, mapitems " + (pzoptT4 - pzoptT3) / 1000L + " us, visited " + (pzoptT5 - pzoptT4) / 1000L // pzopt: devHotsaveTiming
+               + " us, entities " + (System.nanoTime() - pzoptT5) / 1000L + " us"); // pzopt: devHotsaveTiming
+         } // pzopt: devHotsaveTiming
       });
       if (PlayerDB.isAllow()) {
          PlayerDB.getInstance().savePlayers();
