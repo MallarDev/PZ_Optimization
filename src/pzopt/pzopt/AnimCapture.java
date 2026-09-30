@@ -28,6 +28,8 @@ public final class AnimCapture {
    /** Set by the worker: the animator left a ragdoll track, whose start and step must run on the game thread. */
    public boolean ragdoll;
    public Throwable failure;
+   /** Game thread: the AnimParallel frame until which this character is not armed after its animator hit a guard. */
+   public long impureHoldUntil;
    /** The animation time step of this frame, computed on the game thread. */
    public float deltaT;
 

@@ -63,7 +63,7 @@ public final class ShadowAtlas {
    }
 
    static String stats() {
-      return "shadow atlas: frames=" + frames + " casters drawn=" + rendered + (rendered > 0 ? String.format(java.util.Locale.ROOT, " (%.1f us render thread each, %.1f us of it the model's draw, %.1f parts a caster; a flush's setup %.1f clear %.1f restore %.1f us, %.2f draws a flush)", renderNs / 1e3 / rendered, drawNs / 1e3 / rendered, parts / (double)rendered, setupNs / 1e3 / Math.max(1, flushes), clearNs / 1e3 / Math.max(1, flushes), restoreNs / 1e3 / Math.max(1, flushes), rendered / (double)Math.max(1, flushes)) : "") + (lampViews > 0 ? " lamp views=" + lampViews : "") + (failed ? " FAILED" : "");
+      return "shadow atlas: frames=" + frames + " casters drawn=" + rendered + (rendered > 0 ? String.format(java.util.Locale.ROOT, " (%.1f us render thread each, %.1f us of it the model's draw, %.1f parts a caster; a flush's setup %.1f clear %.1f restore %.1f us, %.2f draws a flush)", renderNs / 1e3 / rendered, drawNs / 1e3 / rendered, parts / (double)rendered, setupNs / 1e3 / Math.max(1, flushes), clearNs / 1e3 / Math.max(1, flushes), restoreNs / 1e3 / Math.max(1, flushes), rendered / (double)Math.max(1, flushes)) : "") + (lampViews > 0 ? " lamp views=" + lampViews : "") + (texturesPendingSkips > 0 ? " skipped for pending textures=" + texturesPendingSkips : "") + (failed ? " FAILED" : "");
    }
 
    static boolean usable() {
@@ -263,6 +263,29 @@ public final class ShadowAtlas {
 
    private static long lampViews;
    private static int devLate, devFull;
+   private static long texturesPendingSkips;
+
+   /**
+    * A caster whose composited textures are not made yet: the clothing / blood / dirt texture (ModelInstanceTextureCreator,
+    * off with the "Simple clothing textures" option) or an item's texture initializer. slot.render() starts with
+    * checkReady(), which makes them when their source textures have loaded since the world draw; here that would run
+    * under this pass's colour mask (off) and atlas viewport, leave the texture empty and mark it made: the character's
+    * body and clothes stayed invisible (hair, shoes, glasses: plain textures) until its model was rebuilt (issue #50,
+    * Workshop "semi-invisible zombies", 2026-10-01). Such a caster is left for a later frame, after the world draw made them.
+    */
+   static boolean texturesPending(ModelSlotRenderData slot) {
+      if (slot.textureCreator != null && !slot.textureCreator.isRendered()) {
+         return true;
+      }
+      for (int i = 0; i < slot.modelData.size(); i++) {
+         zombie.core.skinnedmodel.model.ModelInstance mi = slot.modelData.get(i).modelInstance;
+         zombie.core.skinnedmodel.model.ModelInstanceTextureInitializer init = mi == null ? null : mi.getTextureInitializer();
+         if (init != null && !init.isRendered()) {
+            return true;
+         }
+      }
+      return false;
+   }
 
    /**
     * A lamp view's frustum round a caster's bounding sphere (radius half, its centre dist from the lamp): tan of the half
@@ -314,6 +337,10 @@ public final class ShadowAtlas {
          GLStateRenderThread.DepthFunc.set(GL11.GL_LEQUAL);
          for (int i = 0; i < PENDING.size(); i++) {
             Pending p = PENDING.get(i);
+            if (texturesPending(p.slot)) {
+               texturesPendingSkips++; // its tile stays cleared this frame; the world draw composites the textures
+               continue;
+            }
             GL11.glViewport((p.tile % PER_ROW) * TILE, (p.tile / PER_ROW) * TILE, TILE, TILE);
             float squareDepth = p.slot.squareDepth;
             boolean outline = outline(p.slot, false);

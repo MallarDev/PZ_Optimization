@@ -259,6 +259,7 @@ public final class AnimParallel {
             if (c.serial) {
                if (c.impure) {
                   serialOther++;
+                  c.impureHoldUntil = frames + IMPURE_HOLD_FRAMES; // its animator step was cut short: the game thread runs it for a while
                } else if (c.ragdoll) {
                   serialRagdoll++;
                } else if (c.failure != null) {
@@ -388,8 +389,25 @@ public final class AnimParallel {
          statesUnsafe++;
          return false;
       }
+      // A target seated in a vehicle is the guarded case of battackvehicle and bpassengerexposed (the attackvehicle
+      // states read them every frame): on a worker the guard throws inside AdvancedAnimator.update and the step is not
+      // run again, so the attack animation never reached its ThumpFrame / AttackCollisionCheck events. The zombies stood
+      // at the car and never hit it (Workshop report, 2026-10-01: siege rig, car condition 1200 -> 1200, stock -> 878).
+      if (z.getTarget() instanceof zombie.characters.IsoGameCharacter t && t.getVehicle() != null) {
+         vehicleTarget++;
+         return false;
+      }
+      AnimCapture c = z.pzoptCaptureIfAny();
+      if (c != null && frames < c.impureHoldUntil) {
+         impureHeld++;
+         return false;
+      }
       return true;
    }
+
+   /** Frames a zombie whose animator step hit a guard stays on the game thread (a guard case not caught above). */
+   private static final int IMPURE_HOLD_FRAMES = 60;
+   public static long vehicleTarget, impureHeld;
 
    // Game thread only.
    private static final IdentityHashMap<AnimationSet, IdentityHashMap<String, Boolean>> stateSafe = new IdentityHashMap<>();
@@ -529,7 +547,7 @@ public final class AnimParallel {
 
    /** One line for the periodic FBORenderCell log. */
    public static String describe() {
-      return "animator parallel: frames=" + frames + " armed=" + armed + " notArmed=" + notArmed + " statesUnsafe=" + statesUnsafe
+      return "animator parallel: frames=" + frames + " armed=" + armed + " notArmed=" + notArmed + " statesUnsafe=" + statesUnsafe + " vehicleTarget=" + vehicleTarget + " impureHeld=" + impureHeld
             + " evalWaits=" + evalWaits + " evalWait ms=" + (evalWaitNanos / 1_000_000L) + " pipelineWaits=" + pipelineWaits + " pipelineWait ms=" + (pipelineWaitNanos / 1_000_000L) + " firstWorkerStart ms=" + (firstStartNanos / 1_000_000L) + " span ms=" + (spanNanos / 1_000_000L) + " workerTasks=" + workerTasks.get() + " task ms=" + (taskNanos.get() / 1_000_000L) + " serialEvents=" + serialEvents + " serialOther=" + serialOther + " serialRagdoll=" + serialRagdoll + " impure=" + impureTouches + " failures=" + failures
             + (failed ? " FAILED" : "");
    }

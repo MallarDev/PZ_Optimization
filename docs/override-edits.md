@@ -3042,7 +3042,14 @@ of the crawler / fake-dead branches), bthump (dropping a far or timed-out thump 
 staircase reset, the pathfind line test within 3.5 tiles), battackvehicle and bPassengerExposed (only with the target in
 a vehicle), beatbodytarget (the eat-target update is a no-op without a body). These are read on the workers like pure
 callbacks; the transition evaluation that hits a guard is left unstamped (the game thread evaluates it stock-wise in the
-apply loop, `guardedFallbacks=`), the animator task that hits one finishes on the game thread (`impure=`, 0 in every run).
+apply loop, `guardedFallbacks=`), the animator task that hits one finishes on the game thread (`impure=`). That finish
+does not run the animator step again, so a guard hit inside `AdvancedAnimator.update` loses the rest of that step. It
+was not rare: a zombie attacking a car with the player inside reads battackvehicle / bPassengerExposed with the target
+in a vehicle every frame, and its attack animation never reached ThumpFrame (Workshop report 2026-10-01, "zombies crowd
+my car instead of attacking": `impure=52213` in a 35 s siege run, car condition 1200 -> 1200 against stock's 878).
+Since then `AnimParallel.eligible` leaves a zombie whose target sits in a vehicle on the game thread (`vehicleTarget=`),
+and a zombie whose animator hit any guard stays there for 60 frames (`impureHeld=`). Rig: harness flag `siege=N`
+(`pzopt.CarSiege`).
 
 ### zombie.characters.action.ActionContext
 
