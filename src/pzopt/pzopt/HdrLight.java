@@ -105,7 +105,7 @@ public final class HdrLight {
    static final float[] mapping = new float[6];
    /** Uploaded coverage in normalized texture coordinates; render thread only. */
    static float mapWidthUV, mapHeightUV;
-   static int mapZ;
+   static int mapZ, mapW, mapH;
    private static int tex, auxTex;
    static final int AUX_UNIT = 2;
    private static final byte[] ZERO = new byte[MAX * MAX * 4];
@@ -117,6 +117,58 @@ public final class HdrLight {
       t.setDaemon(true);
       return t;
    });
+
+   // the map the render thread holds (or holds once the queued upload has run): its region, re-projected on frames without a new one
+   private static int heldX0, heldY0, heldW, heldH, heldStep, heldZ;
+   private static final Projection[] PROJECTIONS = new Projection[16];
+   private static int projectionNext;
+
+   static {
+      for (int i = 0; i < PROJECTIONS.length; i++) {
+         PROJECTIONS[i] = new Projection();
+      }
+   }
+
+   /** A frame's window px -> light map UV for the held map, published to the render thread in frame order. */
+   static final class Projection extends TextureDraw.GenericDrawer {
+      final float[] m = new float[6];
+      int w, h, z;
+      volatile boolean pending;
+
+      @Override
+      public void render() {
+         if (ready && mapZ == this.z && mapW == this.w && mapH == this.h) {
+            publish(this.m, this.w, this.h);
+         }
+         this.pending = false;
+      }
+   }
+
+   /**
+    * Window px -> UV of the map of the squares x0 .. x0 + w * step, y0 .. y0 + h * step on floor z, with this camera. In double:
+    * px + 2 py of the camera offset is ~10^6 world px, whose float step (1/8 px) is half of what one window pixel adds zoomed
+    * in, so the float differences scaled the map by up to +-50 %, a different error every frame the offset changed: the lamp
+    * pools and their bloom jumped about while the camera zoomed (the lights flickered).
+    */
+   static void project(float[] m, int x0, int y0, int w, int h, int step, int z, float flipY, float zoom, float offX, float offY, int winH, int left, int top,
+         int ts) {
+      double[] u = new double[3], v = new double[3];
+      for (int i = 0; i < 3; i++) {
+         double wx = i == 1 ? 1.0 : 0.0, wy = i == 2 ? 1.0 : 0.0;
+         double sx = wx - left, sy = (flipY > 0.5F ? winH - wy : wy) - top;
+         double px = sx * zoom + offX, py = sy * zoom + offY;
+         double ix = (px + 2.0 * py) / (64.0 * ts) + 3.0 * z;
+         double iy = (px - 2.0 * py) / (-64.0 * ts) + 3.0 * z;
+         u[i] = (ix - x0) / ((double)w * step);
+         v[i] = (iy - y0) / ((double)h * step);
+      }
+      m[0] = (float)(u[1] - u[0]);
+      m[1] = (float)(u[2] - u[0]);
+      m[2] = (float)u[0];
+      m[3] = (float)(v[1] - v[0]);
+      m[4] = (float)(v[2] - v[0]);
+      m[5] = (float)v[0];
+   }
 
    /**
     * Game thread, MultiTextureFBO2.render(). Queues the upload of the newest map the worker finished (its mapping computed
@@ -154,22 +206,7 @@ public final class HdrLight {
          }
       }
       if (done != null) {
-         float[] u = new float[3], v = new float[3];
-         float[][] pts = {{0F, 0F}, {1F, 0F}, {0F, 1F}};
-         for (int i = 0; i < 3; i++) {
-            float sx = pts[i][0] - left, sy = (flipY > 0.5F ? winH - pts[i][1] : pts[i][1]) - top;
-            float px = sx * zoom + offX, py = sy * zoom + offY;
-            float ix = (px + 2F * py) / (64F * ts) + 3F * z;
-            float iy = (px - 2F * py) / (-64F * ts) + 3F * z;
-            u[i] = (ix - done.x0) / (done.w * done.step);
-            v[i] = (iy - done.y0) / (done.h * done.step);
-         }
-         done.m[0] = u[1] - u[0];
-         done.m[1] = u[2] - u[0];
-         done.m[2] = u[0];
-         done.m[3] = v[1] - v[0];
-         done.m[4] = v[2] - v[0];
-         done.m[5] = v[0];
+         project(done.m, done.x0, done.y0, done.w, done.h, done.step, done.z, flipY, zoom, offX, offY, winH, left, top, ts);
          if (logged++ % 1200 == 0) {
             Log.info(String.format("hdr light: map %dx%d (step %d) at %d,%d z=%d, %d squares read, mean local reference %.3f, max excess %d, %d texels > 10%%, zoom %.2f,"
                   + " worker build %.3f ms, game thread %.3f ms avg", done.w, done.h, done.step, done.x0, done.y0, z, done.counted, done.ambient, done.maxExcess,
@@ -177,6 +214,25 @@ public final class HdrLight {
          }
          done.state.set(Frame.UPLOADING);
          SpriteRenderer.instance.drawGeneric(done);
+         heldX0 = done.x0;
+         heldY0 = done.y0;
+         heldW = done.w;
+         heldH = done.h;
+         heldStep = done.step;
+         heldZ = done.z;
+      } else if (heldW > 0) {
+         // no new map this frame: the held one re-projected with this frame's camera (the composite drew the lamp and night
+         // gains of a zooming or moving camera with the last upload's projection)
+         Projection pr = PROJECTIONS[projectionNext++ & (PROJECTIONS.length - 1)];
+         if (pr.pending) {
+            pr = new Projection(); // the render thread is further behind than the ring
+         }
+         project(pr.m, heldX0, heldY0, heldW, heldH, heldStep, heldZ, flipY, zoom, offX, offY, winH, left, top, ts);
+         pr.w = heldW;
+         pr.h = heldH;
+         pr.z = heldZ;
+         pr.pending = true;
+         SpriteRenderer.instance.drawGeneric(pr);
       }
 
       // 2. this frame's region -> a free frame on the worker
@@ -492,16 +548,24 @@ public final class HdrLight {
       mapWidthUV = sx;
       mapHeightUV = sy;
       mapZ = f.z;
-      mapping[0] = f.m[0] * sx;
-      mapping[1] = f.m[1] * sx;
-      mapping[2] = f.m[2] * sx;
-      mapping[3] = f.m[3] * sy;
-      mapping[4] = f.m[4] * sy;
-      mapping[5] = f.m[5] * sy;
+      mapW = f.w;
+      mapH = f.h;
+      publish(f.m, f.w, f.h);
       if (!ready) {
          Log.info(String.format("hdr light: first upload %dx%d, mapping u = %.4f x + %.4f y + %.4f, v = %.4f x + %.4f y + %.4f",
                f.w, f.h, mapping[0], mapping[1], mapping[2], mapping[3], mapping[4], mapping[5]));
       }
       ready = true;
+   }
+
+   /** Render thread: the composite's window px -> map UV (the map fills the top-left w x h texels of the MAX x MAX texture). */
+   private static void publish(float[] m, int w, int h) {
+      float sx = (float)w / MAX, sy = (float)h / MAX;
+      mapping[0] = m[0] * sx;
+      mapping[1] = m[1] * sx;
+      mapping[2] = m[2] * sx;
+      mapping[3] = m[3] * sy;
+      mapping[4] = m[4] * sy;
+      mapping[5] = m[5] * sy;
    }
 }

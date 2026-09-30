@@ -513,6 +513,10 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   a lit room flipped between its light and the room's every frame (the level pick moved with the jitter). `pplTexelHeight`
   (height from the texel the pixel shows) + `pplFloorSnap` (flat texels within two DEPTH16 steps of a level are on it); dev
   views `devPplView=14|15` (with `colorGrading=false hdr=false`).
+- Zoom light flicker (2026-09-30, `docs/findings-zoom-light-flicker-2026-09-30.md`): after the relief update the lamp pools
+  blinked while zooming at night with HDR on. `HdrLight`'s window -> light-map projection was float differences of a ~10^6 px
+  camera offset (+-50 % error, new every frame the offset moved); now double, and re-projected on frames without a new map.
+  Rig: zoom cycle + 1:1 `devCapture` crop + `harness/zoom-flicker.py` (Jev); 35,318 -> 678 blinking blocks (Jev fixed 0.89).
 - Build 42.21 (2026-09-28, revision `4a0e9546ec`, stable branch; `docs/override-edits.md` "Port to Build 42.21"): the
   overrides were three-way merged (Vineflower of the 42.20.4 jar kept in `pzsrv-stock/` as base, ours, 42.21); 40 of the
   113 classes changed. 42.21 made `saveCellAsync` moot (stock queues and throttles cell saves) and fades trees while
