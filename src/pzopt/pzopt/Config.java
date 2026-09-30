@@ -22,7 +22,7 @@ import java.util.Properties;
  *                            (Overlay needs only Overrides.buildMatches(), 2026-09-24)
  *   enhancementsEnabled true/false  the Enhancements tab's master switch (2026-09-28): false reads every enhancement's
  *                            own switch (upscaler, spriteFilter, hdr, hdrAuto, ambientOcclusion, sunShadows, reflections,
- *                            darknessFloorPct, memoryTint, colorGrading, pixelLight, godRays, foliageSway) as off unless
+ *                            darknessFloorPct, memoryTint, colorGrading, pixelLight, godRays, foliageSway, relief) as off unless
  *                            -D / pzopt.properties pins it; the tab's choices stay saved. Live, except what hdr / hdrAuto /
  *                            pixelLight / reflections pick at start-up (default true)
  *   profilerEnabled true/false  the Profiler tab's master switch: false reads overlaySampling, overlay and overlayLog as
@@ -1130,6 +1130,29 @@ public final class Config {
    public static final boolean PPL_AIR_FILL = bool("pplAirFill", true); // pixelLight: a lattice level without a square at a column (air above the ground, beside a taller building, above the chunk's top) takes the top corners of the column's highest square below, kept up to the tallest neighbour's top; off: black (0) there, and levels above the chunk's top + 1 keep whatever the slot held before (tree crowns black or flickering)
    public static final boolean PPL_PACK_RING = bool("pplPackRing", true); // pixelLight: the lattice also holds the loaded chunks around the on-screen ones (their squares are reached by tree copies in on-screen textures and by the light's bilinear across the border); off: only the on-screen chunks, the rest reads whatever the slot held (a tree at the screen's edge black)
    public static final boolean PPL_VARIANTS = bool("pplVariants", true); // pixelLight: chunk textures no torch, headlight or lamp reaches are composited by a light-free variant of the shader (half the registers: twice the occupancy on RDNA iGPUs)
+   public static final boolean RELIEF = bool("relief", false); // relief / "parallax textures" (pzopt.Relief): the art's fine relief (mortar, plank gaps, cobbles) as a height field from the chunk texture's colour, so moving light rakes it (with pixelLight: the torch, lamps, fires, headlights)
+   public static final int RELIEF_DEPTH_PCT = Math.max(0, Math.min(400, integer("reliefDepthPct", 150))); // relief: how deep the art's grooves are, %
+   public static final String RELIEF_HEIGHT = string("reliefHeight", "mix").trim().toLowerCase(java.util.Locale.ROOT); // relief: the height estimate from the colour: lum (brighter is higher), groove (off the local mean colour is a groove), mix
+   public static final int RELIEF_SHADOW_STEPS = Math.max(0, Math.min(12, integer("reliefShadowSteps", 4))); // relief: self-shadowing, texels marched towards the light (0: none)
+   public static final int RELIEF_SHADOW_PCT = Math.max(0, Math.min(100, integer("reliefShadowPct", 70))); // relief: how dark the art's own grooves fall in its shadow, %
+   public static final int RELIEF_SNAP_PCT = Math.max(50, Math.min(99, integer("reliefSnapPct", 80))); // relief: a texel whose depth normal leans this close to a floor or wall plane (cosine, %) gets that plane's relief
+   public static final int RELIEF_GMAX_PCT = Math.max(1, Math.min(1000, integer("reliefGmaxPct", 20))); // relief: the height slope (green per texel, %) at which the soft limit halves it (edges between sprites are not cliffs)
+   public static final int RELIEF_SUN_PCT = Math.max(0, Math.min(200, integer("reliefSunPct", 100))); // relief: how much of the direct sun / moonlight the relief relights, % (0: the sun path off; needs sunShadows and cloudShadows, which give the texel's direct-sun share)
+   public static final boolean RELIEF_AUX = bool("reliefAux", true); // relief: each chunk texture's relief encoded once after it bakes into a byte per texel (pzopt.ReliefAux), read once per composited fragment (false: derived from the colour and depth in the composite, with the self-shadow ray)
+   public static final int RELIEF_AUX_BUDGET = Math.max(1, integer("reliefAuxBudget", 8)); // relief codes: chunk textures encoded a frame at most (on screen)
+   public static final int RELIEF_AUX_BUDGET_MB = Math.max(16, integer("reliefAuxBudgetMb", 512)); // relief codes: VRAM above which the codes of textures not drawn for a second are freed (a code + the baked factor = 2 bytes a chunk-texture texel: ~2 MB a texture, ~120 textures at zoom 1 on a 5K screen)
+   public static final String RELIEF_SUN_MODE = string("reliefSunMode", "bake").trim().toLowerCase(java.util.Locale.ROOT); // relief under the sun / moon: bake = into the chunk textures at bake time and on the key light's steps (no per-frame cost; needs ambient occlusion's chunk kernel: sunShadows), composite = per fragment in the composite (+86 us at 5K)
+   public static final int RELIEF_STEP_BUDGET = Math.max(1, integer("reliefStepBudget", 4)); // relief baked: chunk textures on screen re-lit a frame when the key light steps
+   public static final int RELIEF_TORCH_SHADOW_STEPS = Math.max(0, Math.min(8, integer("reliefTorchShadowSteps", 0))); // relief codes: the torch's / lamps' self-shadow ray on the codes, texels (0: none; the baked sun always has its own)
+   public static final float RELIEF_MAX_ZOOM = Float.parseFloat(string("reliefMaxZoom", "1.75")); // relief: zoomed out this far or more no relief is baked or read (its detail is under half a pixel), and no codes held for it
+   public static final boolean RELIEF_HORIZON = bool("reliefHorizon", false); // relief codes: the torch's / lamps' self-shadow from per-texel horizons (horizon mapping: tan of the relief's horizon along +u, -u, +v, -v, RGBA4 = 2 more bytes a texel, one fetch)
+   public static final int RELIEF_HORIZON_STEPS = Math.max(1, Math.min(16, integer("reliefHorizonSteps", 6))); // relief horizons: texels searched along each direction
+   public static final boolean RELIEF_OBJECTS = bool("reliefObjects", false); // relief: also on furniture and other objects (their sprites' painted shading reads as relief; off: floors and walls only)
+   public static final int DEV_RELIEF_ALTERNATE = integer("devReliefAlternate", 0); // dev: relief on / off every N ms in one run (the same programs; GPU section "composite" split .rlon / .rloff with gpuSections=true)
+   public static final int DEV_RELIEF_SKIP = integer("devReliefSkip", 0); // dev: sun relief cost probes, bits: 1 return after the direct-sun share fetch, 2 after the code fetch, 4 no share fetch (0.4)
+   public static final boolean DEV_RELIEF_TIMING = bool("devReliefTiming", false); // dev: GPU time of the baked relief's passes (encode, factor, apply, keep) in the log every 300 bakes
+   public static final boolean DEV_RELIEF_TRACE = bool("devReliefTrace", false); // dev: log the relief's re-bake requests with what the texture held at its last bake
+   public static final int DEV_RELIEF_VIEW = integer("devReliefView", 0); // dev: 1 = every surface lit by a low light from the west (relief over flat), 2 = the relief normal, 3 = that factor alone (grey), 4 = the self-shadow, 5 = the height (pixelLight's composite; needs relief=true)
    public static final int DEV_PPL_VIEW = integer("devPplView", 0); // dev: 1 = the light alone, 2 = the unlit surfaces, 3 = the owner squares as a checkerboard, 4 = the reconstructed normals, 13 = the reconstructed height (red below 0, green z / 6, blue its fraction), 14 = its offset from the nearest level (grey: 0.5 on it, +-0.039 levels), 15 = the level read (red the wall path, green the level, blue lifted by the tolerance), 16 = the lit point unshaded (red fract x, green fract y, blue (x mod 4) * 4 + y mod 4 over 16)
    public static final int DEV_PPL_PROBE = integer("devPplProbe", 0); // dev: per frame, the squares within this many of the player on its level: how many of their native corners / light / vision bits and packed lattice values changed and how many came back to the value of two frames before (A-B-A), one log line (pzopt.PixelLight), the stairs wall flicker rig
    public static final String DEV_SQUARE_TRACE = string("devSquareTrace", ""); // dev: x,y,z[;x,y,z...]: per frame, each listed square's objects with their render layer (baked / per-frame translucent), alphas, whether the chunk baked, the light (pzopt.SquareTrace; the Fossoil shelf blink, 2026-09-29)
@@ -1466,7 +1489,7 @@ public final class Config {
          // the switch of each feature on the Enhancements tab; the rest of each section only tunes it
          {"enhancementsEnabled", "upscaler", "off", "spriteFilter", "stock", "hdr", "false", "hdrAuto", "false",
             "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "bloodWet", "false", "darknessFloorPct", "0",
-            "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false"},
+            "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false", "relief", "false"},
          // everything that makes the overlay measure or show (Overlay.configure; harness runs still measure)
          {"profilerEnabled", "overlaySampling", "false", "overlay", "false", "overlayLog", "false"},
       };

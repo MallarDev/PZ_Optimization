@@ -538,7 +538,7 @@ public final class PixelLight {
       }
    }
 
-   static final int V_NO_POINT = 1, V_NO_TORCH = 2, V_NO_WET = 4, V_NO_MASK = 8, V_BASE = 16, V_COPY = 32;
+   static final int V_NO_POINT = 1, V_NO_TORCH = 2, V_NO_WET = 4, V_NO_MASK = 8, V_BASE = 16, V_COPY = 32, V_NO_RELIEF = 64;
    private static final java.util.HashMap<Integer, Integer> programKeys = new java.util.HashMap<>(); // variant programs (dev tint)
    private static String variantDefines = "#define PPL_BASE\n"; // read by patchShader while a variant compiles
 
@@ -554,6 +554,7 @@ public final class PixelLight {
          if ((key & V_NO_WET) != 0) d.append("#define PPL_NO_WET\n");
          if ((key & V_NO_MASK) != 0) d.append("#define PPL_NO_MASK\n");
       }
+      if ((key & V_NO_RELIEF) != 0) d.append("#define PPL_NO_RELIEF\n"); // dev (cost bit 32768): the same program without relief
       variantDefines = d.toString();
       try {
          zombie.viewCone.ChunkRenderShader v = new zombie.viewCone.ChunkRenderShader("pzopt_chunkBase");
@@ -1631,7 +1632,8 @@ public final class PixelLight {
          if (!point && !torch && !(vehicle && wet)) {
             return baseShader; // a vehicle light only lights the wet glints
          }
-         int key = (point ? 0 : V_NO_POINT) | (torch ? 0 : V_NO_TORCH) | (wet ? 0 : V_NO_WET) | (mask && this.maskValid && Config.PPL_SHADOWS ? 0 : V_NO_MASK);
+         int key = (point ? 0 : V_NO_POINT) | (torch ? 0 : V_NO_TORCH) | (wet ? 0 : V_NO_WET) | (mask && this.maskValid && Config.PPL_SHADOWS ? 0 : V_NO_MASK)
+            | ((costMask & 32768) != 0 ? V_NO_RELIEF : 0); // dev: relief compiled out (devPplAlternate A/B of its cost)
          if (key == 0) {
             return null;
          }
@@ -2491,6 +2493,15 @@ public final class PixelLight {
       "bool pplNeedN = false;",
       "vec3 pplLazyNormal(vec3 P);", // defined by the chunk composite (pplTexelPos)
       "#endif",
+      "#if defined(PPL_RELIEF) && defined(RELIEF_SHADOW)",
+      "float rlfShadow(vec3 ld);", // pzopt.Relief (after this)
+      "#endif",
+      "#if defined(PPL_RELIEF) && defined(RELIEF_TORCH_SHADOW)",
+      "float rlfShadowCode(vec3 ld);",
+      "#endif",
+      "#if defined(PPL_RELIEF) && defined(RELIEF_HORIZON)",
+      "float rlfHorizon(vec3 ld);",
+      "#endif",
       "vec3 pplLight(vec3 P, float dz, vec3 n) {", // n: the surface normal in squares (z up), towards the viewer
       "   int cost = int(pplOpt2.w + 0.5);", // dev: parts switched off (devPplCostAt)
       "   if ((cost & 8) != 0) return vec3(fract(P.x * 0.001) + 0.999);",
@@ -2587,6 +2598,10 @@ public final class PixelLight {
       Config.PPL_OWN_LEVEL_LIGHTS ? "         if (floor(a.z + 0.05) != lz) continue;" : "         if (abs(a.z - lz) > 1.5) continue;",
       "         float dd = length(P.xy - a.xy);",
       "         if (dd > a.w + 1.0) continue;",
+      // a torch or a vehicle light outside its cone adds nothing here (its glint neither): skipped before the texel normal
+      // (and the relief) are fetched, which the reach circle alone left to every pixel within reach
+      "         float T0 = c.w > 0.5 ? pplTorch(P.xy, a, b, c.w) : 1.0;",
+      "         if (T0 < 0.004 || c.w > 1.5 && !wet) continue;",
       "#ifdef PPL_LAZY_NORMAL",
       "         if (pplNeedN) { n = pplLazyNormal(P); pplNeedN = false; }", // the chunk composite's texel normal: fetched for pixels a light reaches only
       "#endif",
@@ -2603,10 +2618,19 @@ public final class PixelLight {
       // the variants (pzopt_chunkBase with PPL_NO_*: the kinds of light a chunk texture's list does not hold) leave cases
       // out; fewer live values, more waves in flight
       "         if (c.w > 1.5) {",
-      "            if (wet) pplSpec += c.rgb * pplTorch(P.xy, a, b, c.w) * glint;",
+      "            if (wet) pplSpec += c.rgb * T0 * glint;",
       "         } else if (c.w > 0.5) {",
       "#ifndef PPL_NO_TORCH",
-      "            float tv = pplTorch(P.xy, a, b, c.w) * f;",
+      "            float tv = T0 * f;",
+      "#ifdef RELIEF_SHADOW",
+      "            if (tv > 0.01) tv *= rlfShadow(normalize(lpos - P * vec3(1.0, 1.0, PPL_LEVEL)));", // the art's grooves in the torch's shadow
+      "#endif",
+      "#ifdef RELIEF_TORCH_SHADOW",
+      "            if (tv > 0.01) tv *= rlfShadowCode(normalize(lpos - P * vec3(1.0, 1.0, PPL_LEVEL)));", // the same on the relief codes
+      "#endif",
+      "#ifdef RELIEF_HORIZON",
+      "            if (tv > 0.01) tv *= rlfHorizon(normalize(lpos - P * vec3(1.0, 1.0, PPL_LEVEL)));", // from the texel's horizons
+      "#endif",
       "#ifndef PPL_NO_MASK",
       "            if (tv > 0.01 && float(i) == pplOpt2.y) tv *= pplMask(P);",
       "#endif",
@@ -2727,6 +2751,13 @@ public final class PixelLight {
 
    /** The game's chunkShader.frag (DIFFUSE x vertex colour, depth = chunkDepth + the texture's depth) with the light multiplied in. */
    private static final String CHUNK_FRAG_BODY = String.join("\n",
+      "#ifdef PPL_NO_RELIEF", // dev: a variant without relief (cost A/B)
+      "#undef PPL_RELIEF",
+      "#undef RELIEF_SHADOW",
+      "#undef RELIEF_TORCH_SHADOW",
+      "#undef RELIEF_HORIZON",
+      "#undef RELIEF_VIEW",
+      "#endif",
       "uniform sampler2D DIFFUSE;",
       "uniform sampler2D DEPTH;",
       "uniform int useTexture = 1;",
@@ -2741,10 +2772,14 @@ public final class PixelLight {
       "out vec4 fragColor;",
       "#if defined(PPL_TEXEL) && !defined(PPL_BASE)",
       "#define PPL_LAZY_NORMAL",
+      "#endif",
+      "#if defined(PPL_TEXEL) && (!defined(PPL_BASE) || defined(RELIEF_VIEW))",
+      "#define PPL_TEXEL_N", // the texel normal is defined (dev: relief's views need it in the light-free variant too)
       "vec2 pplTt, pplWpt;", // this pixel's position in chunk-texture texels and window px per texel, for pplLazyNormal
       "#endif",
       LIGHT_GLSL,
-      "#if defined(PPL_TEXEL) && !defined(PPL_BASE)",
+      Relief.GLSL,
+      "#ifdef PPL_TEXEL_N",
       // pplTexelPos: the torch's facing term takes its normal from the chunk-texture texel the pixel shows, not from screen
       // derivatives: those moved with the camera's sub-pixel offset (a continuous window position with a nearest texel's
       // depth), straddled wall and floor edges differently on odd and even frames and flipped the snapped normal, and the
@@ -2756,6 +2791,13 @@ public final class PixelLight {
       "vec3 pplLazyNormal(vec3 P) {",
       "   ivec2 mx = textureSize(DEPTH, 0) - 1;",
       "   ivec2 ti = clamp(ivec2(floor(pplTt)), ivec2(0), mx);",
+      "#if defined(PPL_RELIEF) && defined(RELIEF_AUX)",
+      // relief codes (pzopt.ReliefAux): a floor or wall texel's plane and relief in one fetch, no depth reads
+      "   if (pzRlfK.w > 0.5) {",
+      "      vec3 nc;",
+      "      if (rlfCode(ti, smoothstep(0.3, 0.9, min(abs(pplWpt.x), abs(pplWpt.y))), nc)) return nc;",
+      "   }",
+      "#endif",
       "   vec2 fc = gl_FragCoord.xy + (floor(pplTt) + 0.5 - pplTt) * pplWpt;",
       "   float d0 = texelFetch(DEPTH, ti, 0).r;",
       "   const int K = PPL_NSPAN;",
@@ -2768,7 +2810,22 @@ public final class PixelLight {
       "   vec3 px = pplPos(fc + vec2(sx * float(K) * pplWpt.x, 0.0), chunkDepth + (sx > 0.0 ? xp : xm));",
       "   vec3 py = pplPos(fc + vec2(0.0, sy * float(K) * pplWpt.y), chunkDepth + (sy > 0.0 ? yp : ym));",
       "   vec3 L = vec3(1.0, 1.0, PPL_LEVEL);",
-      "   return pplSnapNormal(P0, cross((px - P0) * L, (py - P0) * L));",
+      "   vec3 n0 = pplSnapNormal(P0, cross((px - P0) * L, (py - P0) * L));",
+      "#ifdef PPL_RELIEF",
+      // relief (pzopt.Relief): the art's height across the texel's plane; a side whose depth leaves the plane (the second
+      // difference over the span beyond a few DEPTH16 steps) is left out of the height's difference
+      "   bool planar = xp < 1.0 && xm < 1.0 && abs(xp + xm - 2.0 * d0) < 4.0 / 65535.0 + 0.25 * abs(xp - xm)",
+      "      && yp < 1.0 && ym < 1.0 && abs(yp + ym - 2.0 * d0) < 4.0 / 65535.0 + 0.25 * abs(yp - ym);",
+      "   float fade = smoothstep(0.3, 0.9, min(abs(pplWpt.x), abs(pplWpt.y)));", // minified: the texels' detail is below a pixel
+      "#ifdef RELIEF_AUX",
+      "   rlfN0 = n0;",
+      "   return n0;", // no code here (an object, an edge): no relief
+      "#else",
+      "   return rlfNormal(n0, ti, vec2(mx + 1), pplMapA.x * pplWpt.x, pplMapA.z * pplWpt.y, planar, fade);",
+      "#endif",
+      "#else",
+      "   return n0;",
+      "#endif",
       "}",
       "#endif",
       "void main() {",
@@ -2845,6 +2902,27 @@ public final class PixelLight {
       "#endif",
       "   }",
       "   fragColor = c * col;",
+      "#ifdef RELIEF_VIEW",
+      // dev (devReliefView): 1 the surface lit by a low light from the west (relief over flat), 2 the relief normal, 3 that
+      // relief factor alone (grey, 0.5 = flat), 4 the self-shadow, 5 the height
+      "   pplTt = texCoord.st * vec2(textureSize(DEPTH, 0));",
+      "   vec2 rvx = dFdx(pplTt), rvy = dFdy(pplTt);",
+      "   pplWpt = vec2(abs(rvx.x) > 1e-6 ? 1.0 / rvx.x : 0.0, abs(rvy.y) > 1e-6 ? 1.0 / rvy.y : 0.0);",
+      "   if (c.a > 0.0) {",
+      "      rlfN0 = vec3(0.0, 0.0, 1.0);",
+      "      vec3 rvn = pplLazyNormal(pplPos(gl_FragCoord.xy, d));",
+      "      vec3 rls = normalize(vec3(-0.8, 0.25, 0.45));",
+      "      float rsh = clamp(max(dot(rvn, rls), 0.0) / max(dot(rlfN0, rls), 0.2), 0.0, 2.0);",
+      "#ifdef RELIEF_SHADOW",
+      "      rsh *= rlfShadow(rls);",
+      "      if (RELIEF_VIEW == 4) fragColor.rgb = vec3(rlfShadow(rls)) * fragColor.a;",
+      "#endif",
+      "      if (RELIEF_VIEW == 1) fragColor.rgb *= rsh;",
+      "      if (RELIEF_VIEW == 2) fragColor.rgb = (rvn * 0.5 + 0.5) * fragColor.a;",
+      "      if (RELIEF_VIEW == 3) fragColor.rgb = vec3(clamp(0.5 * rsh, 0.0, 1.0)) * fragColor.a;",
+      "      if (RELIEF_VIEW == 5) fragColor.rgb = vec3(rlfH0) * fragColor.a;",
+      "   }",
+      "#endif",
       "#ifdef PPL_TINT",
       "   fragColor.rgb *= pplTint;",
       "#endif",
@@ -2852,7 +2930,7 @@ public final class PixelLight {
 
    /** The game's chunkShader.frag (DIFFUSE x vertex colour, depth = chunkDepth + the texture's depth) with the light multiplied in. */
    private static final String TINT = (Config.DEV_PPL_TINT ? "#define PPL_TINT\n" : "") + (Config.PPL_TEXEL_POS ? "#define PPL_TEXEL\n#define PPL_NSPAN " + Config.PPL_NORMAL_SPAN + "\n" : "")
-      + (Config.PPL_TEXEL_HEIGHT ? "#define PPL_TEXEL_Z\n" + (Config.PPL_FLOOR_SNAP ? "#define PPL_FLOOR_SNAP\n" : "") : "") + (Config.PPL_SEEN_EDGE ? "#define PPL_SEEN_EDGE\n" : ""); // the defines every chunk program gets
+      + (Config.PPL_TEXEL_HEIGHT ? "#define PPL_TEXEL_Z\n" + (Config.PPL_FLOOR_SNAP ? "#define PPL_FLOOR_SNAP\n" : "") : "") + (Config.PPL_SEEN_EDGE ? "#define PPL_SEEN_EDGE\n" : "") + Relief.defines(); // the defines every chunk program gets
    private static final String CHUNK_FRAG = "#version 420\n" + (Config.DEV_PPL_VIEW != 0 ? "#define PPL_DEV\n" : "") + TINT + CHUNK_FRAG_BODY; // dev views compiled in only when asked: they keep values alive to the end (registers)
    /** The same without the dynamic lights (chunk textures no light reaches): 32 registers, full occupancy on the 890M (64 with). */
    private static final String CHUNK_BASE_FRAG = "#version 420\n#define PPL_BASE\n" + CHUNK_FRAG_BODY;

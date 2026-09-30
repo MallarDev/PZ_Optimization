@@ -5519,3 +5519,23 @@ Keys `uiProfile` (on in instrumented runs), `uiRetained`, `uiRetainedChildren`, 
   row span computed once) and puts it in one call; the same bytes as the stock per-texel loop, which stays for the off
   case. `devMapVisitedCheck` re-runs the stock computation over the region and logs differing texels.
 - Decompiler fix: `setBounds` zeroes the four bounds with one chained assignment, as the jar does.
+### Relief / parallax textures (`relief`, 2026-09-30; `pzopt.Relief`, `pzopt.ReliefAux`, `docs/findings-relief-2026-09-30.md`)
+
+Nothing below changes a pixel or a timing while `relief` is off (the default): the hooks return at once and no shader is
+patched.
+
+- `zombie.iso.fboRenderChunk.FBORenderCell.renderOneLevel` (the bake's end, top level, before the `bake.end` section and
+  `endRenderChunkLevel`): `pzopt.ReliefAux.baked(renderChunk)` queues the texture's relief code and, with the baked sun relief,
+  its relight (the factor multiplied into the colour before the stock mipmap build).
+- `FBORenderCell` before the composite (after `ChunkAo.flush`): `pzopt.ReliefAux.flush(playerIndex)`: the light steps of the
+  baked sun relief for the textures on screen (a few a frame), re-bake requests for textures shown without relief, the
+  composite-mode encodes; the composite's GPU section name goes through `pzopt.Relief.section` (`devReliefAlternate`).
+- `zombie.viewCone.ChunkRenderShader.startRenderThread`: `pzopt.Relief.chunkDraw(texd)` after the cloud shadows: this texture's
+  relief code on unit 13 (keyed by `texd.tex1`, the depth: the op is the StartShader, its `tex` is not the chunk's colour) and,
+  in composite mode, the key light.
+- `zombie.core.opengl.ShaderUnit` (compile): `pzopt.Relief.patchComposite` right after the cloud shadows' patch
+  (`reliefSunMode=composite` only: a post-main relighting the direct-sun share per fragment, +86 us at 5K, not the default).
+  pixelLight's chunk programs get the relief code read in their texel normal through `PixelLight`'s own sources (defines from
+  `Relief.defines()`), not through a patch.
+- `pzopt.CloudShadow.chunkDraw`: the per-texture direct-sun share uniforms are also set while no cloud shades
+  (`Relief.wantsSunShare`, composite mode only; clear sky left them at 0).

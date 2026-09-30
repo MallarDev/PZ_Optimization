@@ -622,6 +622,7 @@ public final class CloudShadow {
             return; // not a patched program
          }
          boolean on = f != null && f.strength > 0F && Config.DEV_CLOUD_VIEW != 2 ? ensureField() : f != null && Config.DEV_CLOUD_VIEW == 2;
+         boolean share = Relief.wantsSunShare(); // relief's sun post-main reads the texture's direct-sun share too (clear sky: no cloud)
          Integer applied = APPLIED.get(prog);
          float[] last = LAST_TERM.get(prog);
          if (last == null) {
@@ -633,30 +634,40 @@ public final class CloudShadow {
             last[1] = -3F;
             if (!on) {
                GL20.glUniform4f(l[2], 0F, 0F, 0F, 0F);
-               return;
-            }
-            GL11.glGetIntegerv(GL11.GL_VIEWPORT, VPI);
-            VP[0] = VPI[0];
-            VP[1] = VPI[1];
-            VP[2] = VPI[2];
-            VP[3] = VPI[3];
-            f.view.mapping(VP, MAP);
-            uniforms(f, l);
-            if (bindless && l[6] >= 0 && !LAST_HANDLE.containsKey(prog) && dummy()) {
-               org.lwjgl.opengl.ARBBindlessTexture.glUniformHandleui64ARB(l[6], dummyHandle);
-               LAST_HANDLE.put(prog, new long[] {dummyHandle});
+               if (!share) {
+                  return;
+               }
+               if (l[6] >= 0 && !bindless) {
+                  GL20.glUniform1i(l[6], TERM_UNIT);
+               }
+               if (bindless && l[6] >= 0 && !LAST_HANDLE.containsKey(prog) && dummy()) {
+                  org.lwjgl.opengl.ARBBindlessTexture.glUniformHandleui64ARB(l[6], dummyHandle);
+                  LAST_HANDLE.put(prog, new long[] {dummyHandle});
+               }
+            } else {
+               GL11.glGetIntegerv(GL11.GL_VIEWPORT, VPI);
+               VP[0] = VPI[0];
+               VP[1] = VPI[1];
+               VP[2] = VPI[2];
+               VP[3] = VPI[3];
+               f.view.mapping(VP, MAP);
+               uniforms(f, l);
+               if (bindless && l[6] >= 0 && !LAST_HANDLE.containsKey(prog) && dummy()) {
+                  org.lwjgl.opengl.ARBBindlessTexture.glUniformHandleui64ARB(l[6], dummyHandle);
+                  LAST_HANDLE.put(prog, new long[] {dummyHandle});
+               }
             }
             if (Config.DEV_CLOUD_TIMING && serial % 1200 == 7) {
                Log.info(String.format(java.util.Locale.ROOT, "cloud shadows: render prog %d field tex %d vp %.0f,%.0f,%.0f,%.0f map %.4f,%.1f,%.4f,%.1f,%.1f,%.1f U %s V %s P %s D %s gl error %d",
                   prog, fieldTex, VP[0], VP[1], VP[2], VP[3], MAP[0], MAP[1], MAP[2], MAP[3], MAP[4], MAP[5], java.util.Arrays.toString(DBG_U), java.util.Arrays.toString(DBG_V),
                   java.util.Arrays.toString(DBG_P), java.util.Arrays.toString(DBG_D), GL11.glGetError()));
             }
-         } else if (!on) {
+         } else if (!on && !share) {
             return;
          }
          // per draw: this texture's direct-sun share (its kept term on TERM_UNIT, or a constant)
          int depthTex = texd.tex1 != null ? texd.tex1.getID() : -1; // the draw's DEPTH: the chunk texture's own
-         boolean reach = depthTex > 0 && (!f.cull || f.hasClouded(depthTex));
+         boolean reach = depthTex > 0 && (share || f == null || !f.cull || f.hasClouded(depthTex));
          draws++;
          float want;
          float tw = 0F, th = 0F;

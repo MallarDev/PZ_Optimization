@@ -1620,6 +1620,7 @@ public final class FBORenderCell {
       long pzoptAoT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
       pzopt.ChunkAo.flush(playerIndex); // pzopt: ambient occlusion, this frame's budget of AO computes, before the textures are composited
       pzopt.GtAb.end(pzopt.GtAb.S_AO_FLUSH, pzoptAoT); // pzopt
+      pzopt.ReliefAux.flush(playerIndex); // pzopt: relief, the relief codes of this frame's textures on screen, the baked sun relief's light steps
       pzopt.BloodWet.collect(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: wet blood, this frame's fresh splats (their squares join the reflection map below)
       pzopt.Ssr.beforeComposite(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: reflections, the water square map and the scatter's frame, ahead of the chunk composite
       long pzoptPpl = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
@@ -1630,14 +1631,14 @@ public final class FBORenderCell {
       pzopt.GodRays.beforeComposite(playerIndex); // pzopt: god rays, the camera of this frame for the haze in the chunk composite
       pzopt.Sway.beforeComposite(playerIndex); // pzopt: foliage sway, this frame's wind for the chunk composite
       pzopt.RenderPrep.start(); // pzopt: renderPrepParallel, the characters' sun share and water search on the frame workers while the composite and the players go
-      pzopt.GpuSections.begin(pzopt.Sway.section(pzopt.SpriteFilter.section("composite"))); /* pzopt: GPU section: chunk textures into the combined FBO and onto the screen; foliage sway's alternation splits it */
+      pzopt.GpuSections.begin(pzopt.Relief.section(pzopt.Sway.section(pzopt.SpriteFilter.section("composite")))); /* pzopt: GPU section: chunk textures into the combined FBO and onto the screen; foliage sway's and relief's alternations split it */
       if (pzopt.Config.COMPOSITE_SHADER_RUN && pzopt.Overrides.enabled() && !DebugOptions.instance.fboRenderChunk.combinedFbo.getValue()
             && DebugOptions.instance.fboRenderChunk.renderChunkTextures.getValue()) { // pzopt: compositeShaderRun
          this.pzoptCompositeChunks(); // pzopt
       } else { // pzopt
          FBORenderChunkManager.instance.endFrame();
       } // pzopt
-      pzopt.GpuSections.end(pzopt.Sway.section(pzopt.SpriteFilter.section("composite"))); // pzopt: sprite filter, devSpriteFilterAlternate splits the section; foliage sway, devSwayAlternate too
+      pzopt.GpuSections.end(pzopt.Relief.section(pzopt.Sway.section(pzopt.SpriteFilter.section("composite")))); // pzopt: sprite filter, devSpriteFilterAlternate splits the section; foliage sway, devSwayAlternate too
       pzopt.Ssr.afterComposite(); // pzopt: reflections, dev timing of the composite with its scatter
       pzopt.Sway.afterComposite(); // pzopt: foliage sway, the motion-vector attachment off the world framebuffer
       pzopt.CloudShadow.afterComposite(); // pzopt: cloudShadows, dev timing of the composite
@@ -2748,6 +2749,7 @@ public final class FBORenderCell {
                if (pzopt.ChunkAo.enabled() && FBORenderChunkManager.instance.renderChunk != null && FBORenderChunkManager.instance.renderChunk.isTopLevel(level)) { // pzopt: ambient occlusion baked into the texture
                   pzopt.ChunkAo.bakeEnd(FBORenderChunkManager.instance.renderChunk, c, playerIndex, zoom, pzopt.ChunkAo.geometryDirty(renderLevels, level, zoom)); // pzopt
                } // pzopt
+               if (FBORenderChunkManager.instance.renderChunk != null && FBORenderChunkManager.instance.renderChunk.isTopLevel(level)) pzopt.ReliefAux.baked(FBORenderChunkManager.instance.renderChunk); // pzopt: relief, the texture's relief code is encoded again before the composite
                pzopt.GpuSections.begin("bake.end"); // pzopt: GPU sub-section (unbind, mipmaps of the top level)
                FBORenderChunkManager.instance.endRenderChunkLevel(c, level, zoom, true); pzopt.PixelLight.bakeEnd(); pzopt.SpriteFilter.bakeEnd(); // pzopt: pixelLight; sprite filter, the finished texture gets its sharp level 1
                pzopt.GpuSections.end("bake.end"); // pzopt: GPU sub-section

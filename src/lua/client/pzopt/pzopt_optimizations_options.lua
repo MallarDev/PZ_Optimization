@@ -966,6 +966,22 @@ local ENHANCEMENT_SECTIONS = {
               tip = "A torch in your hands also lights a small circle round your feet, behind and beside you. Off: only the beam in front of you is lit. Applies at once." },
         },
     },
+    {
+        title = "Relief (parallax textures: bricks, stones, planks and shingles catch the light)", clip = "torch",
+        entries = {
+            { key = "relief", label = "Relief (parallax textures)",
+              tip = "The fine relief the art paints (mortar between bricks and stones, gaps between planks and floor tiles, roof shingles, cobbles) catches the light that moves: a low sun or the moon rakes it and the grooves fall into shade, a torch, headlight or lamp sweeping along a wall brings the stones out. The height is read once from each chunk picture after it is drawn (two bytes per pixel of video memory); the sun and the moon are baked into the picture with it and redone a few pictures a frame when they move a step, so they cost nothing per frame; a torch, headlight or lamp reads one byte where it shines. Floors and walls only: furniture keeps its painted shading. Sun and moon: needs Sun shadows. Torches, headlights and lamps: needs Per-pixel lighting. Windows and Linux (not on macOS, OpenGL 2.1). Applies on the next launch." },
+            { key = "reliefDepthPct", label = "Relief: depth (%)",
+              choices = { "50", "100", "150", "200" }, note = { ["150"] = "default" },
+              tip = "How deep the grooves between bricks, planks and tiles are." },
+            { key = "reliefSunPct", label = "Relief: in sunlight and moonlight (%)",
+              choices = { "0", "50", "100", "150" }, note = { ["100"] = "default", ["0"] = "torches and lamps only" },
+              tip = "How strongly the sun and the moon bring the relief out (the part of their light that reaches the surface directly: none in shade)." },
+            { key = "reliefTorchShadowSteps", label = "Relief: grooves in torch shadow",
+              choices = { "0", "2", "4" }, note = { ["0"] = "default (off)", ["4"] = "costs ~0.12 ms at 5K" },
+              tip = "The grooves also fall into the shadow of their own edges in torch, headlight and lamp light (each lit pixel follows the light a few texels across the relief). The sun and the moon always have it (baked)." },
+        },
+    },
 }
 
 -- The Enhancements tab's keys apply as soon as Apply is pressed (Java: Config's live reload, pzopt.Enhancements), except
@@ -976,7 +992,9 @@ local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true,
     pplWetSpecular = true, pplSpecPct = true, pplShadows = true,
     -- reflections: the water, puddle and chunk composite shaders are patched when the game loads them (only then);
     -- strength and puddles apply at once
-    reflections = true }
+    reflections = true,
+    -- relief: compiled into the chunk composite programs when the game loads them
+    relief = true, reliefDepthPct = true, reliefSunPct = true, reliefTorchShadowSteps = true }
 for _, section in ipairs(ENHANCEMENT_SECTIONS) do
     for _, entry in ipairs(section.entries) do
         entry.live = not NEXT_LAUNCH_ONLY[entry.key]
@@ -1445,6 +1463,8 @@ local EFFECTS = {
     godRays = { gpu = 1, vram = 1 },
     godRaysLocal = { gpu = 1 },
     foliageSway = { gpu = 1, vram = 1 },
+    relief = { gpu = 1, vram = 2 },
+    reliefTorchShadowSteps = { gpu = 2 },
     darknessFloorPct = {},
     memoryTint = {},
     colorGrading = { gpu = -1 },

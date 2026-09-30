@@ -11,7 +11,9 @@ per-pixel lighting (`pixelLight`, phases A-C and the experimental torch shadows 
 `docs/findings-per-pixel-lighting-2026-09-25.md`); item 4, reflections (`reflections`,
 `docs/findings-reflections-2026-09-25.md`); candidate B, darkness floor, remembered places and colour grading
 (`darknessFloorPct`, `memoryTint`, `colorGrading`, released `ea05422`, `docs/findings-darkness-grading-2026-09-26.md`).
-Open: items 3, 5-8 and candidates A, C, D.1-2, E-O.
+Open: items 3, 5-8 and candidates A, C, D.1-2, E-O. 2026-09-30: relief / "parallax textures" (the art's fine relief lit by
+the sun, the moon and pixelLight's torches; `relief`, off by default, `docs/findings-relief-2026-09-30.md`), the micro-relief
+part of O without offline tooling.
 
 ## What the engine gives us
 
