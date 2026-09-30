@@ -43,7 +43,7 @@ import zombie.iso.fboRenderChunk.FBORenderChunkManager;
  * (torches, headlights, lightning, dusk, the vision fade). Here the chunk textures bake unlit (the chunk's squares hand out
  * white light while it bakes) and the chunk composite shader lights every pixel:
  * <ul>
- *   <li>three small texture arrays, one texel per square, toroidal in x, y (the chunk grid) and z (16 levels): the square's
+ *   <li>three small texture arrays, one texel per square, toroidal in x, y (the chunk grid) and z (32 levels): the square's
  *       own light without its handheld torch (the native's sample at the centre, what stock draws objects with) and a
  *       "simple square" flag; the connectivity to its eight neighbours (shared corner colours: the native breaks them at
  *       walls), whether the torch reaches it for the native, whether it has a vertical gradient; the wall gradient
@@ -67,7 +67,7 @@ public final class PixelLight {
    /** The chunk textures bake unlit and this pass lights them. Read by the game thread and the lighting-read workers. */
    public static volatile boolean ACTIVE = Config.PIXEL_LIGHT && Overrides.enabled() && !System.getProperty("os.name", "").contains("OS X");
 
-   static final int LEVELS = 16; // levels the lattice holds (level & 15)
+   static final int LEVELS = 32; // levels the lattice holds (level & 31): every chunk of the vanilla map (-17..8 at the Rosewood base, 0..29 in Louisville) and its air level
    /** IsoDepthHelper: depth per unit of x + y (SQUARE_DEPTH / 2; a level adds 2 units) */
    static final double DEPTH_PER_XY = 0.0028867084 / 2.0;
 
@@ -146,9 +146,9 @@ public final class PixelLight {
 
    private static int n; // squares per side of the lattice (power of two, >= the chunk grid)
    private static IsoChunk[] slotChunk;
-   private static int[] slotLevel; // per slot and level & 15: the level uploaded there
-   private static boolean[] slotAir; // per slot and level & 15: some squares of that level took their column's light from below (pplAirFill)
-   private static boolean[] slotLite; // per slot and level & 15: packed lite (a ring chunk: no connectivity), repacked in full once on screen
+   private static int[] slotLevel; // per slot and level & (LEVELS - 1): the level uploaded there
+   private static boolean[] slotAir; // per slot and level & (LEVELS - 1): some squares of that level took their column's light from below (pplAirFill)
+   private static boolean[] slotLite; // per slot and level & (LEVELS - 1): packed lite (a ring chunk: no connectivity), repacked in full once on screen
    private static boolean[] slotAirPending; // per slot: a light change waits for the next refresh of the borrowed levels
    private static long[] slotAirFrame; // per slot: the frame its borrowed levels were last refreshed (pplAirFill carries a light change up at most every AIR_REFRESH_FRAMES)
    private static final int AIR_REFRESH_FRAMES = 120;
@@ -775,13 +775,23 @@ public final class PixelLight {
       // one level above the top: tall sprites (tree crowns) reach into it; with pplAirFill up to the tallest neighbour's top
       // + 1 as well: a tree's copy in a neighbour's texture (TreeBake) reads this chunk's squares at that texture's levels,
       // and an unpacked level holds the light of whichever chunk used the slot before
-      int zTop = Math.min(Config.PPL_AIR_FILL ? Math.max(c.maxLevel, neighbourTop(c, s)) + 1 : c.maxLevel + 1, c.minLevel + LEVELS - 1);
+      int zTop = Config.PPL_AIR_FILL ? Math.max(c.maxLevel, neighbourTop(c, s)) + 1 : c.maxLevel + 1;
+      // the lattice holds LEVELS of a chunk's levels (level & (LEVELS - 1)). A taller chunk packs the LEVELS from the lowest
+      // one drawn this frame up (stock draws from the player's level, the chunk texture holding it from its even level):
+      // packing from its bottom left the drawn levels reading a basement's light (issue #44, the Rosewood secret base goes
+      // down to -17: its ground drew black in the shapes of the rooms 16 levels below)
+      int zLo = c.minLevel;
+      if (zTop - zLo >= LEVELS) {
+         int drawLo = zombie.iso.fboRenderChunk.FBORenderLevels.calculateMinLevel((int)Math.floor(IsoCamera.frameState.camCharacterZ));
+         zLo = Math.max(c.minLevel, Math.min(drawLo, zTop - LEVELS + 1));
+         zTop = zLo + LEVELS - 1;
+      }
       if (Config.PPL_AIR_FILL && slotAirPending[slot] && frames - slotAirFrame[slot] >= AIR_REFRESH_FRAMES) {
          slotAirFrame[slot] = frames;
          slotAirPending[slot] = false;
-         markAirDirty(c, slot, c.minLevel + 1, zTop);
+         markAirDirty(c, slot, zLo + 1, zTop);
       }
-      for (int z = c.minLevel; z <= zTop; z++) {
+      for (int z = zLo; z <= zTop; z++) {
          int li = z + 32;
          int idx = slot * LEVELS + (z & (LEVELS - 1));
          boolean dirty = li >= 0 && li < 64 && c.pzoptPplDirty[li] != 0;
