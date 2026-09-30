@@ -151,6 +151,20 @@ public final class PerformanceSettings {
       }
    }
 
+   // pzopt: the tabs' "Export settings" / "Import settings..." buttons: the export text with its header, written beside
+   // options.ini (Zomboid/pzopt/settings-export.ini; the path, or "" when the write failed) and read back for the import.
+   public String getPzoptSettingsExportText(String body) {
+      return pzopt.UserOptions.exportText(body);
+   }
+
+   public String pzoptSettingsExportWrite(String text) {
+      return pzopt.UserOptions.exportWrite(text);
+   }
+
+   public String getPzoptSettingsExportFile() {
+      return pzopt.UserOptions.exportRead();
+   }
+
    // pzopt: the tab's stock-vs-optimized preview clips (animated GIFs under media/ui/pzopt/compare/), decoded and
    // held as textures by pzopt.GifTextures. The Lua draws the frame returned for its clock and frees the clips
    // when the options screen closes.

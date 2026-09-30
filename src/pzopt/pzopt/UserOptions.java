@@ -127,6 +127,57 @@ public final class UserOptions {
       }
    }
 
+   /**
+    * The tabs' "Export settings" copy, beside options.ini. The Lua builds the {@code key=value} lines (only the settings
+    * that differ from the build's defaults, grouped per tab); the same text goes to the clipboard.
+    */
+   static final String EXPORT_NAME = "settings-export.ini";
+
+   static File exportFile() {
+      return new File(file().getAbsoluteFile().getParentFile(), EXPORT_NAME);
+   }
+
+   /** The export's full text: a comment header (date, build) above {@code body}; every header line is a comment to the import. */
+   public static String exportText(String body) {
+      String when = java.time.LocalDateTime.now().withNano(0).toString().replace('T', ' ');
+      String commit = BuildInfo.get("commit");
+      return "# PZ Optimization settings (Options > Optimizations, Enhancements, Profiler), exported " + when
+            + (commit != null && !commit.isEmpty() ? ", build " + commit : "") + "\n"
+            + "# Import: Options > any of those tabs > Import settings... Settings not listed go back to the build's defaults.\n"
+            + (body == null ? "" : body);
+   }
+
+   /** Writes the export file; its path, or "" when it could not be written (logged). */
+   public static String exportWrite(String text) {
+      File f = exportFile();
+      try {
+         File dir = f.getParentFile();
+         if (dir != null) {
+            dir.mkdirs();
+         }
+         java.nio.file.Files.writeString(f.toPath(), text == null ? "" : text);
+         Log.info("options: settings exported to " + f.getPath());
+         return f.getPath();
+      } catch (IOException e) {
+         Log.warn("options: could not write " + f.getAbsolutePath() + ": " + e);
+         return "";
+      }
+   }
+
+   /** The last export's text, or "" when there is none. */
+   public static String exportRead() {
+      File f = exportFile();
+      if (!f.isFile()) {
+         return "";
+      }
+      try {
+         return java.nio.file.Files.readString(f.toPath());
+      } catch (IOException e) {
+         Log.warn("options: could not read " + f.getAbsolutePath() + ": " + e);
+         return "";
+      }
+   }
+
    /** One {@code key=value} line per key, sorted, so the file diffs cleanly. */
    static void write(File f, Properties p) throws IOException {
       File dir = f.getAbsoluteFile().getParentFile();

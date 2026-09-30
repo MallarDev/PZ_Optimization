@@ -106,7 +106,11 @@ Modes:
   --flag options_tab=Profiler`; `options_search=<text>` types into the Optimizations tab's search box 1 s after opening,
   so a section far down the page is on the screenshot, e.g. `options_search=HDR`; `options_select=<key>` points every
   page's preview panel at that setting (its clips, text and bars) instead of the page's first row, e.g. `--flag
-  options_tab=Enhancements --flag options_select=memoryTint`),
+  options_tab=Enhancements --flag options_select=memoryTint`; `options_io=1` (2026-10-01) presses "Export settings", then
+  "Import settings..." with that text plus four changed keys and an unknown one, OK, and logs `[pzopt-harness] options io:`
+  lines (the exported text, file vs clipboard, each control before / after, the result dialog) and screenshots
+  `pzopt-io-{1-export,2-import,3-result}.png`; never Apply, clipboard restored; pass `--vmarg
+  -Dpzopt.userOptionsFile=<copy>` so the export file lands beside a copy; run `settings-io-check`),
   `lure=<animal>` (harness Lua mod, 2026-09-22: `lure_at` s after the player exists spawns the animal 8 tiles away, puts a Base.Carrots in the primary hand and queues the stock `ISLureAnimal`; `[pzopt-harness] lure: dist= lured=` every 2 s; the CanSee repro, runs `cansee-*`: `--mode bench --flag route=S:1 --flag speed=1 --flag hold=30 --flag zoom=0.5 --flag lure=cow --flag lure_at=8 --route-seconds 1 --record`),
   `thump=N` (`pzopt.ThumpRig`, 2026-09-22 night: `thump_at` s (3) after the route start, N zombies on the outside square of the locked exterior door nearest the player (on screen), door health `thump_hp` (500), thump target re-set when cleared; `thump_leave` s (8) after the spawn the player teleports `thump_dist` (35) tiles east of the door (the zombies, drawn once, are then scene-culled: SIXTEENTH sim level; never-drawn zombies stay FULL at high fps), `thump_reveal` s after the spawn back to the start; `harness: thump t= strikes= last_s= door_hp= sim=` every second, `thump=` in pzopt-bench.out; the off-screen thump-burst repro, before = `--prop devActionEvalUnitMultiplier=true`, runs `thump-*`),
   `helicopter=true` (= `--preset helicopter`: the stock chopper event started at the route start and placed next to the player, its 500-radius world sound every few seconds from its moving position; state line every 5 s, `helicopter=` in pzopt-bench.out; 2026-09-22 runs `heli-*`),

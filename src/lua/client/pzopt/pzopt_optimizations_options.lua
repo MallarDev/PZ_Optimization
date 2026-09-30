@@ -2476,6 +2476,7 @@ local function addBoolOption(self, entry, splitpoint, y, BUTTON_HGT)
         return tostring(self.control:isSelected(1))
     end
     option.pzoptKey = entry.key
+    option.pzoptBool = true
     self.gameOptions:add(option)
     return option
 end
@@ -2807,6 +2808,8 @@ local PROFILES = {
 
 -- Builds a lazily built settings page now (set below, after buildSettingsPage).
 local ensurePageBuilt
+-- The three pages (set below, after the buttons they name).
+local PAGES
 
 local function applyProfile(self, profile)
     local master = self.pzoptMaster
@@ -2978,6 +2981,218 @@ local function uninstallDriveTick()
 end
 Events.OnFETick.Add(function() pcall(uninstallDriveTick) end)
 
+-- Export / import (2026-10-01), on each of the three tabs, covering all three: the settings as `key=value` lines, only
+-- those that differ from the build's default (an absent key is the default, as in options.ini), under one comment line
+-- per tab. Export takes the controls as they are now (changes not applied yet included; a setting pinned by
+-- pzopt.properties or -D gives the player's own saved choice), copies the text to the clipboard and writes it to
+-- Zomboid/pzopt/settings-export.ini. Import sets the controls of all three tabs from pasted text (the box starts with the
+-- clipboard, else that file): the listed settings to their value, every other one back to the default, pinned ones
+-- untouched; Apply / Accept saves them like the profile buttons. options.ini itself pastes as well.
+local EXPORT_TITLE = "Export settings"
+local IMPORT_TITLE = "Import settings..."
+local EXPORT_TIP = "Copies the settings of the Optimizations, Enhancements and Profiler tabs to the clipboard as text "
+    .. "(the ones that differ from the build's defaults, as the controls show them now, changes not applied yet included) "
+    .. "and saves the same text to Zomboid/pzopt/settings-export.ini. Import settings... reads it back, here or on another PC."
+local IMPORT_TIP = "Sets the controls of the Optimizations, Enhancements and Profiler tabs from exported text: paste it into "
+    .. "the box (it starts with the clipboard, or with Zomboid/pzopt/settings-export.ini when the clipboard holds no "
+    .. "settings). Settings the text does not list go back to the build's defaults. Nothing is saved until you press Apply "
+    .. "or Accept."
+
+-- The open dialog is kept in self.pzoptTransferModal (the harness's options_io rig closes it).
+local function showMessage(self, text)
+    local w = 480
+    local shown = getTextManager():WrapText(UIFont.Small, text, w - 40)
+    local modal = ISModalDialog:new(getCore():getScreenWidth() / 2 - w / 2, getCore():getScreenHeight() / 2 - 80, w, 160,
+        shown, false, nil, nil)
+    modal:initialise()
+    modal:setCapture(true)
+    modal:setAlwaysOnTop(true)
+    modal:addToUIManager()
+    self.pzoptTransferModal = modal
+    local joypadData = JoypadState.getMainMenuJoypad()
+    if joypadData then
+        modal.prevFocus = joypadData.focus
+        joypadData.focus = modal
+        updateJoypadFocus(joypadData)
+    end
+end
+
+-- A page's controls, its master switch first; every page is built first (the import sets them all).
+local function pageOptions(self, page)
+    ensurePageBuilt(self, page.tab)
+    local t = {}
+    if self[page.masterField] then table.insert(t, self[page.masterField]) end
+    for _, option in ipairs(self[page.options] or {}) do table.insert(t, option) end
+    return t
+end
+
+-- What the export writes for a control: nil = the build's default (left out).
+local function exportValue(option)
+    local p = perf()
+    local key = option.pzoptKey
+    if p:getPzoptOptionPinnedBy(key) ~= "" then
+        local saved = p:getPzoptOptionSaved(key)
+        return saved ~= "" and saved or nil
+    end
+    local v = option:pzoptCurrent()
+    if string.sub(v, -10) == " (default)" or v == p:getPzoptOptionDefault(key) then return nil end
+    return v
+end
+
+-- `key=value` per line or between ';', spaces trimmed; '#' / '!' comments and [headings] skipped; a -Dpzopt. or pzopt.
+-- prefix is dropped (a pzopt.properties line pastes too). The last value of a key wins. Returns values, keys in order.
+local function parseSettings(text)
+    local values, keys = {}, {}
+    for raw in string.gmatch(text or "", "[^\r\n;]+") do
+        local line = string.match(raw, "^%s*(.-)%s*$")
+        local first = string.sub(line, 1, 1)
+        if line ~= "" and first ~= "#" and first ~= "!" and first ~= "[" then
+            local k, v = string.match(line, "^([%w_%.%-]+)%s*[=:]%s*(.-)$")
+            if k then
+                k = string.gsub(k, "^%-D", "")
+                k = string.gsub(k, "^pzopt%.", "")
+                if values[k] == nil then table.insert(keys, k) end
+                values[k] = v
+            end
+        end
+    end
+    return values, keys
+end
+
+local function knownCount(text)
+    local _, keys = parseSettings(text)
+    local n = 0
+    for _, k in ipairs(keys) do
+        if perf():isPzoptOptionKnown(k) then n = n + 1 end
+    end
+    return n
+end
+
+local function exportSettings(self)
+    local lines, count = {}, 0
+    for _, page in ipairs(PAGES) do
+        local rows = {}
+        for _, option in ipairs(pageOptions(self, page)) do
+            local v = exportValue(option)
+            if v then table.insert(rows, option.pzoptKey .. "=" .. v) end
+        end
+        table.sort(rows)
+        table.insert(lines, "# " .. page.tab .. (#rows == 0 and ": all at the defaults" or ""))
+        for _, row in ipairs(rows) do table.insert(lines, row) end
+        count = count + #rows
+    end
+    local p = perf()
+    local text = p:getPzoptSettingsExportText(table.concat(lines, "\n") .. "\n")
+    Clipboard.setClipboard(text)
+    local path = p:pzoptSettingsExportWrite(text)
+    local what = count == 0 and "Every setting is at the build's default: the text says so."
+        or (count .. (count == 1 and " setting differs" or " settings differ") .. " from the build's defaults.")
+    showMessage(self, "Settings copied to the clipboard. " .. what .. "\n\n"
+        .. (path ~= "" and ("Also saved to " .. path .. ".") or "The file Zomboid/pzopt/settings-export.ini could not be written (see console.txt)."))
+end
+
+-- Up to `max` names, then "and N more".
+local function listSome(names, max)
+    local shown = {}
+    for i = 1, math.min(#names, max) do table.insert(shown, names[i]) end
+    local s = table.concat(shown, ", ")
+    if #names > max then s = s .. " and " .. (#names - max) .. " more" end
+    return s
+end
+
+local function importSettings(self, text)
+    local values, keys = parseSettings(text)
+    local p = perf()
+    local onTabs, set, reset, pinned, invalid = {}, 0, 0, {}, {}
+    for _, page in ipairs(PAGES) do
+        for _, option in ipairs(pageOptions(self, page)) do
+            local key = option.pzoptKey
+            onTabs[key] = true
+            local v = values[key]
+            if p:getPzoptOptionPinnedBy(key) ~= "" then
+                if v then table.insert(pinned, key) end
+            else
+                if v and option.pzoptBool and v ~= "true" and v ~= "false" then
+                    table.insert(invalid, key .. "=" .. v)
+                    v = nil
+                end
+                local before = exportValue(option)
+                option:pzoptSet(v)
+                option:invokeOnChangeEvent()
+                if v then
+                    set = set + 1
+                elseif before then
+                    reset = reset + 1
+                end
+            end
+        end
+    end
+    local ignored = {}
+    for _, k in ipairs(keys) do
+        if not onTabs[k] then table.insert(ignored, k) end
+    end
+    local msg = set .. (set == 1 and " setting" or " settings") .. " imported"
+        .. (reset > 0 and (", " .. reset .. " more back to the build's default") or "") .. ". Press Apply or Accept to save them."
+    if #pinned > 0 then
+        msg = msg .. "\n\nPinned by pzopt.properties or -D here, left as they are: " .. listSome(pinned, 6) .. "."
+    end
+    if #invalid > 0 then
+        msg = msg .. "\n\nNot a true / false value, set to the default: " .. listSome(invalid, 6) .. "."
+    end
+    if #ignored > 0 then
+        msg = msg .. "\n\nNot settings of these tabs in this version, ignored: " .. listSome(ignored, 6) .. "."
+    end
+    showMessage(self, msg)
+end
+
+local function onImportOk(self, button)
+    if button.internal ~= "OK" then return end
+    local text = button.parent.entry:getText()
+    if knownCount(text) == 0 then
+        showMessage(self, "No settings found in the text: nothing was changed. Paste the text Export settings copied "
+            .. "(key=value lines, e.g. treesInChunkTexture=false).")
+        return
+    end
+    importSettings(self, text)
+end
+
+local function openImportDialog(self)
+    local text = Clipboard.getClipboard() or ""
+    if knownCount(text) == 0 then
+        text = perf():getPzoptSettingsExportFile()
+        if knownCount(text) == 0 then text = "" end
+    end
+    -- ISTextBox puts the box at half the starting height, below the title bar
+    local w, h = math.min(720, getCore():getScreenWidth() - 40), 2 * (MainOptions.style.buttonHeight + 20)
+    local modal = ISTextBox:new(getCore():getScreenWidth() / 2 - w / 2, getCore():getScreenHeight() / 2 - 200, w, h,
+        "Paste exported settings (settings not listed go back to the defaults):", text, self, onImportOk)
+    modal:setMultipleLine(true)
+    modal:setNumberOfLines(12)
+    modal:setMaxLines(100000)
+    modal:initialise()
+    modal:setCapture(true)
+    modal:setAlwaysOnTop(true)
+    modal:addToUIManager()
+    self.pzoptTransferModal = modal
+    local joypadData = JoypadState.getMainMenuJoypad()
+    if joypadData then
+        modal.prevFocus = joypadData.focus
+        joypadData.focus = modal
+        updateJoypadFocus(joypadData)
+    end
+end
+
+local function addTransferButtons(self, splitpoint, y)
+    local out = self:addButton(splitpoint, y, EXPORT_TITLE)
+    out.tooltip = EXPORT_TIP
+    out.target = self
+    out.onclick = function(target) exportSettings(target) end
+    local into = self:addButton(splitpoint, y, IMPORT_TITLE)
+    into.tooltip = IMPORT_TIP
+    into.target = self
+    into.onclick = function(target) openImportDialog(target) end
+end
+
 local function addAllButtons(self, splitpoint, y)
     local on = self:addButton(splitpoint, y, "Enable all (recommended defaults)")
     on.tooltip = "Turns the master switch on and puts every setting below back to the build's default on this machine. " .. RESTART_NOTE
@@ -2995,6 +3210,7 @@ local function addAllButtons(self, splitpoint, y)
         b.onclick = function(target) applyProfile(target, profile) end
         table.insert(profileButtons, b)
     end
+    addTransferButtons(self, splitpoint, y)
     addUninstallButton(self, splitpoint, y)
     if self.pzoptMaster and not self.pzoptMaster.control.enable then
         on:setEnable(false)
@@ -3031,6 +3247,7 @@ local function addResetButton(self, splitpoint, y, options, note, masterField)
 end
 local function addProfilerButtons(self, splitpoint, y)
     addResetButton(self, splitpoint, y, "pzoptProfilerOptions", LIVE_NOTE, "pzoptProfilerMaster")
+    addTransferButtons(self, splitpoint, y)
 end
 
 -- "Install DLSS files": the natives DLSS needs that a release does not carry (pzopt.UpscalerDeps, Linux x86-64 with
@@ -3109,7 +3326,8 @@ local function layout(self, comboWidth)
     end
     labelW = labelW + 8
     local controlW = comboWidth
-    for _, title in ipairs({ "Enable all (recommended defaults)", "Disable all (stock game)", PAGE_RESET, UNINSTALL_TITLE }) do
+    for _, title in ipairs({ "Enable all (recommended defaults)", "Disable all (stock game)", PAGE_RESET, UNINSTALL_TITLE,
+                             EXPORT_TITLE, IMPORT_TITLE }) do
         controlW = math.max(controlW, getTextManager():MeasureStringX(UIFont.Small, title) + 24)
     end
     for _, title in pairs(DEPS_TITLES) do
@@ -3130,7 +3348,7 @@ end
 -- The three pages: the Optimizations tab (master switch, profiles), the Enhancements tab (upscaling, HDR, ambient
 -- occlusion) and the Profiler tab (the overlay's settings).
 -- `panel` / `options` / `search` / `preview` name the MainOptions fields that hold the page's parts.
-local PAGES = {
+PAGES = {
     {
         tab = TAB, sections = SECTIONS, master = MASTER, masterField = "pzoptMaster", masterClip = "drive", buttons = addAllButtons,
         panel = "pzoptPanel", options = "pzoptOptions", search = "pzoptSearch", preview = "pzoptPreview",
@@ -3144,6 +3362,7 @@ local PAGES = {
         master = ENHANCEMENTS_MASTER, masterField = "pzoptEnhancementMaster", masterClip = "upscale",
         buttons = function(o, splitpoint, y)
             addResetButton(o, splitpoint, y, "pzoptEnhancementOptions", "Applies as soon as you press Apply; HDR output, per-pixel lighting and reflections on the next launch.", "pzoptEnhancementMaster")
+            addTransferButtons(o, splitpoint, y)
             addUpscalerDepsButton(o, splitpoint, y)
         end,
         panel = "pzoptEnhancementPanel", options = "pzoptEnhancementOptions", search = "pzoptEnhancementSearch",

@@ -910,6 +910,13 @@ Lua: "", "drive", "restarted:<ms>"). The install now goes through `pzopt.UpdateD
 changed zip entries only (range requests, prefetched in the background once offered), written
 beside their targets and renamed over them; unchanged files are not rewritten.
 
+Settings export / import (2026-10-01): three forwards to `pzopt.UserOptions` for the "Export settings" /
+"Import settings..." buttons on the Optimizations, Enhancements and Profiler tabs: `getPzoptSettingsExportText(body)`
+(the export's comment header, date and build, above the Lua's `key=value` lines), `pzoptSettingsExportWrite(text)`
+(writes `settings-export.ini` beside options.ini; its path, or "" when the write failed) and
+`getPzoptSettingsExportFile()` (that file's text for the import dialog, "" when absent). The clipboard is the stock
+`Clipboard` the Lua already reaches; the controls are set by the Lua like the profile buttons, saved on Apply.
+
 In-game uninstall (2026-09-27): three forwards to `pzopt.Uninstall` for the Optimizations tab's
 "Uninstall PZ Optimization..." button: `getPzoptUninstallUnavailable()` ("" or why the button is
 off: a harness run, or no `pzopt-installed.txt` / `pzopt-files.txt` in the game folder),

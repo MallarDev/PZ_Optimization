@@ -80,6 +80,94 @@ local function findSearchBox(el, depth)
     return nil
 end
 
+-- options_io=1 (2026-10-01): the tabs' "Export settings" / "Import settings..." buttons, 1 s after opening: Export (logs
+-- the text and whether Zomboid/pzopt/settings-export.ini matches the clipboard), then Import of that text plus IO_CHANGES
+-- and an unknown key through the dialog's OK, logs each control before / after and the result dialog; screenshots
+-- pzopt-io-{1-export,2-import,3-result}.png. Never presses Apply (nothing is saved) and puts the clipboard back. Pass
+-- `--vmarg -Dpzopt.userOptionsFile=<copy>` so the export file lands beside a copy, not in the player's Zomboid/pzopt/.
+local IO_CHANGES = { treesInChunkTexture = "false", fogScalePct = "50", overlayStats = "full", spriteFilter = "sharp" }
+
+local function findButton(el, title, depth)
+    if not el or depth > 8 then return nil end
+    if el.Type == "ISButton" and el.title == title then return el end
+    for _, ch in pairs(el.children or {}) do
+        local f = findButton(ch, title, depth + 1)
+        if f then return f end
+    end
+    return nil
+end
+
+local function optionByKey(mo, key)
+    for _, field in ipairs({ "pzoptOptions", "pzoptEnhancementOptions", "pzoptProfilerOptions" }) do
+        for _, o in ipairs(mo[field] or {}) do
+            if o.pzoptKey == key then return o end
+        end
+    end
+    return nil
+end
+
+local function ioLog(s)
+    print("[pzopt-harness] options io: " .. s)
+end
+
+-- one step per call, 1.5 s apart; true when done
+local function ioStep(mo, io, now)
+    if now < (io.at or 0) then return false end
+    local s = io.step or 0
+    if s == 0 then
+        io.clip = Clipboard.getClipboard() or ""
+        local b = findButton(mo, "Export settings", 0)
+        if not b then ioLog("Export button NOT FOUND"); return true end
+        b.onclick(b.target)
+        io.text = Clipboard.getClipboard() or ""
+        local n = 0
+        for line in string.gmatch(io.text, "[^\n]+") do
+            if string.match(line, "^[%w_]+=") then n = n + 1 end
+            ioLog("  " .. line)
+        end
+        ioLog("export " .. n .. " keys, " .. #io.text .. " chars, file "
+            .. (getPerformance():getPzoptSettingsExportFile() == io.text and "matches the clipboard" or "DIFFERS from the clipboard"))
+    elseif s == 1 then
+        getCore():TakeFullScreenshot("pzopt-io-1-export.png")
+    elseif s == 2 then
+        if mo.pzoptTransferModal then mo.pzoptTransferModal:destroy() end
+        local extra = { "noSuchKey=1" }
+        for k, v in pairs(IO_CHANGES) do
+            table.insert(extra, k .. "=" .. v)
+            local o = optionByKey(mo, k)
+            ioLog("before " .. k .. "=" .. (o and o:pzoptCurrent() or "NO CONTROL"))
+        end
+        Clipboard.setClipboard(io.text .. table.concat(extra, "\n") .. "\n")
+        local b = findButton(mo, "Import settings...", 0)
+        if not b then ioLog("Import button NOT FOUND"); return true end
+        b.onclick(b.target)
+        local m = mo.pzoptTransferModal
+        ioLog("import dialog " .. ((m and m.entry) and (#m.entry:getText() .. " chars prefilled") or "NOT OPEN"))
+    elseif s == 3 then
+        getCore():TakeFullScreenshot("pzopt-io-2-import.png")
+    elseif s == 4 then
+        local m = mo.pzoptTransferModal
+        m:onClick(m.yes)
+        local r = mo.pzoptTransferModal
+        ioLog("result: " .. string.gsub(tostring(r and r.text), "\n", " | "))
+        for k, want in pairs(IO_CHANGES) do
+            local o = optionByKey(mo, k)
+            local cur = o and o:pzoptCurrent() or "NO CONTROL"
+            ioLog("after " .. k .. "=" .. cur .. (cur == want and " ok" or (" WANTED " .. want)))
+        end
+        ioLog("options changed=" .. tostring(mo.gameOptions.changed))
+    elseif s == 5 then
+        getCore():TakeFullScreenshot("pzopt-io-3-result.png")
+    else
+        if mo.pzoptTransferModal then mo.pzoptTransferModal:destroy() end
+        Clipboard.setClipboard(io.clip)
+        ioLog("done (nothing applied, clipboard restored)")
+        return true
+    end
+    io.step, io.at = s + 1, now + 1500
+    return false
+end
+
 local function optionsTick()
     local c = optionsCheck
     local ms = MainScreen.instance
@@ -99,6 +187,8 @@ local function optionsTick()
         local box = findSearchBox(ms.mainOptions, 0)
         if box then box:setText(c.search) end
         print("[pzopt-harness] options: search '" .. c.search .. "'" .. (box and " typed" or ": search box NOT FOUND"))
+    elseif c.io and not c.ioDone and now - c.openedMs >= 1000 then
+        c.ioDone = ioStep(ms.mainOptions, c.io, now)
     elseif c.select and not c.shotMs and now - c.openedMs >= 1000 and now - c.openedMs < 3000 then
         local n = selectPreview(ms.mainOptions, c.select)
         if not c.selectLogged then
@@ -130,7 +220,8 @@ local function onMainMenuEnter()
         if optionsCheck == nil then
             appendFlag("consumed=1")
             optionsCheck = { tab = flags.options_tab, search = flags.options_search ~= "" and flags.options_search or nil,
-                select = flags.options_select ~= "" and flags.options_select or nil }
+                select = flags.options_select ~= "" and flags.options_select or nil,
+                io = (flags.options_io and flags.options_io ~= "") and {} or nil }
         end
         return
     end
