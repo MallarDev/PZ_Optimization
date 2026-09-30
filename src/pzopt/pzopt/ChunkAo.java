@@ -877,6 +877,10 @@ public final class ChunkAo {
     * roof tiles just above their level. Not trees: the kernel's crown proxies already shade them out to two chunks (as columns
     * they came out twice, as blocks: sky-low1 vs sky-low2). Cached per chunk; a geometry bake drops it, and it is
     * rebuilt after a minute anyway (a chunk reloaded with changes).
+    * A wall stands on its square's west or north edge, so a building's south and east outer walls belong to the outdoor
+    * squares in front of them: such a wall raises the indoor square behind it instead (a column on the outdoor square
+    * shaded the facade itself, a grey band with streaks down the windows: pxw-*). Windows and door walls count as walls
+    * (as in wallMask: without them each window was a gap in the column wall).
     */
    private static byte[] columns(zombie.iso.IsoCell cell, int wx, int wy) {
       long key = columnKey(wx, wy);
@@ -894,7 +898,12 @@ public final class ChunkAo {
          return null;
       }
       b = new byte[64];
+      boolean[] held = new boolean[64], below = new boolean[64]; // the level's squares that stand as a column / the level under it
       for (int z = Math.max(0, c.minLevel); z <= Math.min(c.maxLevel, 60); z++) {
+         boolean[] t = below;
+         below = held;
+         held = t;
+         java.util.Arrays.fill(held, false);
          for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 8; x++) {
                IsoGridSquare sq = c.getGridSquare(x, y, z);
@@ -902,14 +911,31 @@ public final class ChunkAo {
                   continue;
                }
                int top = 0;
-               if (sq.has(IsoFlagType.cutW) || sq.has(IsoFlagType.cutN) || sq.has(IsoFlagType.WallW) || sq.has(IsoFlagType.WallN)
-                     || sq.has(IsoFlagType.WallNW) || sq.has(IsoFlagType.solid) || sq.has(IsoFlagType.solidtrans)) {
+               int gx = wx * 8 + x, gy = wy * 8 + y;
+               boolean in = inside(cell, gx, gy, z);
+               // its own west / north wall, unless the square is outdoors and the other side inside; the south / east
+               // neighbour's wall when that one is outdoors and this square inside. A corner post (WallSE: the piece on the
+               // square diagonally outside a building's south-east corner) is no wall of the square
+               boolean post = sq.has(IsoFlagType.WallSE);
+               boolean wall = !post && (edgeW(sq) && (in || !inside(cell, gx - 1, gy, z)) || edgeN(sq) && (in || !inside(cell, gx, gy - 1, z)));
+               if (!wall && in) {
+                  IsoGridSquare e = cell.getGridSquare(gx + 1, gy, z), s = cell.getGridSquare(gx, gy + 1, z);
+                  wall = e != null && !e.has(IsoFlagType.WallSE) && edgeW(e) && !inside(cell, gx + 1, gy, z)
+                     || s != null && !s.has(IsoFlagType.WallSE) && edgeN(s) && !inside(cell, gx, gy + 1, z);
+               }
+               // a roof or an upper floor is a column only over something standing (an indoor square, a solid object, a
+               // column of the level under it): an eave or a balcony over open ground is a thin slab, and as a column from
+               // the ground up it shaded the facade under it down to the storey seam (a band that stopped there: pxw-*)
+               IsoGridSquare under = z > c.minLevel ? c.getGridSquare(x, y, z - 1) : null;
+               boolean held0 = below[y * 8 + x] || indoor(under) || under != null && (under.has(IsoFlagType.solid) || under.has(IsoFlagType.solidtrans));
+               if (wall || sq.has(IsoFlagType.solid) || sq.has(IsoFlagType.solidtrans)) {
                   top = (z + 1) * 4;
-               } else if (roof(sq)) {
+               } else if (held0 && roof(sq)) {
                   top = z * 4 + 2;
-               } else if (z > 0 && sq.getFloor() != null) {
+               } else if (held0 && z > 0 && sq.getFloor() != null) {
                   top = z * 4 + 1;
                }
+               held[y * 8 + x] = top > 0;
                if (top > (b[y * 8 + x] & 0xFF)) {
                   b[y * 8 + x] = (byte)Math.min(255, top);
                }
@@ -928,11 +954,57 @@ public final class ChunkAo {
       return b;
    }
 
+   private static boolean edgeW(IsoGridSquare sq) {
+      return sq.has(IsoFlagType.cutW) || sq.has(IsoFlagType.WallW) || sq.has(IsoFlagType.WallNW) || sq.has(IsoFlagType.DoorWallW)
+         || sq.has(IsoFlagType.WindowW) || sq.has(IsoFlagType.WallWTrans);
+   }
+
+   private static boolean edgeN(IsoGridSquare sq) {
+      return sq.has(IsoFlagType.cutN) || sq.has(IsoFlagType.WallN) || sq.has(IsoFlagType.WallNW) || sq.has(IsoFlagType.DoorWallN)
+         || sq.has(IsoFlagType.WindowN) || sq.has(IsoFlagType.WallNTrans);
+   }
+
+   /** Inside a building (the exterior mask's rule: a square that is not there counts as outdoors). */
+   private static boolean indoor(IsoGridSquare sq) {
+      return sq != null && !sq.isOutside();
+   }
+
+   /** Inside a building's footprint: indoors on this level or the one under it (a gable wall stands on the attic level, whose
+    * squares under the roof are not indoors). */
+   private static boolean inside(zombie.iso.IsoCell cell, int x, int y, int z) {
+      return indoor(cell.getGridSquare(x, y, z)) || z > 0 && indoor(cell.getGridSquare(x, y, z - 1));
+   }
+
+   private static boolean farDumped;
+
+   /** dev (devFarDump=x,y,r): the column tops round x, y once every chunk there is loaded (rows north to south). */
+   private static void farDump(zombie.iso.IsoCell cell) {
+      String[] p = Config.DEV_FAR_DUMP.split(",");
+      int x0 = Integer.parseInt(p[0].trim()), y0 = Integer.parseInt(p[1].trim()), r = Integer.parseInt(p[2].trim());
+      StringBuilder sb = new StringBuilder("far columns round " + x0 + "," + y0 + " (quarter levels, base 36; row = y, first column x = " + (x0 - r) + "):");
+      for (int y = y0 - r; y <= y0 + r; y++) {
+         sb.append('\n').append(y).append(' ');
+         for (int x = x0 - r; x <= x0 + r; x++) {
+            byte[] col = columns(cell, Math.floorDiv(x, 8), Math.floorDiv(y, 8));
+            if (col == null) {
+               return; // not loaded yet: the next job tries again
+            }
+            int h = col[Math.floorMod(y, 8) * 8 + Math.floorMod(x, 8)] & 0xFF;
+            sb.append(h == 0 ? '.' : Character.forDigit(Math.min(35, h), 36));
+         }
+      }
+      farDumped = true;
+      Log.info(sb.toString());
+   }
+
    /** The column heights round the chunk, above the texture's lowest level, into the job; false when nothing stands up. */
    private static boolean farGrid(Job job, IsoChunk c, int minLevel) {
       zombie.iso.IsoCell cell = IsoWorld.instance.currentCell;
       if (cell == null) {
          return false;
+      }
+      if (!Config.DEV_FAR_DUMP.isEmpty() && !farDumped) {
+         farDump(cell);
       }
       java.util.Arrays.fill(job.farH, (byte)0);
       int x0 = c.wx * 8 - FAR_MARGIN, y0 = c.wy * 8 - FAR_MARGIN;
@@ -2659,7 +2731,7 @@ public final class ChunkAo {
       "   vec3 L = normalize(sunDir.xyz + sunPerp.xyz * lat);",
       "   float facing = plane ? smoothstep(0.0, 0.25, dot(N, L)) : 1.0;",
       "   float near2 = plane ? 0.0 : 0.11;",
-      "   if (mode.y > 2.5) return facing;",
+      "   if (mode.y > 2.5 && mode.y < 7.5) return facing;",
       "   if (facing <= 0.0) return 0.0;",
       "   float lxy = length(L.xy);",
       "   if (lxy < 1e-3) return facing;",
@@ -2707,6 +2779,12 @@ public final class ChunkAo {
       "         vec2 dw = sunWorld.xy / wl;",
       "         float tanE = sunWorld.z / wl;",
       "         float occ = 0.0;",
+      // a wall texel's own building is behind it: taps less than half a square in front of its wall line (the side taps
+      // and the bilinear blend with the columns behind it) read the building's roof and shaded its own sunlit face, most
+      // on recessed windows (a band under each storey seam, streaks down the windows: pxw-*)
+      "         vec2 nw = !plane ? vec2(0.0) : dot(N, vec3(0.7071068, -0.3535534, -0.6123724)) > 0.99 ? vec2(1.0, 0.0)",
+      "            : dot(N, vec3(-0.7071068, -0.3535534, -0.6123724)) > 0.99 ? vec2(0.0, 1.0) : vec2(0.0);",
+      "         float line = dot(floor(P.xy + 0.5), nw);",
       // steps of 0.75 square growing with the distance (the penumbra widens with it); the last quarter of the reach fades
       // (a shadow longer than the reach ends softly instead of on a line)
       // inside the near range (t < farPar.y) only what stands above the texture's two levels (4.9 squares) counts: the near
@@ -2724,7 +2802,9 @@ public final class ChunkAo {
       "            float fade = 1.0 - smoothstep(0.75 * farPar.w, farPar.w, t);",
       "            float o = 0.0;",
       "            for (int k = -1; k <= 1; k++) {",
-      "               float h = texture(farH, (q + side * float(k) + " + FAR_MARGIN + ".0) / " + FAR_SIDE + ".0).r * 255.0 * 0.25 * 2.4494897;",
+      "               vec2 qk = q + side * float(k);",
+      "               if (nw.x + nw.y > 0.5 && dot(qk, nw) - line < 0.5) continue;",
+      "               float h = texture(farH, (qk + " + FAR_MARGIN + ".0) / " + FAR_SIDE + ".0).r * 255.0 * 0.25 * 2.4494897;",
       "               o += smoothstep(-pen, pen, h - ray) * (k == 0 ? 0.5 : 0.25);",
       "            }",
       "            if (t < farPar.y) o *= smoothstep(4.9 - pen, 4.9 + pen, ray);",
@@ -2734,6 +2814,7 @@ public final class ChunkAo {
       "         farVis = 1.0 - occ;",
       "      }",
       "   }",
+      "   if (mode.y > 7.5) return farVis;", // dev view 8: the far field alone
       "   return facing * (1.0 - float(popc(mask)) / 32.0) * crowns * farVis;",
       "}",
       "void main() {",
@@ -2862,8 +2943,9 @@ public final class ChunkAo {
       // dev view 4 (devSunView=4, with devAoView=1): which branch: indoors 0, roof 0.2, clamped wall 0.4, grid wall 0.6,
       // depth-snapped plane 0.8, unsnapped 1.0 (x 0.5 + 0.5 facing on the outdoor ones)
       // dev views 5 / 6 / 7: the reconstructed height (levels / 2), x - round(x) + 0.5, y - round(y) + 0.5
-      "      else if (mode.y > 4.5) { sun = mode.y < 5.5 ? clamp(P.z / 2.4494897 * 0.5, 0.0, 1.0) : mode.y < 6.5 ? clamp(P.x - floor(P.x + 0.5) + 0.5, 0.0, 1.0) : clamp(P.y - floor(P.y + 0.5) + 0.5, 0.0, 1.0); }",
-      "      else if (mode.y > 3.5) { float br = kind == 0 ? 0.0 : kind == 2 ? 0.2 : cw != 0 ? 0.4 : (planeS && !plane) ? 0.6 : plane ? 0.8 : 1.0;",
+      // dev view 8: the far field (sunShadowFar) alone
+      "      else if (mode.y > 4.5 && mode.y < 7.5) { sun = mode.y < 5.5 ? clamp(P.z / 2.4494897 * 0.5, 0.0, 1.0) : mode.y < 6.5 ? clamp(P.x - floor(P.x + 0.5) + 0.5, 0.0, 1.0) : clamp(P.y - floor(P.y + 0.5) + 0.5, 0.0, 1.0); }",
+      "      else if (mode.y > 3.5 && mode.y < 4.5) { float br = kind == 0 ? 0.0 : kind == 2 ? 0.2 : cw != 0 ? 0.4 : (planeS && !plane) ? 0.6 : plane ? 0.8 : 1.0;",
       "         float fc = kind == 1 && planeS ? smoothstep(0.0, 0.25, dot(Ns, sunDir.xyz)) : 1.0; sun = kind == 1 ? br * (0.5 + 0.5 * fc) : br; }",
       // a clamped wall texel: the attached term only (its depth cannot march for cast shadows)
       "      else if (kind == 1 && cw != 0) { lit = smoothstep(0.0, 0.25, dot(Ns, sunDir.xyz)); sun = 1.0 - sunDir.w * (1.0 - lit); }",

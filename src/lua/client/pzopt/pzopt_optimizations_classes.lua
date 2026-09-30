@@ -127,6 +127,7 @@ PzoptOptionClasses = {
     devDlssWaterFilter = { "pzopt.Dlss" },
     devDriveJitter = { "pzopt.DriveJitter" },
     devElectricityCheck = { "AmbientStreamManager" },
+    devFarDump = { "pzopt.ChunkAo" },
     devFogDepthView = { "pzopt.FogPass" },
     devFogFlat = { "pzopt.FogPass" },
     devFogNoDraw = { "pzopt.FogPass" },

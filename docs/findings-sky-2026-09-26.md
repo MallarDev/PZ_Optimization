@@ -113,6 +113,27 @@ three taps across the ray (the columns' hard sides drew a sawtooth), a penumbra 
 of the reach fades (the church's ~40-square shadow at 13 deg was cut on a line at 20). `sunMinElevationDeg` is 2 now.
 Kernel ~42-43 us a compute at a low sun (sky-low4, sky-tall) vs ~35-58 before; nothing at a high sun without tall columns.
 
+**Buildings shading their own facades (2026-09-30, the maintainer's "shadows down the windows" report).** On a tall building
+(the Rosewood church, 11:00, zoom 1.5) the lower storey's texture showed a grey band under the storey seam, with vertical
+streaks down the window strips and a grey cream facade under the top-floor arch window; the upper texture was lit, so the
+band stopped on a line. Bisect (runs `pxw-z15-*`, main checkout; `pxw-fix*`, worktree `~/pzopt-wt/farcol`): relief, pixelLight
+and AO off change nothing; `sunShadows=false` or `sunShadowFar=false` remove it. `devSunView=8` (new: the far field alone) and
+`devFarDump=x,y,r` (new: the column tops round a square, once, into the console) found the occluders, all of them the
+building itself as columns in front of its own sunlit faces:
+1. a wall stands on its square's W / N edge, so a building's south and east outer walls belong to the outdoor squares in
+   front: those squares were full-height columns. Now the wall raises the square inside (indoors on its level or the one
+   under it: a gable wall stands on the attic level, whose squares are not indoors); window / door / trans walls count as in
+   the wall mask (without them each window was a gap in the column wall);
+2. roof tiles and upper floors were columns from the ground up, so an eave over the outdoor row in front of a facade was a
+   wall there (with the 11:00 sun almost along the south wall, its ray ran over that row). Now they are columns only over an
+   indoor square, a solid object or a column of the level under them (balconies and eaves over open ground are slabs);
+3. the corner post (`WallSE`) on the square diagonally outside a south-east corner was a full-square column;
+4. the three taps across the ray and the bilinear read of the heightfield reached back into the columns behind a wall
+   texel's own line (strongest on recessed window texels, just inside the line). A grid-wall texel now skips taps less than
+   half a square in front of its wall line.
+The church then matches `sunShadowFar=false` on its walls (`pxw-fix7-church` vs `pxw-z15-nofar0`); the long 18:00 shadows on
+the lot are unchanged (`pxw-base-church-18` vs `pxw-fix7-church-18`, whole-frame MAE 0.5 %).
+
 ## Characters at a low sun, water
 
 - Capsule shadows (40-zombie crowd, zoom 1, uncapped, `devSunAlternate` + `harness/contact/alt.py`): 16 h +22 us GPU median
