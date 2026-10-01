@@ -59,6 +59,7 @@ public final class Overrides {
       if (!Log.gameLogReady()) {
          return;
       }
+      ModCompat.logOnce(); // the Java mod scan ran at Config's init, before the game's log existed
       try {
          AutoStart.start(); // no-op unless the harness flag file names a mode
       } catch (Throwable t) {

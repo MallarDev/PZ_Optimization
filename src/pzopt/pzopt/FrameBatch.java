@@ -60,8 +60,12 @@ public final class FrameBatch {
       }
 
       void work() {
+         boolean serve = !(Thread.currentThread() instanceof Worker); // the game thread runs the workers' Lua calls (LuaGate)
          int i;
          while ((i = this.cursor.getAndIncrement()) < this.count) {
+            if (serve) {
+               LuaGate.service();
+            }
             try {
                this.runner.run(i);
             } catch (Throwable t) {
@@ -174,6 +178,7 @@ public final class FrameBatch {
     * it here. False when every task has been claimed (the caller spins for the one it waits for).
     */
    public static boolean helpOne() {
+      LuaGate.service(); // every caller is a game-thread wait loop
       Batch batch = pending;
       if (batch == null) {
          return false;
@@ -216,6 +221,7 @@ public final class FrameBatch {
       }
       int spins = 0;
       while (batch.finished.get() < batch.count) {
+         LuaGate.service(); // a worker may be waiting for its Lua call
          if (++spins < 200) {
             Thread.onSpinWait();
          } else {
@@ -256,6 +262,7 @@ public final class FrameBatch {
       long t1 = System.nanoTime();
       int spins = 0;
       while (batch.finished.get() < n) {
+         LuaGate.service(); // a worker may be waiting for its Lua call
          if (++spins < 200) {
             Thread.onSpinWait();
          } else {

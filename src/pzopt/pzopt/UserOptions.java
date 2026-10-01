@@ -40,11 +40,16 @@ public final class UserOptions {
       if (override != null && !override.isEmpty()) {
          return new File(override);
       }
+      return new File(zomboidDir(), "pzopt" + File.separator + FILE_NAME);
+   }
+
+   /** The game's user folder (Zomboid/), located as ZomboidFileSystem.getCacheDir() does. */
+   static File zomboidDir() {
       String root = System.getProperty("deployment.user.cachedir");
       if (root == null || System.getProperty("os.name", "").startsWith("Win")) {
          root = System.getProperty("user.home");
       }
-      return new File(root + File.separator + "Zomboid", "pzopt" + File.separator + FILE_NAME);
+      return new File(root + File.separator + "Zomboid");
    }
 
    /** The values as they were at boot; {@link Config} reads through this object once. */

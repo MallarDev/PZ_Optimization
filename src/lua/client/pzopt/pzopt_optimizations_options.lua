@@ -440,6 +440,18 @@ local SECTIONS = {
         },
     },
     {
+        title = "Mod compatibility", clip = "spin",
+        entries = {
+            { key = "modCompat", label = "Java mods: switch off what they patch",
+              choices = { "auto", "report", "off" }, note = { ["auto"] = "default" },
+              tip = "PZ Optimization ships whole game classes; a Java mod (a ZombieBuddy mod, or a -javaagent such as PZMulticore) patches methods of the same classes. At launch the mods' jars are read: where one patches a method we changed, the settings that live in that method are switched off, so the mod meets the code its author tested. Mods tested together with ours keep everything. Your own choice on this tab still wins. Report = only list them (Zomboid/pzopt/mod-compat.txt and the console); off = no check. Applies on the next launch." },
+            { key = "uiRetainedMods", label = "UI: reuse windows that mods draw in",
+              tip = "Windows and buttons that carry a mod's drawing (a mod's own window, or a game window whose drawing a mod replaced or extended) are redrawn at the game's own rate, because a mod may draw from state the reuse cannot see. On = reuse them like the game's own windows (faster, but a mod's display can lag by up to a second). Applies on the next launch." },
+            { key = "luaWorkerGate", label = "Lua from helper threads runs on the game thread",
+              tip = "With zombie updates spread over helper threads, a mod's Lua the update reaches (a zombie trampling a crop runs the farming mod code, a mod hooked into the zombie update) ran on the helper thread, beside the game's own Lua: an error \"Lua code called from the wrong thread\" and, at worst, a broken Lua stack. With this on such calls run on the game thread, in the game's order. Applies on the next launch." },
+        },
+    },
+    {
         title = "Driving smoothness (the car's stutter and rubber banding)", clip = "drive",
         entries = {
             { key = "vehicleSmooth", label = "Vehicles drawn between physics steps",
@@ -1118,6 +1130,17 @@ local function perf()
 end
 
 -- The value the next launch will read: pinned > saved > default.
+-- "" or why mod compatibility switched the key off at this launch (pzopt.ModCompat: a Java mod patches its method)
+local function compatReason(key)
+    return perf():getPzoptModCompatReason(key)
+end
+
+-- Mod compatibility decides the key: it switched it off and the player has no saved choice. The control shows the value in
+-- force and Apply stores nothing until the player changes it (then the choice is saved even when it is the default).
+local function compatDecides(key)
+    return compatReason(key) ~= "" and perf():getPzoptOptionSaved(key) == ""
+end
+
 local function nextValue(entry)
     local p = perf()
     if p:getPzoptOptionPinnedBy(entry.key) ~= "" then
@@ -1126,6 +1149,9 @@ local function nextValue(entry)
     local saved = p:getPzoptOptionSaved(entry.key)
     if saved ~= "" then
         return saved
+    end
+    if compatDecides(entry.key) then
+        return p:getPzoptOption(entry.key)
     end
     return p:getPzoptOptionDefault(entry.key)
 end
@@ -1167,6 +1193,10 @@ local function tooltipFor(entry, pinnedBy)
     local t = entry.tip .. " " .. noteFor(entry) .. " Key: " .. entry.key .. "."
     if pinnedBy ~= "" then
         t = t .. " Pinned by " .. pinnedBy .. " for this install; the menu cannot change it."
+    end
+    local reason = compatReason(entry.key)
+    if reason ~= "" then
+        t = t .. " Off at this launch for mod compatibility: " .. reason .. ". Choosing a value here overrides that."
     end
     return t
 end
@@ -1519,6 +1549,9 @@ local EFFECTS = {
     uiRetainedChildren = { cpu = -1 },
     uiTickStagger = {},
     uiLuaFast = { cpu = -1 },
+    modCompat = {},
+    uiRetainedMods = { cpu = -1 },
+    luaWorkerGate = {},
     hotsaveWarmup = { cpu = -1, load = 1 },
     mapStreetMemo = { cpu = -1 },
     mapStreetCache = { cpu = -1 },
@@ -1848,6 +1881,8 @@ function PzoptPreview:prerender()
         and ("Key " .. entry.key .. "   now: " .. p:getPzoptOption(entry.key) .. "   after Apply: " .. row.option:pzoptCurrent())
         or ("Key " .. entry.key .. "   since this boot: " .. p:getPzoptOption(entry.key) .. "   next launch: " .. row.option:pzoptCurrent())
     if pinnedBy ~= "" then values = values .. "   (pinned by " .. pinnedBy .. ")" end
+    local reason = compatReason(entry.key)
+    if reason ~= "" then values = values .. "   (off for mod compatibility: " .. reason .. ")" end
     self:text(getTextManager():WrapText(self.fontS, values, w, 1, "..."), x, y, C_GREY)
     y = y + self.hS + 2
     local classes = optionClasses(entry.key)
@@ -2448,11 +2483,18 @@ local function addBoolOption(self, entry, splitpoint, y, BUTTON_HGT)
     end
     local option = GameOption:new("pzopt." .. entry.key, box)
     function option.toUI(self)
-        self.control:setSelected(1, nextValue(entry) == "true")
+        self.pzoptShown = nextValue(entry)
+        self.control:setSelected(1, self.pzoptShown == "true")
     end
     function option.apply(self)
         if pinnedBy ~= "" then return end
         local value = tostring(self.control:isSelected(1))
+        if compatDecides(entry.key) then
+            if value == self.pzoptShown then return end -- untouched: mod compatibility keeps deciding
+            perf():setPzoptOption(entry.key, value) -- the player's choice beats mod compatibility, the default too
+            afterStore(self, entry, value)
+            return
+        end
         local before = entry.restartKeys and startupSignature(entry)
         store(entry, value)
         afterStore(self, entry, value)
@@ -2460,9 +2502,13 @@ local function addBoolOption(self, entry, splitpoint, y, BUTTON_HGT)
             self:restartRequired(before, startupSignature(entry))
         end
     end
-    -- the "Enable all" button puts the control back to the build's default
+    -- the "Enable all" button puts the control back to the build's default (mod compatibility's value where it decides)
     function option.pzoptReset(self)
         if pinnedBy ~= "" then return end
+        if compatDecides(entry.key) then
+            self.control:setSelected(1, self.pzoptShown == "true")
+            return
+        end
         self.control:setSelected(1, perf():getPzoptOptionDefault(entry.key) == "true")
     end
     -- a profile button sets an explicit value (nil = the build's default)
@@ -3036,6 +3082,8 @@ local function exportValue(option)
     end
     local v = option:pzoptCurrent()
     if string.sub(v, -10) == " (default)" or v == p:getPzoptOptionDefault(key) then return nil end
+    -- mod compatibility's value for this launch is not a setting of the player's (left out unless they changed it)
+    if option.pzoptShown ~= nil and v == option.pzoptShown and compatDecides(key) then return nil end
     return v
 end
 

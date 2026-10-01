@@ -3,6 +3,8 @@
 -- one this file saw when it loaded (a mod that replaced or wrapped it keeps its version and gets no fast path), and only
 -- when the key uiLuaFast is on (Options > Optimizations, default on).
 --
+-- Since 2026-10-01 "still the vanilla one" also means loaded from the game's own file (getPzoptLuaOrigin).
+--
 -- 1. ISInventoryPage:update re-arranges the container controls row (ISInventoryWindowContainerControls /
 --    ISLootWindowContainerControls:arrange removes and re-adds every control and asks every handler) and resizes the
 --    pane every 100 ms, also while the window is hidden: ~70-100 us of its ~110-150 us per call. Here a hidden window
@@ -19,6 +21,14 @@ local VANILLA_PAGE_SETVISIBLE = ISInventoryPage and ISInventoryPage.setVisible
 local function enabled()
     local ok, v = pcall(function() return getPerformance():getPzoptOption("uiLuaFast") end)
     return ok and v == "true"
+end
+
+-- The function is the game's own: a mod that replaces the vanilla file at the same path (ISUI/ISInventoryPage.lua) loads
+-- in the vanilla slot, before this file, so "unchanged since this file loaded" alone would take its version for vanilla
+-- and replace it with the vanilla copy below (mod compatibility, 2026-10-01).
+local function gameOwn(fn)
+    if getPerformance():getPzoptOption("devUiFastNoOrigin") == "true" then return true end -- dev A/B: the old test
+    return fn ~= nil and getPerformance():getPzoptLuaOrigin(fn) == "game"
 end
 
 -- The controls block of ISInventoryPage:update (42.21), shared by the fast update and the setVisible hook.
@@ -160,16 +170,24 @@ local function install()
         return
     end
     local done = {}
-    if VANILLA_PAGE_UPDATE and ISInventoryPage.update == VANILLA_PAGE_UPDATE and ISInventoryPage.setVisible == VANILLA_PAGE_SETVISIBLE then
+    if VANILLA_PAGE_UPDATE and ISInventoryPage.update == VANILLA_PAGE_UPDATE and ISInventoryPage.setVisible == VANILLA_PAGE_SETVISIBLE
+            and gameOwn(VANILLA_PAGE_UPDATE) and gameOwn(VANILLA_PAGE_SETVISIBLE) then
         ISInventoryPage.update = fastPageUpdate
         ISInventoryPage.setVisible = fastPageSetVisible
         table.insert(done, "ISInventoryPage.update")
     end
-    if VANILLA_PANE_RENDERDETAILS and ISInventoryPane.renderdetails == VANILLA_PANE_RENDERDETAILS then
+    if VANILLA_PANE_RENDERDETAILS and ISInventoryPane.renderdetails == VANILLA_PANE_RENDERDETAILS and gameOwn(VANILLA_PANE_RENDERDETAILS) then
         ISInventoryPane.renderdetails = fastRenderdetails
         table.insert(done, "ISInventoryPane.renderdetails")
     end
-    print("[pzopt] uiLuaFast: " .. (#done > 0 and table.concat(done, ", ") or "nothing (replaced by a mod)"))
+    local skipped = {}
+    for _, name in ipairs({ "ISInventoryPage.update", "ISInventoryPane.renderdetails" }) do
+        local found = false
+        for _, d in ipairs(done) do found = found or d == name end
+        if not found then table.insert(skipped, name) end
+    end
+    print("[pzopt] uiLuaFast: " .. (#done > 0 and table.concat(done, ", ") or "nothing")
+        .. (#skipped > 0 and ("; left to a mod: " .. table.concat(skipped, ", ")) or ""))
 end
 
 Events.OnGameStart.Add(install)

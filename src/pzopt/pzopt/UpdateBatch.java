@@ -423,6 +423,24 @@ public final class UpdateBatch {
    }
 
    /**
+    * A batched entity's update reached a void Java -> Lua call rather than an event (pzopt.LuaGate, the LuaCaller
+    * override): a zombie trampling a crop or walking through a lit campfire, a mod's function. It joins the task's
+    * capture list and the replay runs it on the game thread in stock's order. False (the caller runs it on the game
+    * thread itself) when no task of this thread is capturing or the replay is off.
+    */
+   public static boolean captureLuaCall(Runnable call) {
+      if (!onWorkerNow() || !Config.ENTITY_UPDATE_LUA_REPLAY) {
+         return false;
+      }
+      java.util.ArrayList<Object[]> list = LUA_CAPTURE.get();
+      if (list == null) {
+         return false;
+      }
+      list.add(new Object[] {call});
+      return true;
+   }
+
+   /**
     * Game thread, after the join: every task's captured events through the real dispatch, in queue order, each
     * under its own entity's multiplier (the combined path's {@code flightPomArr} — see {@link #drainEmitters}).
     */
@@ -439,6 +457,11 @@ public final class UpdateBatch {
          luaCaptured += list.size();
          for (int j = 0; j < list.size(); j++) {
             Object[] r = list.get(j);
+            if (r[0] instanceof Runnable call) { // captureLuaCall: a direct Lua call, run where stock ran it
+               call.run();
+               luaReplayed++;
+               continue;
+            }
             String e = (String) r[0];
             switch (r.length) {
                case 1 -> zombie.Lua.LuaEventManager.triggerEvent(e);

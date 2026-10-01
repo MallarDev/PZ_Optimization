@@ -258,10 +258,27 @@ enable_mod() { # $1 = mods.txt path, $2 = mod id (default: the harness mod); ins
   grep -q "mod = $id," "$1" || sed -i "0,/^mods$/{n;s/^{$/{\n    mod = $id,/}" "$1"
   grep -q "mod = $id," "$1" || { echo "could not enable $id in $1" >&2; exit 1; }
 }
+# --mod <id> of a Steam Workshop download (a direct launch has no Steam, so the game only scans Zomboid/mods and its own
+# mods folder): copied to Zomboid/mods/<id> for this run (a symlink is not enough: ZomboidFileSystem resolves the mod's
+# files to the link target and builds paths like mods/home/.../zs_items.txt, run mc-npc 2026-10-01), marked with
+# .pzopt-run-copy and removed by restore (and by the next run if this one died first)
+WORKSHOP_CONTENT="$(cd "$PZ_DIR/../../.." 2>/dev/null && pwd)/workshop/content/108600"
+copied_mods=()
+for l in "$ZOMBOID"/mods/*; do [[ -f "$l/.pzopt-run-copy" ]] && rm -rf -- "$l"; done
+copy_workshop_mod() { # $1 = mod id
+  local info dir
+  info=$(grep -l "^id=$1"$'\r'"\{0,1\}\$" "$WORKSHOP_CONTENT"/*/mods/*/mod.info "$WORKSHOP_CONTENT"/*/mods/*/*/mod.info 2>/dev/null | head -1)
+  [[ -n "$info" ]] || return 1
+  dir=$(dirname "$info")
+  [[ "$(basename "$dir")" == common || "$(basename "$dir")" =~ ^[0-9]+(\.[0-9]+)*$ ]] && dir=$(dirname "$dir")
+  cp -r "$dir" "$ZOMBOID/mods/$1" && touch "$ZOMBOID/mods/$1/.pzopt-run-copy" && copied_mods+=("$1") \
+    && echo "--mod $1: Workshop copy $dir (copied for this run)"
+}
 enable_extra_mods() { # $1 = mods.txt path; --mod IDs go in above the harness mod, in the order given
   local i
   for (( i=${#extra_mods[@]}-1; i>=0; i-- )); do
-    [[ -d "$ZOMBOID/mods/${extra_mods[i]}" ]] || { echo "--mod ${extra_mods[i]}: not found in $ZOMBOID/mods" >&2; exit 1; }
+    [[ -d "$ZOMBOID/mods/${extra_mods[i]}" ]] || copy_workshop_mod "${extra_mods[i]}" \
+      || { echo "--mod ${extra_mods[i]}: not found in $ZOMBOID/mods or the Workshop downloads" >&2; exit 1; }
     enable_mod "$1" "${extra_mods[i]}"
   done
 }
@@ -384,6 +401,7 @@ restore() {
   restore_game_profiler
   restore_game_options
   restore_pad
+  local m; for m in "${copied_mods[@]}"; do [[ -f "$ZOMBOID/mods/$m/.pzopt-run-copy" ]] && rm -rf -- "$ZOMBOID/mods/$m"; done
 }
 # a backup left by a run that never got to restore (machine dropped mid-run): the backup is the player's file and this
 # run would overwrite it with the modified one; refuse until someone has looked

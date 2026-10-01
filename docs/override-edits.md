@@ -5553,3 +5553,41 @@ patched.
   `Relief.defines()`), not through a patch.
 - `pzopt.CloudShadow.chunkDraw`: the per-texture direct-sun share uniforms are also set while no cloud shades
   (`Relief.wantsSunShare`, composite mode only; clear sky left them at 0).
+
+## Mod compatibility (2026-10-01; LuaCaller, PerformanceSettings, `pzopt.ModCompat`, `pzopt.LuaOrigin`, `pzopt.LuaGate`)
+
+Keys `modCompat` (auto / report / off, default auto), `uiRetainedMods` (default off), `luaWorkerGate` (default on).
+Findings and the test matrix: `docs/findings-mod-compat-2026-10-01.md`.
+
+### se.krka.kahlua.integration.LuaCaller (new override)
+
+- Every public call entry (`pcall`, `pcallvoid`, `pcallBoolean`, `protectedCall*`): on a frame worker
+  (`pzopt.LuaGate.onWorker`, with `luaWorkerGate` on) the call is handed to `pzopt.LuaGate` instead of pushing onto the
+  shared Kahlua stack. The arguments the call takes are copied into locals the hand-off can capture. A void call made
+  inside the entity update batch joins that task's Lua replay (`UpdateBatch.captureLuaCall`, run on the game thread
+  after the join in stock's order); any other call waits on the worker while the game thread runs it at its next
+  FrameBatch task boundary or in a join wait, and its result or exception is returned to the worker. Off a worker
+  nothing changes. Before: a zombie trampling a crop on a worker ran the farming system's Lua there ("Lua code called
+  from the wrong thread", then a corrupted stack).
+
+### zombie.core.PerformanceSettings
+
+- Methods for Lua: `getPzoptLuaOrigin` (where a Lua function was loaded from: the game's file, ours, a mod's;
+  `pzopt.LuaOrigin`), `getPzoptModCompatReason` and `getPzoptModCompatSummary` (`pzopt.ModCompat`, shown on the
+  Optimizations tab).
+
+### pzopt classes and Lua (no game class changed for these)
+
+- `pzopt.ModCompat` runs at `Config`'s class init: it reads the `-javaagent` jars of the JVM's arguments and every jar
+  of the mods `Zomboid/mods/default.txt` enables (Zomboid/mods, the game's mods folder, the Workshop downloads), finds
+  ZombieBuddy `@Patch(className, methodName)` annotations and, in classes that rewrite bytecode, string constants naming
+  a class we ship and its methods. A hit on a method we edited switches off the boolean keys that method reads
+  (`scripts/override-methods.py` writes the map at build time, `pzopt/override-methods.properties`), below the
+  player's options.ini, unless the mod is listed as tested (`ModCompat.KNOWN`, `Zomboid/pzopt/mod-compat.ini`) or
+  `modCompat=report`. Report in console.txt (`mod compat:` lines) and `Zomboid/pzopt/mod-compat.txt`.
+- `pzopt_ui_fast.lua` replaces `ISInventoryPage.update` / `setVisible` / `ISInventoryPane.renderdetails` only when the
+  function is still the one it saw and comes from the game's own file: a mod that replaces the vanilla file at the
+  same path loads in the vanilla slot, before our file, and was taken for vanilla.
+- `pzopt.UiRetained`: an element that carries a mod's Lua function (its own table or a class up its `__index` chain)
+  renders fresh at the stock rate, and so does an element whose last fresh render drew such an element
+  (`uiRetainedMods=false`).

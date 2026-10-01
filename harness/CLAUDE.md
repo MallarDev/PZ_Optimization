@@ -22,6 +22,17 @@ What it does: installs the pzopt-harness Lua mod, creates/points at the bench sa
 `sysmon.sh` and the MangoHud log, waits for exit, collects console.txt and every `pzopt-*.out`
 into the run dir, restores `latestSave.ini`. `run.opts` records launcher, renderer, flags.
 
+`--mod ID` enables a mod for the run (default.txt + the bench save's mods.txt, restored after). An id not in
+`Zomboid/mods` is looked up in the Steam Workshop downloads beside the game (`workshop/content/108600/*/mods/*`, by the
+`id=` of its mod.info) and copied to `Zomboid/mods/<id>` for the run (a direct launch has no Steam, so the game would not
+see it; a symlink breaks the game's relative mod paths), marked `.pzopt-run-copy`; restore removes the copy, and the next
+run removes one a dead run left (2026-10-01). Java mods also need
+their agent: `--vmarg -javaagent:<jar>[=opts]` (ZombieBuddy: `.../ZombieBuddy/libs/ZombieBuddy.jar=policy=allow-all,frontend=console`).
+Mod compatibility matrix (2026-10-01, `docs/findings-mod-compat-2026-10-01.md`): `harness/compat/make-fixture.sh` writes
+the Lua fixture mod `pzopt-compat-fixture` (a vanilla-path ISInventoryPage.lua replacement, a mod-drawn HUD);
+check `mod compat:`, `uiLuaFast:`, `ui retained:`, `lua gate:` and `[pzopt-fixture]` lines in console.txt and
+`luaGate replayed= served= timeouts=` in `pzopt-bench.out`.
+
 Modes:
 - `play` (2026-09-20 night): a copy of a real save for the maintainer to play in with the scene flags
   applied — `--mode play --source-save Apocalypse/<save> --flag weather=storm` (also `time_of_day=`,

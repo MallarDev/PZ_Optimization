@@ -144,6 +144,23 @@ public final class PerformanceSettings {
       return v == null ? "" : v;
    }
 
+   // pzopt: mod compatibility (2026-10-01). Where a Lua function was loaded from: "game", "pzopt", "mod:<id>", "java" or
+   // "other" (pzopt.LuaOrigin; pzopt_ui_fast.lua replaces only the game's own functions).
+   public String getPzoptLuaOrigin(Object fn) {
+      return pzopt.LuaOrigin.ofFunction(fn);
+   }
+
+   /** "" or why mod compatibility switched this key off ("<mod> patches <Class.method>", pzopt.ModCompat). */
+   public String getPzoptModCompatReason(String key) {
+      String v = pzopt.ModCompat.reason(key);
+      return v == null ? "" : v;
+   }
+
+   /** One line per Java mod that patches a class we ship ("" when none), for the Optimizations tab. */
+   public String getPzoptModCompatSummary() {
+      return pzopt.ModCompat.summary();
+   }
+
    /** "" removes the key (default on the next launch). */
    public void setPzoptOption(String key, String value) {
       if (pzopt.Config.knows(key)) {

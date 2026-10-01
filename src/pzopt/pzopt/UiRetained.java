@@ -74,6 +74,8 @@ public final class UiRetained {
       int checkFrom = -1;
       se.krka.kahlua.j2se.KahluaTableImpl table;
       int writes;
+      String mod; // uiRetainedMods off: the mod whose function the element (or a class it derives from) carries, else null
+      boolean modded; // it or an element drawn inside its last fresh render is mod-drawn: rendered at the stock rate
    }
 
    private static final IdentityHashMap<UIElementInterface, Rec> recs = new IdentityHashMap<>();
@@ -256,6 +258,8 @@ public final class UiRetained {
          r = new Rec();
          r.name = UiProfile.name(e);
          r.inventory = "ISInventoryPage".equals(r.name);
+         r.mod = modDrawing(e);
+         r.modded = r.mod != null;
          recs.put(e, r);
       }
       r.seenFrame = frameNo;
@@ -330,8 +334,8 @@ public final class UiRetained {
    }
 
    private static boolean needsFresh(UIElementInterface e, Rec r, boolean inside) {
-      if (!r.recorded || !r.replayable || freshAll || padActive) {
-         return true;
+      if (!r.recorded || !r.replayable || freshAll || padActive || r.modded) {
+         return true; // r.modded: a mod draws in it; its drawing may change with state the replay cannot see (stock rate)
       }
       if (r.table != null && r.table.pzoptWrites != r.writes) {
          return true; // its Lua table changed since it was recorded (a field set by its update, its parent, a handler)
@@ -365,6 +369,7 @@ public final class UiRetained {
          return -1;
       }
       GLState.startFrame();
+      spanMods.add(Boolean.FALSE);
       return state().numSprites;
    }
 
@@ -372,12 +377,17 @@ public final class UiRetained {
       if (!active || from < 0) {
          return;
       }
+      boolean innerMods = !spanMods.isEmpty() && spanMods.remove(spanMods.size() - 1);
       GenericSpriteRenderState st = state();
       int to = st.numSprites;
       if (!e.isVisible()) {
          return;
       }
       Rec r = rec(e);
+      r.modded = r.mod != null || innerMods;
+      if (r.modded && !spanMods.isEmpty()) {
+         spanMods.set(spanMods.size() - 1, Boolean.TRUE); // the element whose fresh render drew this one is mod-drawn too
+      }
       long h = hash(st.sprite, from, to);
       if (checking && r.checkFrom == from) {
          // devUiRetainedCheck: this render stood in for a replay; compare, keep the schedule as it was
@@ -430,6 +440,74 @@ public final class UiRetained {
       if (active) {
          GLState.startFrame();
       }
+      spanMods.clear(); // a render that threw between freshBegin and freshEnd leaves its entry behind
+   }
+
+   // ── elements a mod draws (uiRetainedMods off, mod compatibility 2026-10-01) ─────────────────────────────────────
+   //
+   // A mod's drawing may follow state the replay schedule cannot see (its own Lua locals, Java getters), so an element
+   // carrying a mod's drawing function (render* / prerender* / postrender*, in its own table or a class up its __index chain:
+   // a mod replacing ISInventoryPane.renderdetails makes every inventory pane mod-drawn) renders fresh at the stock rate.
+   // So does a vanilla window whose last fresh render drew a mod-drawn child (spanMods: one flag per open freshBegin).
+   // Other mod functions do not count: Inventory Tetris adds helpers to ISUIElement, the base of every element, and a
+   // button's onclick from a mod draws nothing (the first matrix run, 2026-10-01, had the whole UI at the stock rate).
+
+   private static final ArrayList<Boolean> spanMods = new ArrayList<>();
+   private static final IdentityHashMap<KahluaTable, Object[]> tableMods = new IdentityHashMap<>(); // {writes, mod id or ""}
+   private static final java.util.HashSet<String> loggedMods = new java.util.HashSet<>();
+
+   /** The mod whose function this element carries, or null (also null with uiRetainedMods on). */
+   private static String modDrawing(UIElementInterface e) {
+      if (Config.UI_RETAINED_MODS || !(e instanceof UIElement u) || !(u.getTable() instanceof KahluaTable t)) {
+         return null;
+      }
+      KahluaTable cur = t;
+      for (int depth = 0; cur != null && depth < 16; depth++) {
+         String mod = tableMod(cur, depth == 0);
+         if (mod != null) {
+            if (loggedMods.size() < 64 && loggedMods.add(UiProfile.name(e) + mod)) {
+               Log.info("ui retained: " + UiProfile.name(e) + " carries a function of " + mod + "; rendered at the stock rate (uiRetainedMods=false)");
+            }
+            return mod;
+         }
+         KahluaTable meta = cur.getMetatable();
+         Object index = meta != null ? meta.rawget("__index") : null;
+         cur = index instanceof KahluaTable k && k != cur ? k : null;
+      }
+      return null;
+   }
+
+   /**
+    * A function of an element's render path: render / prerender / postrender and their helpers (renderdetails ...). Not
+    * the draw primitives (drawText, drawTexture...): they draw what they are given, so their output follows the element's
+    * own inputs (Inventory Tetris adds drawTextureCenteredAndSquare to ISUIElement, which no vanilla element calls).
+    */
+   static boolean drawing(String name) {
+      String n = name.toLowerCase(java.util.Locale.ROOT);
+      return n.startsWith("render") || n.startsWith("prerender") || n.startsWith("postrender");
+   }
+
+   /** The first mod-defined drawing function of a table; class tables are cached until a write (a function replaced). */
+   private static String tableMod(KahluaTable t, boolean instance) {
+      int writes = t instanceof se.krka.kahlua.j2se.KahluaTableImpl ti ? ti.pzoptWrites : -1;
+      Object[] cached = instance ? null : tableMods.get(t);
+      if (cached != null && (Integer) cached[0] == writes) {
+         return ((String) cached[1]).isEmpty() ? null : (String) cached[1];
+      }
+      String found = "";
+      se.krka.kahlua.vm.KahluaTableIterator it = t.iterator();
+      while (it.advance()) {
+         Object v = it.getValue();
+         if (v instanceof se.krka.kahlua.vm.LuaClosure && it.getKey() instanceof String k && drawing(k) && LuaOrigin.fromMod(v)) {
+            String o = LuaOrigin.ofFunction(v);
+            found = o.startsWith("mod:") ? o.substring(4) : o;
+            break;
+         }
+      }
+      if (!instance) {
+         tableMods.put(t, new Object[] {writes, found});
+      }
+      return found.isEmpty() ? null : found;
    }
 
    private static void record(Rec r, GenericSpriteRenderState st, int from, int to, long h) {

@@ -374,6 +374,8 @@ public final class Config {
    private static final Properties props = load();
    /** The player's Options > Optimizations choices (Zomboid/pzopt/options.ini), below props and -D. */
    private static final Properties userProps = UserOptions.load();
+   /** pzopt.ModCompat: keys a Java mod's patches of our edited methods switch off, below the player's options.ini. */
+   private static final Properties compatProps = ModCompat.scan(upper("modCompat"));
    /** Master switch, read by {@link Overrides#enabled()}; false = stock behaviour everywhere. */
    public static final boolean ENABLED = bool("enabled", true);
    public static final boolean PARALLEL = bool("parallel", true);
@@ -642,6 +644,22 @@ public final class Config {
    public static final boolean UI_LUA_FAST = bool("uiLuaFast", true);
    /** pzopt.UiTicks: every top-level UI element's 100 ms Lua update on its own phase instead of all in one frame. */
    public static final boolean UI_TICK_STAGGER = bool("uiTickStagger", true);
+   /**
+    * Java mod compatibility (pzopt.ModCompat, 2026-10-01): auto = a Java mod that patches a method we edited switches
+    * off the features that method holds (unless the mod is on ModCompat.KNOWN); report = only log it
+    * (Zomboid/pzopt/mod-compat.txt); off = no scan.
+    */
+   public static final String MOD_COMPAT = string("modCompat", "auto");
+   /** uiRetained: UI elements a mod draws (a render / prerender / class function from a mod file) replay too; off = stock rate for them. */
+   public static final boolean UI_RETAINED_MODS = bool("uiRetainedMods", false);
+   /** dev: pzopt_ui_fast.lua skips its "loaded from the game's own file" test (the behaviour before 2026-10-01), for the fixture A/B. */
+   public static final boolean DEV_UI_FAST_NO_ORIGIN = bool("devUiFastNoOrigin", false);
+   /**
+    * Lua called on a frame worker (a mod's Lua reached from a batched zombie's update, pzopt.LuaGate): the call runs on
+    * the game thread (a void call in the update batch joins its Lua replay; others wait for the game thread at its next
+    * task or join) instead of on the worker, where Kahlua's one stack broke ("Lua code called from the wrong thread").
+    */
+   public static final boolean LUA_WORKER_GATE = bool("luaWorkerGate", true);
    public static final boolean MAP_STREET_MEMO = bool("mapStreetMemo", true);
    /** pzopt.MapStreets: the world map reuses the whole street-label layout while its view, options, style and streets are unchanged. */
    public static final boolean MAP_STREET_CACHE = bool("mapStreetCache", true);
@@ -1476,7 +1494,17 @@ public final class Config {
       if (gate != null && !masterOn(gate[0])) {
          return gate[1];
       }
-      return userProps.getProperty(key);
+      v = userProps.getProperty(key);
+      return v != null ? v : compatProps.getProperty(key);
+   }
+
+   /** -D, pzopt.properties, then options.ini: a key read before the mod-compat layer exists (modCompat itself). */
+   private static String upper(String key) {
+      String v = System.getProperty("pzopt." + key);
+      if (v == null) {
+         v = props.getProperty(key);
+      }
+      return v != null ? v : userProps.getProperty(key);
    }
 
    /** A tab master switch (enhancementsEnabled / profilerEnabled), read through the usual order; on unless "false". */

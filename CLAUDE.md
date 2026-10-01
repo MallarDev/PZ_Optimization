@@ -525,6 +525,13 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   113 classes changed. 42.21 made `saveCellAsync` moot (stock queues and throttles cell saves) and fades trees while
   driving (`pzopt.XxlTreeFade` keeps baked XXL trees in step, 12-square radius). `decompiled/` is the 42.21 CFR tree; the
   42.20 one is in `build/port4221/decompiled-42.20/`. The bench save still logs "invalid room metaID" on 42.21, stock too.
+- Mod compatibility (2026-10-01, `docs/findings-mod-compat-2026-10-01.md`, branch `mod-compat`): `pzopt.ModCompat` scans the
+  launch's Java mods (`-javaagent` jars, ZombieBuddy `javaJarFile`) at Config init and switches off the boolean keys of every
+  edited method a mod patches (`modCompat=auto`, map from `scripts/override-methods.py`, tested mods in `ModCompat.KNOWN`);
+  `pzopt.LuaOrigin` tells a mod's Lua function from the game's (`uiLuaFast` vanilla-slot fix, mod-drawn UI at the stock
+  rate unless `uiRetainedMods`); `luaWorkerGate` runs a frame worker's Java -> Lua call on the game thread (new LuaCaller
+  override). Matrix: `run.sh --mod` copies Workshop mods for direct launches, `harness/compat/make-fixture.sh`. ZombieBuddy
+  2.3.3 loads no Java mod on 42.21, stock install too.
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.
