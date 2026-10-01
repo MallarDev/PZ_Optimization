@@ -1911,6 +1911,11 @@ public final class CapsuleShadow {
       "   }",
       "   return lit / 8.0;",
       "}",
+      "float segDist(vec3 p, vec3 a, vec3 b) {",
+      "   vec3 ba = b - a;",
+      "   float h = clamp(dot(p - a, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);",
+      "   return length(p - a - ba * h);",
+      "}",
       // PixelLight's fitted torch intensity (the share of the pixel's light the lamp gives in the dark)
       "float torch(vec2 p, vec4 a, vec4 b, float kind) {",
       "   vec2 v = p - a.xy;",
@@ -1942,6 +1947,12 @@ public final class CapsuleShadow {
       "   float k = tmax / (lK[light] > 1.5 ? 0.25 : 0.12);", // the lamp's size: penumbra grows with the caster's distance from the receiver
       "   vec4 ba0 = texelFetch(Data, ivec2(1, inst), 0);",
       "   vec4 bb0 = texelFetch(Data, ivec2(2, inst), 0);",
+      // the caster's own pixel takes none of its own lamp shadow (as in SIL_FRAG): the pass runs after the moving objects
+      // (sunShadowSilhouette), and a car's surface lies inside or behind its three capsules seen from a torch in front of it,
+      // so the rear half of a taxi lit by the player's torch went black in capsule-shaped patches (2026-10-01)
+      "   vec4 own = texelFetch(Data, ivec2(0, inst), 0);",
+      "   float floorZ = texelFetch(Data, ivec2(3, inst), 0).x;",
+      "   if (own.w > 0.5 && P.z > floorZ + 0.1 && segDist(P, ba0.xyz, bb0.xyz) < ba0.w) discard;",
       "   if (capShadow(ro, rd, ba0.xyz, bb0.xyz, ba0.w + (view >= 0 ? 0.15 : 0.0), k, tmax) > 0.999) discard;",
       "   float alpha = texelFetch(Data, ivec2(3, inst), 0).w;",
       "   float vis = 1.0;",

@@ -2423,12 +2423,30 @@ public final class PixelLight {
       "   vec2 f = vec2((A - pplSmP.y) / pplSmP.x, (B - pplSmP.w) / pplSmP.z);",
       "   vec2 uv = (f - pplSmV.xy) / pplSmV.zw;",
       "   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 1.0;",
-      "   vec2 m = texture(pplShadowMask, uv).rg;",
+      "   if (pplSmC.x == 0.0) return texture(pplShadowMask, uv).r;",
       // the mask texel shows another surface than this pixel (a floor change or a cutaway swapped the scene, a mover
       // uncovered it): its shadow belongs to that surface, not to this one (a level is 2 units of x + y + 2z; the mask
-      // keeps the depth at half precision, ~0.3 units: half a level of slack)
-      "   if (pplSmC.x != 0.0 && abs(pplSmC.x * m.g + pplSmC.y - (P.x + P.y + 2.0 * P.z + pplSmO.y)) > 1.0) return 1.0;",
-      "   return m.r;",
+      // keeps the depth at half precision, ~0.3 units: half a level of slack). Depth-aware upsampling: the four texels
+      // apart, the bilinear weights of those on this pixel's surface. One bilinear read mixed a leaf's depth with the
+      // ground's behind it into neither, which took the leaf for another surface and lit it fully: under a torch the bushes
+      // in a shadow sparkled with one-frame lit specks as the leaves moved (2026-10-01). None on its surface: the nearest
+      // within a level and a half (a leaf over the ground), past that no shadow (another surface)
+      "   ivec2 msz = textureSize(pplShadowMask, 0);",
+      "   vec2 mtc = uv * vec2(msz) - 0.5;",
+      "   ivec2 mi = ivec2(floor(mtc));",
+      "   vec2 mfr = mtc - vec2(mi);",
+      "   float here = P.x + P.y + 2.0 * P.z + pplSmO.y;",
+      "   float msum = 0.0, mw = 0.0, best = 1e9, bestV = 1.0;",
+      "   for (int k = 0; k < 4; k++) {",
+      "      ivec2 o = ivec2(k & 1, k >> 1);",
+      "      vec2 m = texelFetch(pplShadowMask, clamp(mi + o, ivec2(0), msz - 1), 0).rg;",
+      "      float dd = abs(pplSmC.x * m.g + pplSmC.y - here);",
+      "      float w = (o.x == 1 ? mfr.x : 1.0 - mfr.x) * (o.y == 1 ? mfr.y : 1.0 - mfr.y);",
+      "      if (dd <= 1.0) { msum += m.r * w; mw += w; }",
+      "      if (dd < best) { best = dd; bestV = m.r; }",
+      "   }",
+      "   if (mw > 1e-4) return msum / mw;",
+      "   return best < 3.0 ? bestV : 1.0;",
       "}",
       // the surface normal from the position's screen derivatives, in squares (a level is 2.449 squares tall), facing the
       // viewer; the sprites' depth textures make it a real normal on furniture too (call in uniform control flow)
