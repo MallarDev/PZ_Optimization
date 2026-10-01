@@ -42,19 +42,18 @@ public final class ReliefAux {
    // haze 29; units 2 and 3 are bound only by passes outside the composite (the AO kernel, ours), which bind before use
    // (13 was the cloud field's: with a cloud up, each read the other's texture)
    static final int AUX_UNIT = 2, HORIZON_UNIT = 3;
-   private static final boolean MAC = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac");
    private static final int K_ENCODE = 0, K_BAKE = 1, K_STEP = 2;
 
    private ReliefAux() {
    }
 
    static boolean wanted() {
-      return Config.RELIEF && Config.RELIEF_AUX && !MAC && Overrides.enabled() && (Relief.on() || Relief.sunWanted() || sunBake());
+      return Config.RELIEF && Config.RELIEF_AUX && !CoreGl.legacyMac() && Overrides.enabled() && (Relief.on() || Relief.sunWanted() || sunBake());
    }
 
    /** The sun / moon relief is baked into the chunk textures (needs the AO pass's kept term for the direct-sun share). */
    static boolean sunBake() {
-      return Config.RELIEF && Config.RELIEF_AUX && "bake".equals(Config.RELIEF_SUN_MODE) && Config.RELIEF_SUN_PCT > 0 && Config.SUN_SHADOWS && !MAC
+      return Config.RELIEF && Config.RELIEF_AUX && "bake".equals(Config.RELIEF_SUN_MODE) && Config.RELIEF_SUN_PCT > 0 && Config.SUN_SHADOWS && !CoreGl.legacyMac()
          && Overrides.enabled() && ChunkAo.enabled();
    }
 

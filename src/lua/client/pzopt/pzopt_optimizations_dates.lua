@@ -107,6 +107,7 @@ PzoptOptionDates = {
     colorGradingNightPct = "2026-09-26",
     colorGradingPct = "2026-09-26",
     compositeShaderRun = "2026-09-25",
+    consoleLog = "2026-10-01",
     coreBackgroundCpus = "2026-09-24",
     coreCriticalCpus = "2026-09-24",
     coreDemotePct = "2026-09-24",

@@ -37,19 +37,18 @@ public final class CloudShadow {
    }
 
    static final int FIELD_UNIT = 13, TERM_UNIT = 14;
-   private static final boolean MAC = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac");
    private static volatile boolean failed;
    private static volatile boolean patched;
    private static long patchedPrograms;
 
    /** Is the composite able to draw them (patched at launch, no failure)? */
    static boolean supported() {
-      return patched && !failed && !MAC;
+      return patched && !failed && !CoreGl.legacyMac();
    }
 
    /** Do the chunk textures need the direct-sun share (bare marks included)? Game thread. */
    static boolean wanted() {
-      return Config.SUN_SHADOWS && Config.CLOUD_SHADOWS && Overrides.enabled() && !MAC && !failed;
+      return Config.SUN_SHADOWS && Config.CLOUD_SHADOWS && Overrides.enabled() && !CoreGl.legacyMac() && !failed;
    }
 
    /** Cloud shadows shade the scene this frame (the strength of the key light above zero). */
@@ -866,7 +865,7 @@ public final class CloudShadow {
     * main. Only when sun shadows and cloud shadows are on at launch (else the game keeps its own programs untouched).
     */
    public static String patchShader(String fileName, String code) {
-      if (fileName == null || code == null || MAC || !Overrides.enabled() || !Config.CLOUD_SHADOWS || !Config.SUN_SHADOWS) {
+      if (fileName == null || code == null || CoreGl.legacyMac() || !Overrides.enabled() || !Config.CLOUD_SHADOWS || !Config.SUN_SHADOWS) {
          return code;
       }
       String f = fileName.replace('\\', '/');

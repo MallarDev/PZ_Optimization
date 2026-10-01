@@ -806,6 +806,17 @@ public final class Config {
    public static final int VRR_CAP_FPS = integer("vrrCapFps", 0);
    /** macOS on Apple silicon: present through Metal (pzopt.MacPresent) for ProMotion / Adaptive-Sync timing; on | off (auto = on). */
    public static final String MAC_PRESENT = string("macPresent", "off");
+   /** macOS: an OpenGL 4.1 core context instead of Apple's legacy 2.1 one, with the fixed-function shim (pzopt.CoreGl); next launch. */
+   public static final boolean MAC_GL_CORE = bool("macGlCore", true);
+   /** Rig: macGlCore's alpha test as a uniform-driven discard in every fragment shader (the core profile has no GL_ALPHA_TEST); false = no alpha test at all (wrong picture). */
+   public static final boolean CORE_ALPHA_INJECT = bool("devCoreAlphaInject", true);
+   /** Rig: macGlCore logs GL errors per frame and every unemulated legacy call (first stack trace each). */
+   public static final boolean DEV_CORE_GL_TRACE = bool("devCoreGlTrace", false);
+   /**
+    * macGlCore: GL timer queries (the overlay's GPU load, present pacing's GPU timestamps). Off by default: on Apple's GL over
+    * Metal a query per frame cost a third of the frame rate (spin route 106 -> 68 fps, 2026-10-01); the legacy context has none.
+    */
+   public static final boolean MAC_GL_TIMER_QUERIES = bool("macGlTimerQueries", false);
    /** macPresent: glFinish instead of glFlush before Metal reads the frame (only if the flush hand-off ever shows torn frames). */
    public static final boolean MAC_PRESENT_FINISH = bool("macPresentFinish", false);
    /** macPresent: CAMetalLayer drawables in flight (2 = one shown + one queued; 3 queues ~3 frames of latency at the panel's rate). */

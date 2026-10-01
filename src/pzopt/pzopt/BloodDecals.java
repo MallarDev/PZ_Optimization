@@ -64,8 +64,7 @@ public final class BloodDecals {
    public static final boolean ON = !"off".equals(MODE) && Overrides.enabled();
    public static final boolean GPU_WANTED = ON && "gpu".equals(MODE);
    public static final boolean APPEND = Config.BLOOD_APPEND && Overrides.enabled();
-   private static final boolean MAC = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac");
-   private static volatile boolean gpuFailed = MAC;
+   private static volatile boolean gpuFailed = CoreGl.legacyMac();
 
    public static final int TYPES = IsoFloorBloodSplat.FLOOR_BLOOD_TYPES.length;
    static final int FLOATS = 8; // two RGBA32F texels a splat

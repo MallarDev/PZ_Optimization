@@ -66,7 +66,7 @@ public final class Sway {
    private static boolean devOff;
 
    private static boolean supported() {
-      return Overrides.enabled() && tilePatched && compositePatched && !System.getProperty("os.name", "").contains("OS X");
+      return Overrides.enabled() && tilePatched && compositePatched && !CoreGl.legacyMac();
    }
 
    /** The key as the player set it, or the game's wind option handed over to sway (and the shaders are patched). */
@@ -1557,7 +1557,7 @@ public final class Sway {
     * composite looks its texels up through the wind's displacement. Test-compiled; the source stays as it was on failure.
     */
    public static String patchShader(String fileName, String code) {
-      if (fileName == null || code == null || !Overrides.enabled() || Config.DEV_SWAY_NO_PATCH || System.getProperty("os.name", "").contains("OS X")) {
+      if (fileName == null || code == null || !Overrides.enabled() || Config.DEV_SWAY_NO_PATCH || CoreGl.legacyMac()) {
          return code;
       }
       String base = baseName(fileName);

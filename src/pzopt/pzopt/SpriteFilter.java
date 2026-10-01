@@ -75,7 +75,7 @@ public final class SpriteFilter {
    private static int statsFrames, statsMag, statsMin, statsOne;
 
    private static boolean supported() {
-      return Overrides.enabled() && !System.getProperty("os.name", "").contains("OS X") && !Core.getInstance().getUseOpenGL21();
+      return Overrides.enabled() && !CoreGl.legacyMac() && !Core.getInstance().getUseOpenGL21();
    }
 
    // this frame's settings (game thread): the configured ones, or the dev cycle's entry

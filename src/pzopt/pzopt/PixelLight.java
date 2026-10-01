@@ -65,7 +65,7 @@ public final class PixelLight {
    }
 
    /** The chunk textures bake unlit and this pass lights them. Read by the game thread and the lighting-read workers. */
-   public static volatile boolean ACTIVE = Config.PIXEL_LIGHT && Overrides.enabled() && !System.getProperty("os.name", "").contains("OS X");
+   public static volatile boolean ACTIVE = Config.PIXEL_LIGHT && Overrides.enabled() && !CoreGl.legacyMac();
 
    static final int LEVELS = 32; // levels the lattice holds (level & 31): every chunk of the vanilla map (-17..8 at the Rosewood base, 0..29 in Louisville) and its air level
    /** IsoDepthHelper: depth per unit of x + y (SQUARE_DEPTH / 2; a level adds 2 units) */
@@ -2342,7 +2342,7 @@ public final class PixelLight {
     * a fragment of zero alpha writes neither colour (premultiplied, nothing to blend) nor depth.
     */
    private static String depthOpaqueOnly(String code) {
-      if (!Config.PPL_DEPTH_OPAQUE_ONLY || !Config.PIXEL_LIGHT || !Overrides.enabled() || System.getProperty("os.name", "").contains("OS X")) {
+      if (!Config.PPL_DEPTH_OPAQUE_ONLY || !Config.PIXEL_LIGHT || !Overrides.enabled() || CoreGl.legacyMac()) {
          return code;
       }
       String cond = code.contains("if(d > 0)") ? "if(d > 0)" : code.contains("if (d > 0)") ? "if (d > 0)" : null;
@@ -2381,7 +2381,7 @@ public final class PixelLight {
       if ("pass".equals(Config.PPL_MODE)) {
          return code; // pass mode: the composite stays the stock program (the patched one costs its registers even unlit)
       }
-      if (!(Config.PIXEL_LIGHT || !Config.DEV_PPL_TOGGLE_AT.isEmpty()) || !Overrides.enabled() || System.getProperty("os.name", "").contains("OS X")) {
+      if (!(Config.PIXEL_LIGHT || !Config.DEV_PPL_TOGGLE_AT.isEmpty()) || !Overrides.enabled() || CoreGl.legacyMac()) {
          return code;
       }
       int test = GL20.glCreateShader(GL20.GL_FRAGMENT_SHADER);

@@ -272,7 +272,7 @@ public final class Pacing {
       glChecked = true;
       try {
          GLCapabilities caps = GL.getCapabilities();
-         timestamps = caps.OpenGL33 || caps.GL_ARB_timer_query;
+         timestamps = (caps.OpenGL33 || caps.GL_ARB_timer_query) && CoreGl.timerQueries();
          if (mode == GPU_FINISH && !(caps.OpenGL32 || caps.GL_ARB_sync)) {
             mode = CPU;
          }

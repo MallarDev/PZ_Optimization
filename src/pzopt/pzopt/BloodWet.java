@@ -42,8 +42,7 @@ public final class BloodWet {
    private BloodWet() {
    }
 
-   private static final boolean MAC = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac");
-   private static volatile boolean failed = MAC;
+   private static volatile boolean failed = CoreGl.legacyMac();
    static final int TEXELS = 4, MAX = 4096;
 
    public static long frames, splats, drawsMain, drawsGlint, maxSplats;

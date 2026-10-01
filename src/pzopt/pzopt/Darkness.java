@@ -292,7 +292,7 @@ public final class Darkness {
    private static int barrierKind; // 0 unknown, 1 GL 4.5 / ARB, 2 NV, -1 none
 
    public static boolean memoryEnabled() {
-      return Overrides.enabled() && Config.MEMORY_TINT && !memoryBroken && !HdrMac.MAC;
+      return Overrides.enabled() && Config.MEMORY_TINT && !memoryBroken && !CoreGl.legacyMac();
    }
 
    private static final String VERT = String.join("\n",

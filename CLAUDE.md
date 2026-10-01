@@ -534,6 +534,15 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   rate unless `uiRetainedMods`); `luaWorkerGate` runs a frame worker's Java -> Lua call on the game thread (new LuaCaller
   override). Matrix: `run.sh --mod` copies Workshop mods for direct launches, `harness/compat/make-fixture.sh`. ZombieBuddy
   2.3.3 loads no Java mod on 42.21, stock install too.
+- macOS on OpenGL 4.1 core (2026-10-01, `docs/findings-mac-gl41-2026-10-01.md`, branch `mac-gl41`): `macGlCore` (default on)
+  asks GLFW for 4.1 core instead of Apple's legacy 2.1 and `pzopt.CoreGl` rebuilds LWJGL's function table with Java upcalls
+  for the removed fixed-function calls (alpha test as an injected fragment uniform, matrix stacks, immediate mode, push /
+  pop attrib as snapshots), aliases, no-ops for absent entry points (LWJGL's `OpenGL33` is then true: the game runs its 3.3
+  path as on Linux); `pzopt.CoreGlsl` translates every shader. Every Enhancement now runs on the Mac (gates are
+  `CoreGl.legacyMac()`): god rays through a new fragment volume path (no compute), SSR in march mode (no image atomics), HDR
+  alpha-gain with its world passes. Cost at parity with 2.1 (spin 106 vs 107 fps) only with `macGlTimerQueries=false` (the
+  default): Apple's GL timer queries cost a third of the frame rate. Mac cost runs need an empty
+  `-Dpzopt.userOptionsFile` (the Mac's tab file has the Enhancements on). `run-mac.sh install` now ships pzopt's shader files.
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

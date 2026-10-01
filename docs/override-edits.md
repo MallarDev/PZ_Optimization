@@ -5591,3 +5591,19 @@ Findings and the test matrix: `docs/findings-mod-compat-2026-10-01.md`.
 - `pzopt.UiRetained`: an element that carries a mod's Lua function (its own table or a class up its `__index` chain)
   renders fresh at the stock rate, and so does an element whose last fresh render drew such an element
   (`uiRetainedMods=false`).
+### macOS OpenGL 4.1 core profile (`macGlCore`, 2026-10-01; `pzopt.CoreGl`, `pzopt.CoreGlsl`, `docs/findings-mac-gl41-2026-10-01.md`)
+
+Nothing below changes anything off macOS or with `macGlCore=false`: `CoreGl.windowHints` and `capabilities` return at once,
+`CoreGl.active` stays false.
+
+- `org.lwjglx.opengl.Display.create`: `pzopt.CoreGl.windowHints()` after HDR's hints (GLFW: 4.1, core profile, forward
+  compatible); if `glfwCreateWindow` returns no window, `CoreGl.retryWithoutCore()` puts the stock hints back and the window is
+  created again (Apple's legacy 2.1 context, as stock). `capabilities = CoreGl.capabilities(GL.createCapabilities())`: on a core
+  context LWJGL's table is rebuilt with the shim's provider (Java upcalls for the removed fixed-function calls, aliases for the
+  EXT / ARB names, a no-op for entry points the driver lacks) and made current. The ImGui backend gets `#version 150` instead
+  of `#version 120` on a core context (debug builds only). `swapBuffers` calls `CoreGl.frame()` (10 s counters; GL errors per
+  frame with `devCoreGlTrace`).
+- `zombie.core.opengl.VBORenderer.renderRun`: a `GL_QUADS` run (mode 7) on the core context is drawn by
+  `CoreGl.drawQuads` (a shared quad -> triangle index buffer, `glDrawElementsBaseVertex` at the run's first vertex; the run's
+  own indices are sequential by construction) and the renderer's element buffer is bound again; the core profile has no
+  `GL_QUADS`, so these runs (corpse / item atlas blits, debug quads) drew nothing.

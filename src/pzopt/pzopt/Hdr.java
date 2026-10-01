@@ -373,7 +373,15 @@ public final class Hdr {
                }
                Log.info(String.format("hdr: auto: EDR display (potential headroom %.1f), HDR on", potential));
             }
-            int alphaBits = GL11.glGetInteger(GL11.GL_ALPHA_BITS);
+            int alphaBits;
+            if (CoreGl.active) { // a core context has no GL_ALPHA_BITS: the default framebuffer's back buffer attachment
+               int prev = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+               GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
+               alphaBits = GL30.glGetFramebufferAttachmentParameteri(GL30.GL_FRAMEBUFFER, GL11.GL_BACK_LEFT, GL30.GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE);
+               GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, prev);
+            } else {
+               alphaBits = GL11.glGetInteger(GL11.GL_ALPHA_BITS);
+            }
             if (alphaBits < 8) {
                state = "no alpha channel in the back buffer (" + alphaBits + " bits): the world gain has nowhere to go";
                Log.warn("hdr: " + state);
@@ -430,8 +438,8 @@ public final class Hdr {
 
    /** Game shaders pass through here before compilation; the world composite gets the HDR expansion appended. */
    public static String patchShader(String fileName, String code) {
-      if (!REQUESTED || code == null || fileName == null || HdrMac.MAC) {
-         return code; // macOS: alpha-gain path (GLSL 1.20 context), the composite stays stock
+      if (!REQUESTED || code == null || fileName == null || CoreGl.legacyMac()) {
+         return code; // macOS on the legacy 2.1 context (GLSL 1.20): alpha-gain path, the composite stays stock
       }
       String f = fileName.replace('\\', '/');
       // the glint patches go in whatever hdrGlintPct says at launch: the slider applies live (0 = the glint-only pass skips)
@@ -955,8 +963,8 @@ public final class Hdr {
    private static final int[] SAVED_VIEWPORT = new int[4];
 
    private static void worldPasses() {
-      if (HdrMac.MAC) {
-         return; // the stats / bloom passes need GL 3+ (texture storage, VAOs, GLSL 330); the macOS context is 2.1
+      if (CoreGl.legacyMac()) {
+         return; // the stats / bloom passes need GL 3+ (texture storage, VAOs, GLSL 330); not on the macOS legacy 2.1 context
       }
       TextureFBO world = Core.getInstance().getOffscreenBuffer();
       if (world == null || world.getTexture() == null) {

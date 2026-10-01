@@ -37,13 +37,12 @@ public final class Relief {
       }
    }
 
-   private static final boolean MAC = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac");
    private static volatile boolean sunPatched;
    private static long sunPatchedPrograms, sunDraws;
 
    /** reliefSunMode=composite: the sun / moon relief as a post-main of every chunk composite program (+86 us at 5K on the 4090: every fragment fetches its code), needs the cloud shadows' direct-sun share; the default bakes it (ReliefAux). */
    static boolean sunWanted() {
-      return Config.RELIEF && Config.RELIEF_SUN_PCT > 0 && "composite".equals(Config.RELIEF_SUN_MODE) && Config.SUN_SHADOWS && Config.CLOUD_SHADOWS && !MAC && Overrides.enabled();
+      return Config.RELIEF && Config.RELIEF_SUN_PCT > 0 && "composite".equals(Config.RELIEF_SUN_MODE) && Config.SUN_SHADOWS && Config.CLOUD_SHADOWS && !CoreGl.legacyMac() && Overrides.enabled();
    }
 
    private static volatile boolean shareWanted;

@@ -154,6 +154,7 @@ public class Display {
       boolean bDebug = Core.debug && "true".equalsIgnoreCase(System.getProperty("org.lwjgl.util.Debug"));
       GLFW.glfwWindowHint(139271, bDebug ? 1 : 0);
       pzopt.Hdr.windowHints(); // pzopt: HDR output, an FP16 default framebuffer
+      pzopt.CoreGl.windowHints(); // pzopt: macGlCore, an OpenGL 4.1 core context on macOS
       // pzopt: create the window at the size and mode the game asks for a moment later (Core.width x Core.height,
       // fullscreen per the option) instead of the shim's 640x480 placeholder that Core.setDisplayModeInternal
       // resizes. Under NVIDIA PRIME render offload on XWayland (Dell GTX 960M, 2026-09-22) the GL drawable kept the
@@ -198,6 +199,9 @@ public class Display {
          }
       }
       Display.Window.handle = GLFW.glfwCreateWindow(gameWindowMode.getWidth(), gameWindowMode.getHeight(), windowTitle, pzoptMonitor, 0L);
+      if (Display.Window.handle == 0L && pzopt.CoreGl.retryWithoutCore()) { // pzopt: macGlCore, no core context: the stock legacy one
+         Display.Window.handle = GLFW.glfwCreateWindow(gameWindowMode.getWidth(), gameWindowMode.getHeight(), windowTitle, pzoptMonitor, 0L); // pzopt
+      } // pzopt
       if (Display.Window.handle != 0L) {
          // pzopt: keep gameWindowMode equal to the size the window really got. Fullscreen: GLFW may have picked
          // another video mode. Windowed: Windows clamps a new decorated window to the screen's max track size, so a
@@ -225,7 +229,7 @@ public class Display {
       GLFW.glfwSetWindowPos(Display.Window.handle, displayX, displayY);
       GLFW.glfwShowWindow(Display.Window.handle);
       GLFW.glfwMakeContextCurrent(Display.Window.handle);
-      capabilities = GL.createCapabilities();
+      capabilities = pzopt.CoreGl.capabilities(GL.createCapabilities()); // pzopt: macGlCore, the shim's function table on a core context
       pzopt.Hdr.windowCreated(Display.Window.handle); // pzopt: HDR output, tag the surface with an HDR image description
       GLFW.glfwSwapInterval(0);
       GL11.glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
@@ -259,7 +263,7 @@ public class Display {
          io.addConfigFlags(16384);
          String glslVersion = null;
          if (GLFW.glfwGetPlatform() == 393218) {
-            glslVersion = "#version 120";
+            glslVersion = pzopt.CoreGl.active ? "#version 150" : "#version 120"; // pzopt: macGlCore, a core context takes no GLSL 1.20
          }
 
          imGuiGl3.init(glslVersion);
@@ -422,6 +426,7 @@ public class Display {
    }
 
    public static void swapBuffers() throws LWJGLException {
+      pzopt.CoreGl.frame(); // pzopt: macGlCore counters / dev GL error trace
       pzopt.FrameCapture.beforeSwap(); // pzopt: devCapture, the frame sequence rig
       pzopt.Hdr.beforeSwap(); // pzopt: HDR output, encode the frame for the HDR surface
       if (pzopt.HdrMac.present(Display.Window.handle)) { // pzopt: HDR output on macOS, presented through an EDR Metal layer

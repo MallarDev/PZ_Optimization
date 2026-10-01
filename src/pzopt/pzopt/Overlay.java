@@ -311,7 +311,7 @@ public final class Overlay {
       try {
          if (gpuState == 0) {
             GLCapabilities caps = GL.getCapabilities();
-            if (!caps.OpenGL33 && !caps.GL_ARB_timer_query) {
+            if (!caps.OpenGL33 && !caps.GL_ARB_timer_query || !CoreGl.timerQueries()) {
                gpuState = -1;
                Log.info("overlay: no GL timer queries, GPU load unavailable");
                return;

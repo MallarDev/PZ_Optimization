@@ -81,13 +81,12 @@ public final class GodRays {
    // occupancy bits
    static final int B_FLOOR = 1, B_ROOM = 32, B_ROOF = 64;
    static final int E_OPEN = 0, E_WALL = 1, E_WINDOW = 2, E_DOOR = 3;
-   private static final boolean MAC = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac");
 
    private static volatile boolean failed;
    private static volatile String why = "";
 
    public static boolean wanted() {
-      return Config.GOD_RAYS && Overrides.enabled() && !MAC && !failed;
+      return Config.GOD_RAYS && Overrides.enabled() && !CoreGl.legacyMac() && !failed;
    }
 
    // ------------------------------------------------------------------------------------------------ the key light
@@ -1241,7 +1240,9 @@ public final class GodRays {
    static final class Gl {
       static boolean everOn;
       static int occTex, vTex, fTex, topTex, mmTex, sTex;
-      static int vProg, fProg;
+      static int vProg, fProg, mmProg, volFbo;
+      /** No compute shaders (GL < 4.3, macOS): the volume is written by fragment passes, one draw per slice. */
+      static boolean fragVolume;
       static int nx, ny, nz;
       static int lastI0 = Integer.MIN_VALUE, lastJ0 = Integer.MIN_VALUE;
       static float lastCu, lastCz, lastZLo;
@@ -1477,7 +1478,7 @@ public final class GodRays {
             fusedIntoFog = false;
             shadeNow = "shade".equals(Config.GOD_RAYS_HAZE_MODE) || "auto".equals(Config.GOD_RAYS_HAZE_MODE) && stockFog > 0.05F;
             // (the game's fog composite took the shade last frame: it will again; no buffer pass of our own)
-            boolean fogTakes = fusedLast && shadeNow && Config.GOD_RAYS_FOG_FUSE && "volume".equals(Config.GOD_RAYS_METHOD) && !f.froxelLights;
+            boolean fogTakes = fusedLast && shadeNow && fogFuse() && "volume".equals(Config.GOD_RAYS_METHOD) && !f.froxelLights;
             froxelLast = f.froxelLights;
             // (the chunk composite added the haze this frame: no buffer)
             if (screenOn && f.haze && !fogTakes && !chunkHazeNow && ((Config.DEV_GOD_RAYS_SKIP & 1) == 0 || lowTex == 0)) {
@@ -1695,14 +1696,22 @@ public final class GodRays {
          if (vProg != 0) {
             return true;
          }
-         if (!GL.getCapabilities().OpenGL43) {
-            failed = true;
-            why = "no GL 4.3 (compute shaders)";
-            Log.warn("god rays: " + why + ", off");
-            return false;
+         fragVolume = !GL.getCapabilities().OpenGL43;
+         if (fragVolume) {
+            // no compute (macOS's OpenGL 4.1 core context): the same cells by fragment passes into the volume's slices
+            vProg = FogPass.link(VOL_VERT, VIS_FRAG, new String[0], new String[] {"oV"});
+            fProg = FogPass.link(VOL_VERT, INTEGRATE_FRAG, new String[0], new String[] {"oF", "oS"});
+            mmProg = FogPass.link(VOL_VERT, MM_FRAG, new String[0], new String[] {"oMM"});
+            if (vProg == 0 || fProg == 0 || mmProg == 0) {
+               failed = true;
+               why = "volume fragment shaders did not compile";
+               return false;
+            }
+            volFbo = GL30.glGenFramebuffers();
+         } else {
+            vProg = computeProgram(VIS_CS, "visibility");
+            fProg = computeProgram(INTEGRATE_CS, "integration");
          }
-         vProg = computeProgram(VIS_CS, "visibility");
-         fProg = computeProgram(INTEGRATE_CS, "integration");
          if (vProg == 0 || fProg == 0) {
             failed = true;
             why = "compute shaders did not compile";
@@ -1714,7 +1723,7 @@ public final class GodRays {
          GL11.glTexParameteri(GL12.GL_TEXTURE_3D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
          GL42.glTexStorage3D(GL12.GL_TEXTURE_3D, 1, GL30.GL_R32UI, OCC_N, OCC_N, OCC_L);
          GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
-         Log.info("god rays: occupancy " + OCC_N + "x" + OCC_N + "x" + OCC_L + " R32UI ready, compute programs " + vProg + "/" + fProg);
+         Log.info("god rays: occupancy " + OCC_N + "x" + OCC_N + "x" + OCC_L + " R32UI ready, " + (fragVolume ? "fragment" : "compute") + " programs " + vProg + "/" + fProg);
          return true;
       }
 
@@ -1776,6 +1785,10 @@ public final class GodRays {
       }
 
       private static void compute(Frame f) {
+         if (fragVolume) {
+            computeFrag(f);
+            return;
+         }
          if (!located) {
             located = true;
             locations(vProg, U_V);
@@ -1827,6 +1840,113 @@ public final class GodRays {
          GL42.glBindImageTexture(3, 0, 0, false, 0, GL15.GL_READ_ONLY, GL30.GL_R8);
          GL20.glUseProgram(0);
          ShaderHelper.forgetCurrentlyBound();
+      }
+
+      private static final int[] U_MM = new int[8];
+      private static int uVk, uFk, uMk, uFv, uMv;
+
+      /**
+       * compute() without compute shaders: VIS_FRAG into each slice of vTex, then INTEGRATE_FRAG into each slice of fTex and
+       * sTex (two targets) walking its column from the top down to the slice, then MM_FRAG into each 8-slice block of mmTex.
+       * A region wraps around the volume (cells are stored modulo its size), so it is drawn as up to four rectangles, each
+       * with the shift from the stored texel back to its cell.
+       */
+      private static void computeFrag(Frame f) {
+         if (!located) {
+            located = true;
+            locations(vProg, U_V);
+            locations(fProg, U_F);
+            locations(mmProg, U_MM);
+            uVk = GL20.glGetUniformLocation(vProg, "uShiftK");
+            uFk = GL20.glGetUniformLocation(fProg, "uShiftK");
+            uMk = GL20.glGetUniformLocation(mmProg, "uShiftK");
+            uFv = GL20.glGetUniformLocation(fProg, "uVTex");
+            uMv = GL20.glGetUniformLocation(mmProg, "uVTex");
+         }
+         int prevFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+         int[] vp = new int[4];
+         GL11.glGetIntegerv(GL11.GL_VIEWPORT, vp);
+         GL13.glActiveTexture(GL13.GL_TEXTURE0 + OCC_UNIT);
+         GL11.glBindTexture(GL12.GL_TEXTURE_3D, occTex);
+         GL13.glActiveTexture(GL13.GL_TEXTURE0 + TOP_UNIT);
+         GL11.glBindTexture(GL11.GL_TEXTURE_2D, topTex);
+         GL13.glActiveTexture(GL13.GL_TEXTURE0 + MARCH_V_UNIT);
+         GL11.glBindTexture(GL12.GL_TEXTURE_3D, vTex);
+         GL13.glActiveTexture(GL13.GL_TEXTURE0);
+         GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, volFbo);
+         GL11.glDisable(GL11.GL_SCISSOR_TEST);
+         GL11.glDisable(GL11.GL_DEPTH_TEST);
+         GL11.glDisable(GL11.GL_STENCIL_TEST);
+         GL11.glDisable(GL11.GL_BLEND);
+         GL11.glDisable(GL11.GL_CULL_FACE);
+         GL11.glDisable(GL11.GL_ALPHA_TEST);
+         GL11.glColorMask(true, true, true, true);
+         GL30.glBindVertexArray(0);
+         for (int pass = 0; pass < 3; pass++) {
+            int prog = pass == 0 ? vProg : pass == 1 ? fProg : mmProg;
+            int[] u = pass == 0 ? U_V : pass == 1 ? U_F : U_MM;
+            int uK = pass == 0 ? uVk : pass == 1 ? uFk : uMk;
+            GL20.glUseProgram(prog);
+            GL20.glUniform4i(u[1], nx, ny, nz, f.occZ0);
+            int iRef = Math.round((f.refX - f.refY) / f.cu), jRef = Math.round((f.refX + f.refY) / f.cv);
+            GL20.glUniform4i(u[2], f.refX, f.refY, iRef, jRef);
+            GL20.glUniform4f(u[3], f.cu, f.cv, f.cz, f.zLo);
+            GL20.glUniform4f(u[4], (float)(f.lx / Math.max(1e-6, Math.hypot(f.lx, f.ly))), (float)(f.ly / Math.max(1e-6, Math.hypot(f.lx, f.ly))), f.slope, Math.hypot(f.lx, f.ly) < 1e-3 ? 1F : 0F);
+            GL20.glUniform4f(u[5], f.maxTop, 64F, 0.55F, (float)(frames & 1023));
+            GL20.glUniform4f(u[6], f.sigmaOut, f.sigmaIn, f.hazeH, 0F);
+            GL20.glUniform1i(u[7], OCC_UNIT);
+            if (pass > 0) {
+               GL20.glUniform1i(pass == 1 ? uFv : uMv, MARCH_V_UNIT);
+            }
+            int layers = pass == 2 ? Math.max(1, (nz + 7) / 8) : nz;
+            for (int k = 0; k < layers; k++) {
+               if (pass == 0) {
+                  GL30.glFramebufferTextureLayer(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, vTex, 0, k);
+                  GL30.glFramebufferTextureLayer(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1, 0, 0, 0);
+                  GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
+               } else if (pass == 1) {
+                  GL30.glFramebufferTextureLayer(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, fTex, 0, k);
+                  GL30.glFramebufferTextureLayer(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1, sTex, 0, k);
+                  GL20.glDrawBuffers(new int[] {GL30.GL_COLOR_ATTACHMENT0, GL30.GL_COLOR_ATTACHMENT1});
+               } else {
+                  GL30.glFramebufferTextureLayer(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, mmTex, 0, k);
+                  GL30.glFramebufferTextureLayer(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1, 0, 0, 0);
+                  GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
+               }
+               for (int[] r : regions) {
+                  if (pass == 0 && r[4] == 0) {
+                     continue; // the integration alone
+                  }
+                  GL20.glUniform4i(u[0], r[0], r[1], r[2], r[3]);
+                  for (int cx = r[0]; cx < r[0] + r[2]; ) {
+                     int sx = Math.floorMod(cx, nx), wx = Math.min(nx - sx, r[0] + r[2] - cx);
+                     for (int cy = r[1]; cy < r[1] + r[3]; ) {
+                        int sy = Math.floorMod(cy, ny), wy = Math.min(ny - sy, r[1] + r[3] - cy);
+                        GL11.glViewport(sx, sy, wx, wy);
+                        GL30.glUniform3i(uK, cx - sx, cy - sy, k);
+                        GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 3);
+                        cy += wy;
+                     }
+                     cx += wx;
+                  }
+                  if (pass == 0 && k == 0) {
+                     columnsComputed += (long)r[2] * r[3];
+                  }
+                  if (k == 0) {
+                     dispatches++;
+                  }
+               }
+            }
+         }
+         GL30.glFramebufferTextureLayer(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, 0, 0, 0);
+         GL30.glFramebufferTextureLayer(GL30.GL_DRAW_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1, 0, 0, 0);
+         GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, prevFbo);
+         GL11.glViewport(vp[0], vp[1], vp[2], vp[3]);
+         GL20.glUseProgram(0);
+         ShaderHelper.forgetCurrentlyBound();
+         zombie.core.opengl.GLStateRenderThread.restore();
+         SpriteRenderer.ringBuffer.restoreVbos = true;
+         SpriteRenderer.ringBuffer.restoreBoundTextures = true;
       }
 
       /** The screen pass's taps: depth uv from the composite's uv, the volume coordinates as linear functions of (uv, depth). */
@@ -3262,6 +3382,9 @@ public final class GodRays {
       }
 
       static int computeProgram(String src, String name) {
+         if (!GL.getCapabilities().OpenGL43) {
+            return 0; // no compute shaders (macOS 4.1 core): the callers have a fragment or analytic path
+         }
          int sh = GL20.glCreateShader(GL43.GL_COMPUTE_SHADER);
          GL20.glShaderSource(sh, src);
          GL20.glCompileShader(sh);
@@ -3350,7 +3473,7 @@ public final class GodRays {
     * barriers cost more than the work (11 us for 1280x540 x 2 as compute).
     */
    public static void fogShade(int nearFbo, int farFbo, int nearDepth, int farDepth, float pxX, float pxY, int orgX, int orgY, int dsW, int dsH) {
-      boolean on = Gl.screenOn && Gl.hazeOn && Gl.shadeNow && Gl.sTex != 0 && Gl.params[0] > 0F && Config.GOD_RAYS_FOG_FUSE && Gl.depthTex != 0
+      boolean on = Gl.screenOn && Gl.hazeOn && Gl.shadeNow && Gl.sTex != 0 && Gl.params[0] > 0F && fogFuse() && Gl.depthTex != 0
          && !"pixel".equals(Config.GOD_RAYS_FOG_SHADE) && dsW > 0 && dsH > 0 && (Config.DEV_GOD_RAYS_SKIP & 8) == 0;
       if (!on) {
          return;
@@ -3415,6 +3538,15 @@ public final class GodRays {
 
    static final int FS_DEPTH_UNIT = 18; // (DEPTH_UNIT: free at this point of the frame)
 
+   /**
+    * godRaysFogFuse, except on macOS's OpenGL 4.1 core context: there the shade fused into the fog buffer drew chunk-shaped
+    * brightness steps in storms (2026-10-01, runs mac-macgl-gr-*; detaching the sampled depth did not help), while the world
+    * composite's own tap is clean, and costs little at a Mac's resolution.
+    */
+   static boolean fogFuse() {
+      return Config.GOD_RAYS_FOG_FUSE && !CoreGl.active;
+   }
+
    /** A full-screen triangle, no attributes (gl_VertexID). */
    static final String FULL_TRI_VERT = String.join("\n",
       "#version 330",
@@ -3461,7 +3593,7 @@ public final class GodRays {
       if (l[0] >= 0) {
          GL20.glUniform1i(l[0], unit); // its own unit also when off: the sampler3D on a sampler2D's unit 0 fails the draw on Mesa
       }
-      boolean on = Gl.screenOn && Gl.hazeOn && Gl.shadeNow && Gl.sTex != 0 && Gl.params[0] > 0F && Config.GOD_RAYS_FOG_FUSE && Gl.depthTex != 0
+      boolean on = Gl.screenOn && Gl.hazeOn && Gl.shadeNow && Gl.sTex != 0 && Gl.params[0] > 0F && fogFuse() && Gl.depthTex != 0
          && "pixel".equals(Config.GOD_RAYS_FOG_SHADE); // (lowres: fogShade applied it to the fog buffer already)
       if (!on) {
          GL20.glUniform4f(l[1], 0F, 0F, 0F, 0F);
@@ -3545,7 +3677,7 @@ public final class GodRays {
     * What the composite does not draw (characters, vehicles, water) has no haze: in clear air a few percent.
     */
    public static String patchChunk(String fileName, String code) {
-      if (fileName == null || code == null || MAC || !Overrides.enabled() || !"chunk".equals(Config.GOD_RAYS_HAZE_COMPOSITE)) {
+      if (fileName == null || code == null || CoreGl.legacyMac() || !Overrides.enabled() || !"chunk".equals(Config.GOD_RAYS_HAZE_COMPOSITE)) {
          return code;
       }
       String f = fileName.replace('\\', '/');
@@ -3659,7 +3791,7 @@ public final class GodRays {
          // the volume as it stands (world-anchored: last frame's content, this frame's camera); the add mode only (the
          // fog's shade rides the fog pass), the volume method, no froxel lights (they ride the buffer)
          // (in the game's fog the shade rides the fog pass: fogShade, which covers the characters too)
-         boolean on = this.devOn && Gl.everOn && !failed && Gl.hazeOn && !(stockFog > 0.05F && Config.GOD_RAYS_FOG_FUSE) && Gl.fTex != 0 && Gl.nx > 0 && "volume".equals(Config.GOD_RAYS_METHOD)
+         boolean on = this.devOn && Gl.everOn && !failed && Gl.hazeOn && !(stockFog > 0.05F && fogFuse()) && Gl.fTex != 0 && Gl.nx > 0 && "volume".equals(Config.GOD_RAYS_METHOD)
             && !Gl.froxelLast && !RenderScale.active() && Gl.params[1] == 0F && (Config.DEV_GOD_RAYS_SKIP & 2) == 0;
          chunkHazeNow = on;
          chunkSerial++;
@@ -3740,7 +3872,7 @@ public final class GodRays {
    }
 
    public static String patchShader(String fileName, String code) {
-      if (fileName == null || code == null || MAC || !Overrides.enabled()) {
+      if (fileName == null || code == null || CoreGl.legacyMac() || !Overrides.enabled()) {
          return code;
       }
       String f = fileName.replace('\\', '/');
@@ -4560,6 +4692,86 @@ public final class GodRays {
       "      }",
       "      imageStore(uL, ivec3(st, k), vec4(F, 0.0));",
       "   }",
+      "}",
+      "");
+
+   // ------------------------------------------------------------------------------------------------ the volume without compute
+
+   /** A triangle over the viewport (the slice rectangle being written). */
+   static final String VOL_VERT = String.join("\n",
+      "#version 330",
+      "void main() { gl_Position = vec4(vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2.0 - 1.0, 0.0, 1.0); }",
+      "");
+
+   /** VIS_CS for one slice: the texel is the fragment, its cell = texel + shift (the volume stores cells modulo its size). */
+   static final String VIS_FRAG = String.join("\n",
+      "#version 330",
+      COMMON_GLSL,
+      "uniform ivec3 uShiftK;",
+      "out vec4 oV;",
+      "void main() {",
+      "   ivec2 st = ivec2(gl_FragCoord.xy);",
+      "   vec3 p = cellPos(ivec3(st + uShiftK.xy, uShiftK.z));",
+      "   uint o = occ(ivec2(floor(p.xy)), int(floor(p.z)));",
+      "   float tag = (o & 32u) != 0u ? float(1u + ((o >> 16) % 255u)) / 255.0 : 0.0;",
+      "   oV = vec4(sunVis(p), tag, 0.0, 0.0);",
+      "}",
+      "");
+
+   /** INTEGRATE_CS for one slice: the column walked from the top down to it (the compute pass's state at that slice). */
+   static final String INTEGRATE_FRAG = String.join("\n",
+      "#version 330",
+      COMMON_GLSL,
+      "uniform ivec3 uShiftK;",
+      "uniform sampler3D uVTex;",
+      "out vec4 oF;",
+      "out vec4 oS;",
+      "void main() {",
+      "   ivec2 st = ivec2(gl_FragCoord.xy);",
+      "   ivec2 c = st + uShiftK.xy;",
+      "   int K = uShiftK.z;",
+      "   float F = 0.0, T = 1.0, D = 0.0;",
+      "   uint lastRoom = 0u;",
+      "   float dl = uCell.z * " + VIEW_PATH + " * 0.5;",
+      "   float aIn = exp(-uSigma.y * dl);",
+      "   oF = vec4(0.0, 1.0, 0.0, 0.0);",
+      "   oS = vec4(0.0);",
+      "   for (int k = uN.z - 1; k >= K; k--) {",
+      "      vec3 p = cellPos(ivec3(c, k));",
+      "      uint o = occ(ivec2(floor(p.xy)), int(floor(p.z)));",
+      "      uint room = (o & 32u) != 0u ? max(1u, o >> 16) : 0u;",
+      "      float V = texelFetch(uVTex, ivec3(st, k), 0).r;",
+      "      if (room != lastRoom) { D = 0.0; lastRoom = room; }",
+      "      if (room == 0u) {",
+      "         float a = exp(-uSigma.x * exp(-max(p.z, 0.0) / uSigma.z) * dl);",
+      "         F += T * V * (1.0 - a); T *= a;",
+      "         if (k == K) { oF = vec4(F, T, 0.0, 0.0); oS = vec4(sqrt(clamp((1.0 - T) - F, 0.0, 1.0))); return; }",
+      "         F += T * V * (1.0 - a); T *= a;",
+      "      } else {",
+      "         D += V * (1.0 - aIn);",
+      "         if (k == K) { oF = vec4(F, T, V, D); oS = vec4(sqrt(clamp((1.0 - T) - F, 0.0, 1.0))); return; }",
+      "         D += V * (1.0 - aIn);",
+      "      }",
+      "   }",
+      "}",
+      "");
+
+   /** INTEGRATE_CS's minmax for one block of 8 slices: V's min and max and the highest room tag. */
+   static final String MM_FRAG = String.join("\n",
+      "#version 330",
+      COMMON_GLSL,
+      "uniform ivec3 uShiftK;",
+      "uniform sampler3D uVTex;",
+      "out vec4 oMM;",
+      "void main() {",
+      "   ivec2 st = ivec2(gl_FragCoord.xy);",
+      "   int b = uShiftK.z;",
+      "   float lo = 1.0, hi = 0.0, tag = 0.0;",
+      "   for (int k = min(b * 8 + 7, uN.z - 1); k >= b * 8; k--) {",
+      "      vec2 vt = texelFetch(uVTex, ivec3(st, k), 0).rg;",
+      "      lo = min(lo, vt.r); hi = max(hi, vt.r); tag = max(tag, vt.g);",
+      "   }",
+      "   oMM = vec4(lo, hi, tag, 0.0);",
       "}",
       "");
 

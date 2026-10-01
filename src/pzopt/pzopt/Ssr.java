@@ -44,13 +44,12 @@ public final class Ssr {
 
    /** The texture units the patched surface shaders read the world colour and depth from (free in the water / puddle shaders). */
    static final int COLOR_UNIT = 13, DEPTH_UNIT = 14;
-   private static final boolean MAC = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac");
    private static volatile boolean failed;
    private static long patched, frames, draws, noTarget;
 
-   /** Could the reflections run at all (the shaders were patched at launch; macOS has a GLSL 1.20 context)? */
+   /** Could the reflections run at all (the shaders were patched at launch; not on the macOS legacy 2.1 context)? */
    static boolean supported() {
-      return !MAC && !failed && patched > 0;
+      return !CoreGl.legacyMac() && !failed && patched > 0;
    }
 
    public static boolean active() {
@@ -68,7 +67,7 @@ public final class Ssr {
    public static String patchShader(String fileName, String code) {
       // only when the reflections are on at launch: with them off the game keeps its own programs, not patched ones with
       // the lookups switched off (those measured a few us dearer: registers)
-      if (fileName == null || code == null || MAC || !Overrides.enabled() || !Config.SSR || Config.DEV_SSR_NO_PATCH) {
+      if (fileName == null || code == null || CoreGl.legacyMac() || !Overrides.enabled() || !Config.SSR || Config.DEV_SSR_NO_PATCH) {
          return code;
       }
       String f = fileName.replace('\\', '/');
@@ -92,7 +91,7 @@ public final class Ssr {
          Log.warn("ssr: " + fileName + " has changed, no reflections");
          return code;
       }
-      String c = "#version 150 compatibility\n#extension GL_ARB_shader_image_load_store : require" + ("ppr".equals(Config.SSR_MODE) ? "\n#define PZ_SSR_PPR" : "")
+      String c = "#version 150 compatibility\n#extension GL_ARB_shader_image_load_store : require" + ("ppr".equals(mode()) ? "\n#define PZ_SSR_PPR" : "")
             + code.substring("#version 120".length(), mi) + WATER_GLSL + "\n" + code.substring(mi, at + anchor.length())
             + "\n    fragColor = pzSsrApply(fragColor, gm);" + code.substring(at + anchor.length());
       int test = GL20.glCreateShader(GL20.GL_FRAGMENT_SHADER);
@@ -121,7 +120,7 @@ public final class Ssr {
          Log.warn("ssr: " + fileName + " has changed, no puddle reflections");
          return code;
       }
-      String c = "#version 150 compatibility\n#extension GL_ARB_shader_image_load_store : require" + ("ppr".equals(Config.SSR_MODE) ? "\n#define PZ_SSR_PPR" : "")
+      String c = "#version 150 compatibility\n#extension GL_ARB_shader_image_load_store : require" + ("ppr".equals(mode()) ? "\n#define PZ_SSR_PPR" : "")
             + code.substring("#version 120".length(), sm) + WATER_GLSL + "\n" + code.substring(sm);
       // only where the puddle shows its reflective colour (ambient / reflective parts), not the wet sheen around it
       c = c.replace(anchor, anchor + "\n    if (alphaPuddlesAmbient + alphaPuddlesReflection > 0.02) reflection = pzSsrPuddle(reflection, gm);");
@@ -144,6 +143,9 @@ public final class Ssr {
     * (GLSL 4.20, out fragColor). Its main is renamed and the scatter's main calls it, then mirrors what it wrote.
     */
    private static String patchComposite(String fileName, String code) {
+      if (!"ppr".equals(mode())) {
+         return code; // the scatter feeds the pixel-projected lookup only
+      }
       int nl = code.indexOf('\n');
       String first = nl < 0 ? "" : code.substring(0, nl).trim();
       boolean stock = first.equals("#version 120");
@@ -178,8 +180,10 @@ public final class Ssr {
     * the hit is looked up displaced by the wave normal; blended over the water (and the bed it lets through) with alpha.
     */
    static final String WATER_GLSL = String.join("\n",
+         "#ifdef PZ_SSR_PPR",
          "layout(r32ui) coherent uniform uimage2D pzSsrHash;",
          "layout(r32ui) coherent uniform uimage2D pzSsrTiles;",
+         "#endif",
          "uniform int pzSsrFrame;",
          "uniform vec4 pzSsrK;    // ppr: on (1) / march (0), epoch, reach rows, hidden-layer colour tolerance",
          "uniform sampler2D pzSsrColor;",
@@ -392,7 +396,15 @@ public final class Ssr {
    static final int EPOCHS = 127, CLEAR_FRAMES = 120;
 
    static boolean ppr() {
-      return "ppr".equals(Config.SSR_MODE) && scatterPatched;
+      return "ppr".equals(mode()) && scatterPatched;
+   }
+
+   /**
+    * The mode that runs: ssrMode, except march where there is no GL_ARB_shader_image_load_store for the scatter (macOS:
+    * its OpenGL 4.1 core context, macGlCore).
+    */
+   static String mode() {
+      return HdrMac.MAC ? "march" : Config.SSR_MODE;
    }
 
    /** A frame's facts for the render thread: the camera, the epoch, the water map slots that changed. */

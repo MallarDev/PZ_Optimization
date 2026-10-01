@@ -905,6 +905,10 @@ public final class VBORenderer {
 
    private void renderRun(VBORenderer.Run run) {
       if (run.vertexCount != 0) {
+         if (run.mode == 7 && pzopt.CoreGl.active) { // pzopt: macGlCore, the core profile has no GL_QUADS; a quad run's indices are sequential
+            pzopt.CoreGl.drawQuads(run.startVertex, run.vertexCount, this.ibo.getID()); // pzopt
+            return; // pzopt
+         } // pzopt
          GL12.glDrawRangeElements(run.mode, run.startVertex, run.startVertex + run.vertexCount, run.vertexCount, 5123, run.startIndex * 2L);
       }
    }

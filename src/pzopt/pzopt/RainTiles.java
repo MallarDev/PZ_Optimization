@@ -154,7 +154,7 @@ public final class RainTiles {
                for (int o = 0; o < t.numOrigins; o++) {
                   mvp.set(base).translate(t.origins[o * 2], t.origins[o * 2 + 1], 0.0F);
                   program.setValue("ModelViewProjection", mvp);
-                  GL11.glDrawArrays(7, 0, n * 4); // GL_QUADS, the mode VBORenderer used for these
+                  CoreGl.drawArraysQuads(0, n * 4); // GL_QUADS, the mode VBORenderer used for these (triangles under macGlCore)
                   drawCalls++;
                }
             }

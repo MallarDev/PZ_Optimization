@@ -376,7 +376,7 @@ public final class FogPass {
             GL11.glEnable(GL11.GL_DEPTH_TEST);
             GL11.glDepthFunc(GL11.GL_ALWAYS);
             GL11.glDepthMask(true);
-            GL11.glDrawArrays(GL11.GL_QUADS, 0, 4);
+            CoreGl.drawArraysQuads(0, 4); // GL_QUADS (triangles under macGlCore)
             GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
          }
          GpuSections.markNow("fog.blit", true);
@@ -422,7 +422,7 @@ public final class FogPass {
          GL20.glVertexAttribPointer(1, 4, GL11.GL_FLOAT, false, STRIDE, 12L);
          GL20.glVertexAttribPointer(2, 2, GL11.GL_FLOAT, false, STRIDE, 28L);
          if (!Config.DEV_FOG_NO_DRAW) {
-            GL11.glDrawArrays(GL11.GL_QUADS, 0, numRects * 4);
+            CoreGl.drawArraysQuads(0, numRects * 4); // GL_QUADS (triangles under macGlCore)
          }
          if (scaled) {
             // 2b. the same rectangles against the block's farthest depth (shader-side test, the buffer has no depth):
@@ -435,7 +435,7 @@ public final class FogPass {
             GL11.glDisable(GL11.GL_DEPTH_TEST);
             GL20.glUniform1i(this.uniFarMode, 1);
             if (!Config.DEV_FOG_NO_DRAW) {
-               GL11.glDrawArrays(GL11.GL_QUADS, 0, numRects * 4);
+               CoreGl.drawArraysQuads(0, numRects * 4); // GL_QUADS (triangles under macGlCore)
             }
          }
          GL33.glBindSampler(0, 0);
@@ -481,7 +481,7 @@ public final class FogPass {
          GL20.glDisableVertexAttribArray(1);
          GL20.glDisableVertexAttribArray(2);
          GL20.glVertexAttribPointer(0, 2, GL11.GL_FLOAT, false, 8, 0L);
-         GL11.glDrawArrays(GL11.GL_QUADS, 0, 4);
+         CoreGl.drawArraysQuads(0, 4); // GL_QUADS (triangles under macGlCore)
          GpuSections.markNow("fog.composite", true);
 
          // 4. leave the state the way VBORenderer / the sprite ring buffer expect it

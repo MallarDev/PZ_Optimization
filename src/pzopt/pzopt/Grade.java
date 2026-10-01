@@ -35,7 +35,7 @@ public final class Grade {
    static final int LUT_UNIT = 13;
 
    static final String[] CONDITIONS = {"night", "dawn", "dusk", "overcast", "rain", "storm", "fog", "snow"};
-   private static final boolean PLATFORM = !HdrMac.MAC; // the macOS context is GL 2.1 (GLSL 1.20): no 3D-texture composite patch
+   private static final boolean PLATFORM = !CoreGl.legacyMac(); // the macOS context is GL 2.1 (GLSL 1.20): no 3D-texture composite patch
 
    /** The game thread's blended look (0 = neutral when grading is off). */
    private static volatile boolean patched;
@@ -613,7 +613,7 @@ public final class Grade {
       }
       try {
          GLCapabilities caps = GL.getCapabilities();
-         boolean ext = caps.OpenGL42 || caps.GL_ARB_shading_language_420pack;
+         boolean ext = caps.OpenGL42 || caps.GL_ARB_shading_language_420pack || CoreGl.active; // macGlCore: pzopt.CoreGlsl applies layout(binding) after the link
          if (!ext) {
             state = "unsupported (no GL 4.2 / ARB_shading_language_420pack)";
             Log.info("color grading: " + state);

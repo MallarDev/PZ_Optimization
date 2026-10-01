@@ -2,6 +2,7 @@ package pzopt;
 
 import java.util.IdentityHashMap;
 import org.lwjgl.opengl.GL;
+import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL45;
 import zombie.core.SpriteRenderer;
@@ -54,16 +55,24 @@ public final class BakeMips {
       public void render() {
          if (dsa == null) {
             dsa = GL.getCapabilities().OpenGL45 || GL.getCapabilities().GL_ARB_direct_state_access;
-            Log.info("bake mipmaps: " + (dsa ? "chain capped at level " + this.levels : "no direct state access, stock chain"));
+            Log.info("bake mipmaps: " + (dsa ? "chain capped at level " + this.levels
+               : CoreGl.active ? "chain capped at level " + this.levels + " (bind + parameter: no direct state access)" : "no direct state access, stock chain"));
          }
          Texture t = this.tex;
          this.tex = null;
-         if (!dsa || t == null) {
+         if (!(dsa || CoreGl.active) || t == null) {
             return;
          }
          int id = t.getID();
          if (id > 0) {
-            GL45.glTextureParameteri(id, GL12.GL_TEXTURE_MAX_LEVEL, this.levels);
+            if (dsa) {
+               GL45.glTextureParameteri(id, GL12.GL_TEXTURE_MAX_LEVEL, this.levels);
+            } else { // macOS 4.1 core: no DSA, the texture bound on the active unit for the call and the binding put back
+               int prev = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+               GL11.glBindTexture(GL11.GL_TEXTURE_2D, id);
+               GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_MAX_LEVEL, this.levels);
+               GL11.glBindTexture(GL11.GL_TEXTURE_2D, prev);
+            }
          }
       }
    }
