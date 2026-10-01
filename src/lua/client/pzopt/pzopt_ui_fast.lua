@@ -166,7 +166,7 @@ end
 
 local function install()
     if not enabled() then
-        print("[pzopt] uiLuaFast: off")
+        PzoptLogInfo("[pzopt] uiLuaFast: off")
         return
     end
     local done = {}
@@ -186,7 +186,7 @@ local function install()
         for _, d in ipairs(done) do found = found or d == name end
         if not found then table.insert(skipped, name) end
     end
-    print("[pzopt] uiLuaFast: " .. (#done > 0 and table.concat(done, ", ") or "nothing")
+    PzoptLogInfo("[pzopt] uiLuaFast: " .. (#done > 0 and table.concat(done, ", ") or "nothing")
         .. (#skipped > 0 and ("; left to a mod: " .. table.concat(skipped, ", ")) or ""))
 end
 

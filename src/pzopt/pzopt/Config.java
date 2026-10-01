@@ -27,6 +27,9 @@ import java.util.Properties;
  *                            pixelLight / reflections pick at start-up (default true)
  *   profilerEnabled true/false  the Profiler tab's master switch: false reads overlaySampling, overlay and overlayLog as
  *                            false (no overlay, samplers or frame log; harness runs still measure). Live (default true)
+ *   consoleLog  all|warnings|errors|off  which [pzopt] lines reach console.txt / the debug console (pzopt.Log): all, only
+ *                            warnings and errors, only errors, or none, so other mods' output stays readable (2026-10-01,
+ *                            a player's request). Not tied to profilerEnabled. Live; harness runs pin it to all (default all)
  *   parallel    true/false   kill switch: false forces the stock single-threaded pass (default true)
  *   workers     int          recalc pool width; clamped to [1, availableProcessors - 1] (default: min(4, cores - 1), 1 on
  *                            4 cores or fewer: there the three workers took the game thread's core, Dell i5-6300HQ 2026-09-21)
@@ -1293,6 +1296,7 @@ public final class Config {
    public static volatile boolean OVERLAY_SAMPLING; // measure at all (ring, GL timer queries, sampler thread); off by default since 2026-09-21
    public static volatile boolean OVERLAY;
    public static volatile boolean OVERLAY_LOG;
+   public static volatile String CONSOLE_LOG; // all | warnings | errors | off: which [pzopt] lines pzopt.Log writes to the console
    // The overlay's elements, each a dropdown on the Profiler options tab: "off" or the element's own options.
    public static volatile String OVERLAY_STATS; // off | fps (the fps line) | tails (+ p99 / jitter lines) | full (+ utilization); tails by default since 2026-09-23 (overlay cost pass)
    public static volatile String OVERLAY_TREE; // the game-thread tree: off | 0 (phases only) | 3 | 5 | 8 sub-phases per phase
@@ -1435,6 +1439,8 @@ public final class Config {
       OVERLAY_SAMPLING = bool("overlaySampling", false);
       OVERLAY = bool("overlay", false);
       OVERLAY_LOG = bool("overlayLog", false);
+      CONSOLE_LOG = string("consoleLog", "all");
+      Log.setLevel(CONSOLE_LOG);
       OVERLAY_STATS = string("overlayStats", "tails");
       OVERLAY_TREE = string("overlayTree", "5");
       OVERLAY_VERDICT = string("overlayVerdict", "detailed");

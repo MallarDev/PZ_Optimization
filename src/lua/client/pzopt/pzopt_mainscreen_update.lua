@@ -418,7 +418,7 @@ local function addItem(self)
     self.bottomPanel:addChild(label)
     self.pzoptUpdateOption = label
     pcall(function() perf():pzoptUpdateCheck() end)
-    print("[pzopt] update: main menu item added")
+    PzoptLogInfo("[pzopt] update: main menu item added")
 end
 
 -- Controller. The D-pad walks self.joypadButtonsY, which the stock MainScreen:onGainJoypadFocus rebuilds
@@ -480,7 +480,7 @@ local function syncItem(self)
             label.fade = UITransition.new()
             label.fade:setFadeIn(false)
             label:setColor(1, 1, 1)
-            print("[pzopt] update: main menu item enabled (" .. s .. ", " .. perf():getPzoptUpdateTag() .. ")")
+            PzoptLogInfo("[pzopt] update: main menu item enabled (" .. s .. ", " .. perf():getPzoptUpdateTag() .. ")")
         else
             if self.overBottomPanelButton == label then self.overBottomPanelButton = nil end
             label.fade = nil

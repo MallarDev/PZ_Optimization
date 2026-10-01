@@ -429,6 +429,8 @@ write_flags
 # hdrAuto (default on in the game) would switch every run on an HDR desktop (this one) to HDR + native Wayland: runs
 # stay SDR unless they ask (--prop hdr=true, or --prop hdrAuto=true)
 printf '%s\n' "${props[@]}" | grep -q '^hdrAuto=' || props+=("hdrAuto=false")
+# a player's consoleLog=off|warnings|errors (Profiler tab) would drop the [pzopt] lines the analysis scripts read
+printf '%s\n' "${props[@]}" | grep -q '^consoleLog=' || props+=("consoleLog=all")
 if [[ -f "$PZ_DIR/pzopt.properties" ]]; then cp "$PZ_DIR/pzopt.properties" "$PZ_DIR/pzopt.properties.pzopt-orig"; fi
 printf '%s\n' "${props[@]}" > "$PZ_DIR/pzopt.properties"
 cp "$PZ_DIR/pzopt.properties" "$RUNS/.last-props" 2>/dev/null || true

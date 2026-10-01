@@ -84,7 +84,7 @@ local function addItem(self)
     label:setWidth(math.max(self.bottomPanel:getWidth(), textW))
     self.bottomPanel:addChild(label)
     self.pzoptOverlayOption = label
-    print("[pzopt] overlay item: added to the " .. (self.inGame and "pause" or "main") .. " menu")
+    PzoptLogInfo("[pzopt] overlay item: added to the " .. (self.inGame and "pause" or "main") .. " menu")
 end
 
 -- Controller. The D-pad walks self.joypadButtonsY, which the stock MainScreen:onGainJoypadFocus rebuilds

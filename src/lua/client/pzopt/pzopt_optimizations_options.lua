@@ -1109,6 +1109,15 @@ local PROFILER_SECTIONS = {
               tip = "Named colour, or a RRGGBB hex value typed into Zomboid/pzopt/options.ini." },
         },
     },
+    {
+        title = "Console log", clip = "spin",
+        entries = {
+            { key = "consoleLog", label = "PZ Optimization lines in the console",
+              choices = { "all", "warnings", "errors", "off" },
+              note = { all = "everything (startup, settings, periodic statistics)", warnings = "only warnings and errors", errors = "only errors", off = "nothing" },
+              tip = "Which [pzopt] lines go to console.txt and the debug-mode console. Turn it down to read another mod's output without PZ Optimization's startup notes and statistics in between. Applies at once; the game's own lines are not affected. When reporting a problem with PZ Optimization, set it back to all first." },
+        },
+    },
 }
 -- Every Profiler-tab key applies while the game runs (Java: Config.isLive): no restart dialog, "now" in the preview.
 for _, section in ipairs(PROFILER_SECTIONS) do
@@ -1583,6 +1592,7 @@ local EFFECTS = {
     overlayGraphHz = { cpu = 1, render = 1 },
     overlayFlame = { cpu = 1, cores = 1 },
     gameThreadProfileHz = { cores = 1, cpu = 1 },
+    consoleLog = {},
     -- chunk streaming
     parallel = { cores = 3, ram = 1, chunks = -3 },
     workers = { cores = 2, chunks = -1 },
@@ -3618,7 +3628,7 @@ local function buildSettingsPage(self, page)
     end
     self.gameOptions.changed = wasChanged
     self.mainPanel, self.addY = savedPanel, savedAddY
-    print("[pzopt] options tab " .. page.tab .. ": " .. added .. " controls, " .. pinned .. " pinned by pzopt.properties or -D, "
+    PzoptLogInfo("[pzopt] options tab " .. page.tab .. ": " .. added .. " controls, " .. pinned .. " pinned by pzopt.properties or -D, "
         .. #rows .. " preview rows, preview " .. L.previewW .. " px at x=" .. L.previewX
         .. ", built in " .. (getTimestampMs() - pzoptT0) .. " ms")
 end
@@ -3653,7 +3663,7 @@ local function install()
         self.pzoptCreated = true
         local t0 = getTimestampMs()
         local r = stockCreate(self, ...)
-        print("[pzopt] options screen: MainOptions:create took " .. (getTimestampMs() - t0) .. " ms")
+        PzoptLogInfo("[pzopt] options screen: MainOptions:create took " .. (getTimestampMs() - t0) .. " ms")
         -- build each of our tabs when it is first shown (pzoptAddOptimizationsPanel added them empty)
         local tabs = self.tabs
         if tabs and self.pzoptPanel then
@@ -3695,7 +3705,7 @@ local function install()
                 fileOutput:close()
             end
             self.pzoptCreatePending = true
-            print("[pzopt] options screen: build deferred until it is opened (key bindings loaded)")
+            PzoptLogInfo("[pzopt] options screen: build deferred until it is opened (key bindings loaded)")
             return
         end
         return fullCreate(self, ...)
