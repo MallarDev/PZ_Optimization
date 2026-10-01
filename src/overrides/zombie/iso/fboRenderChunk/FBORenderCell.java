@@ -3130,7 +3130,9 @@ public final class FBORenderCell {
     * bakes them. Light fixtures with a lit sprite (HasLightOnSprite) stay per frame with translucentLightsPerFrame: baked, their
     * "on" sprite moves to the animated-attachments pass, which pulls it 5e-5 towards the camera (IsoSprite.startTileDepthShader)
     * to win over its own baked lamp, and a ceiling fixture's top lies in the plane of the floor above, so the lit tubes of the
-    * Fossoil canopy showed through its roof and flickered with the zoom (2026-09-28). Per frame, like stock, no pull.
+    * Fossoil canopy showed through its roof and flickered with the zoom (2026-09-28). Per frame, like stock, no pull. Glass
+    * tiles stay per frame with glassTilesPerFrame (pzopt.GlassTiles): baked, the pane writes its depth and hides the
+    * characters standing behind it, which stock draws first and blends the pane over (2026-10-01).
     */
    private static boolean pzoptPerFrameTranslucentTile(IsoSprite sprite) {
       if (sprite == null || (sprite.depthFlags & 2) == 0) {
@@ -3138,6 +3140,9 @@ public final class FBORenderCell {
       }
       if (!(pzopt.Config.TRANSLUCENT_TILES_IN_CHUNK_TEXTURE && pzopt.Overrides.enabled())) {
          return true;
+      }
+      if (pzopt.Config.GLASS_TILES_PER_FRAME && pzopt.GlassTiles.isGlass(sprite)) {
+         return true; // glassTilesPerFrame: baked glass hid the characters behind it (2026-10-01)
       }
       return pzopt.Config.TRANSLUCENT_LIGHTS_PER_FRAME && sprite.getProperties().has(IsoFlagType.HasLightOnSprite);
    }

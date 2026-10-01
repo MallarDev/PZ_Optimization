@@ -272,6 +272,7 @@ PzoptOptionClasses = {
     gcG1Cores = { "pzopt.GcChoice" },
     gcMode = { "pzopt.GcChoice" },
     gcPauseMs = { "pzopt.GcChoice" },
+    glassTilesPerFrame = { "FBORenderCell" },
     glNamePool = { "pzopt.GlNames" },
     glNoSync = { "pzopt.BloodDecals", "pzopt.GlNames", "pzopt.GlState", "pzopt.TreeBake" },
     godRaysApCull = { "pzopt.GodRays" },

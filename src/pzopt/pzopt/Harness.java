@@ -369,6 +369,7 @@ public final class Harness {
       IsoPlayer p = IsoPlayer.getInstance();
       if (p != null && (state == SETTLE || state == RUN || state == PLAY)) {
          Scene.tick(p, nowNs); // keeps the forced weather pinned and fires the scheduled lightning
+         pinZombies(); // find=winzombie / fencezombie
          BloodProbe.tick(p, nowNs); // blood_fill= / blood_rate= / blood_probe=: the floor blood decal rig
          BloodProbe.spray(p, dt);
       }
@@ -638,8 +639,24 @@ public final class Harness {
                      routeZ = spot[2];
                   }
                }
+               if ("winzombie".equals(HarnessFlags.get("find", "")) || "fencezombie".equals(HarnessFlags.get("find", "")) || "glasszombie".equals(HarnessFlags.get("find", ""))) {
+                  int[] spot = findBehindGlass(p, HarnessFlags.get("find", "")); // dev: zombies behind a window / fence / glass tile
+                  if (spot != null) {
+                     x = spot[0] + 0.5F;
+                     y = spot[1] + 0.5F;
+                     routeZ = 0;
+                     faceSet = true;
+                     turnAngle = spot[2];
+                  }
+               }
                if ("translucent".equals(HarnessFlags.get("find", ""))) {
                   findTranslucent(p); // dev: which Translucent-flagged tiles bake near the player (gas canopy lights)
+               }
+               if (!HarnessFlags.get("place_tile", "").isBlank()) {
+                  placeTiles(HarnessFlags.get("place_tile", "")); // dev: tiles added to the bench save copy (glassTilesPerFrame rig)
+               }
+               if (!HarnessFlags.get("pin_zombies", "").isBlank()) {
+                  pinZombiesAt(p, HarnessFlags.get("pin_zombies", "")); // dev: idle zombies held on given squares (bus shelter glass)
                }
                int upstairs = Integer.parseInt(HarnessFlags.get("upstairs", "0").trim());
                upstairsAt = Float.parseFloat(HarnessFlags.get("upstairs_at", "0").trim());
@@ -1688,6 +1705,174 @@ public final class Harness {
       }
       Log.info("harness: find=cabinets: " + n + " floating wall cabinets within 100 tiles of " + px + "," + py + (best == null ? ", none to stand at" : ", standing at " + best[0] + "," + best[1]));
       return best;
+   }
+
+   /**
+    * find=winzombie / find=fencezombie (2026-10-01, Workshop report "zombies not visible at windows"): the route starts
+    * three squares in front of the nearest intact window on a north / west wall of a room (fence: a Translucent-flagged
+    * fence tile on a north / west edge), facing it, and three idle zombies stand just behind it, i.e. farther from the
+    * camera than the glass. With --shot-at the A/B of windowsInChunkTexture / translucentTilesInChunkTexture.
+    * Returns {x, y, facing degrees} or null.
+    */
+   private static final java.util.ArrayList<zombie.characters.IsoZombie> pinned = new java.util.ArrayList<>();
+   private static final java.util.ArrayList<float[]> pinnedAt = new java.util.ArrayList<>();
+
+   /** find=winzombie / fencezombie: the zombies behind the glass stay on their squares, facing it. */
+   private static void pinZombies() {
+      for (int i = 0; i < pinned.size(); i++) {
+         zombie.characters.IsoZombie z = pinned.get(i);
+         float[] at = pinnedAt.get(i);
+         z.setX(at[0]);
+         z.setY(at[1]);
+         z.setLastX(at[0]);
+         z.setLastY(at[1]);
+         z.setForwardDirection(at[2], at[3] == 0F && at[2] == 0F ? 1F : 0F);
+      }
+      long now = System.nanoTime();
+      if (!pinned.isEmpty() && now - pinLogNs > 1_000_000_000L) {
+         pinLogNs = now;
+         StringBuilder sb = new StringBuilder("harness: pinned zombies:");
+         for (zombie.characters.IsoZombie z : pinned) {
+            zombie.iso.IsoGridSquare sq = z.getCurrentSquare();
+            sb.append(String.format(java.util.Locale.ROOT, " [%.1f,%.1f sq=%s alpha=%.2f/%.2f dead=%b inWorld=%b]", z.getX(), z.getY(),
+                  sq == null ? "null" : sq.x + "," + sq.y, z.getAlpha(0), z.getTargetAlpha(0), z.isDead(), zombie.iso.IsoWorld.instance.currentCell.getZombieList().contains(z)));
+         }
+         Log.info(sb.toString());
+      }
+   }
+
+   private static long pinLogNs;
+
+   /**
+    * pin_zombies=x,y[,z]/x,y[,z]/... (2026-10-01, bus shelter report: the player and zombies behind its glass panes were
+    * hidden): one idle Police-outfit zombie held on each square, facing south (towards the camera). God mode on.
+    */
+   private static void pinZombiesAt(IsoPlayer p, String spec) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      p.getCheats().set(zombie.characters.CheatType.GOD_MODE, true);
+      int spawned = 0;
+      for (String part : spec.split("/")) {
+         String[] xyz = part.trim().split(",");
+         if (xyz.length < 2) continue;
+         int x = Integer.parseInt(xyz[0].trim()), y = Integer.parseInt(xyz[1].trim()), z = xyz.length > 2 ? Integer.parseInt(xyz[2].trim()) : 0;
+         zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, z);
+         if (sq == null) {
+            Log.info("harness: pin_zombies: no square at " + x + "," + y + "," + z);
+            continue;
+         }
+         java.util.ArrayList<zombie.characters.IsoZombie> list = zombie.Lua.LuaManager.GlobalObject.addZombiesInOutfit(x, y, z, 1, "Police", 0);
+         if (list == null) continue;
+         for (zombie.characters.IsoZombie zed : list) {
+            zed.setUseless(true);
+            pinned.add(zed);
+            pinnedAt.add(new float[]{x + 0.5F, y + 0.5F, 0F, 0F}); // pinZombies: (0, 0) faces south
+            spawned++;
+         }
+      }
+      Log.info("harness: pin_zombies: " + spawned + " zombies at " + spec);
+   }
+
+   private static int[] findBehindGlass(IsoPlayer p, String kind) {
+      boolean fence = "fencezombie".equals(kind), glassTile = "glasszombie".equals(kind);
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = p.getXi(), py = p.getYi();
+      int[] best = null;
+      long bestD = Long.MAX_VALUE;
+      boolean outSide = "out".equals(HarnessFlags.get("find_side", "in"));
+      for (int y = py - 60; y <= py + 60; y++) {
+         for (int x = px - 60; x <= px + 60; x++) {
+            zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, 0);
+            if (sq == null) continue;
+            for (int i = 0; i < sq.getObjects().size(); i++) {
+               zombie.iso.IsoObject o = sq.getObjects().get(i);
+               boolean north;
+               if (glassTile) {
+                  // glassTilesPerFrame rig: a Translucent tile with a glass definition (pzopt.GlassTiles); the zombies stand north of it
+                  zombie.iso.sprite.IsoSprite s = o.getSprite();
+                  if (s == null || (s.depthFlags & 2) == 0 || !GlassTiles.isGlass(s) || o instanceof zombie.iso.objects.IsoWindow) continue;
+                  north = !s.getProperties().has(zombie.iso.SpriteDetails.IsoFlagType.collideW);
+               } else if (fence) {
+                  zombie.iso.sprite.IsoSprite s = o.getSprite();
+                  if (s == null || (s.depthFlags & 2) == 0 || s.getName() == null || !s.getName().startsWith("fencing_")) continue;
+                  boolean n = s.getProperties().has(zombie.iso.SpriteDetails.IsoFlagType.collideN), w = s.getProperties().has(zombie.iso.SpriteDetails.IsoFlagType.collideW);
+                  if (n == w) continue;
+                  north = n;
+               } else {
+                  // find_side=in: the player inside, the zombies outdoors; out: the player outdoors, the zombies inside the room
+                  if (!(o instanceof zombie.iso.objects.IsoWindow win) || win.isDestroyed() || win.isSmashed() || (sq.getRoom() == null) != outSide) continue;
+                  north = win.getNorth();
+               }
+               int bx = north ? x : x - 1, by = north ? y - 1 : y; // behind: farther from the camera
+               int sx = north ? x : x + 3, sy = north ? y + 3 : y;
+               zombie.iso.IsoGridSquare behind = cell.getGridSquare(bx, by, 0), stand = cell.getGridSquare(sx, sy, 0);
+               if (behind == null || stand == null || !behind.isFree(false) || !stand.isFree(false)) continue;
+               if (!glassTile && (fence || !outSide ? !behind.isOutside() : behind.getRoom() == null || !stand.isOutside())) continue;
+               if (!fence && !glassTile && !outSide && stand.getRoom() != sq.getRoom()) continue;
+               if (glassTile && stand.getRoom() != behind.getRoom()) continue; // same room: the vision never hides them
+               long d = (long)(x - px) * (x - px) + (long)(y - py) * (y - py);
+               if (d < bestD) {
+                  bestD = d;
+                  best = new int[]{sx, sy, north ? 270 : 180, bx, by, north ? 1 : 0, x, y};
+               }
+            }
+         }
+      }
+      if (best == null) {
+         Log.info("harness: find=" + kind + ": nothing within 60 tiles of " + px + "," + py);
+         return null;
+      }
+      p.getCheats().set(zombie.characters.CheatType.GOD_MODE, true);
+      int spawned = 0;
+      int[][] at = best[5] == 1 ? new int[][]{{0, 0}, {-1, -1}, {1, -1}} : new int[][]{{0, 0}, {-1, -1}, {-1, 1}};
+      for (int[] a : at) {
+         zombie.iso.IsoGridSquare sq = cell.getGridSquare(best[3] + a[0], best[4] + a[1], 0);
+         if (sq == null || !sq.isFree(false)) continue;
+         java.util.ArrayList<zombie.characters.IsoZombie> list = zombie.Lua.LuaManager.GlobalObject.addZombiesInOutfit(sq.x, sq.y, 0, 1, "Police", 0);
+         if (list != null) {
+            for (zombie.characters.IsoZombie z : list) {
+               z.setUseless(true);
+               pinned.add(z);
+               pinnedAt.add(new float[]{sq.x + 0.5F, sq.y + 0.5F, best[5] == 1 ? 0F : 1F, 0F});
+            }
+            spawned += list.size();
+         }
+      }
+      Log.info("harness: find=" + kind + ": " + (best[5] == 1 ? "north" : "west") + " edge at " + best[6] + "," + best[7]
+            + " (" + spriteNames(cell.getGridSquare(best[6], best[7], 0)) + ")"
+            + ", standing at " + best[0] + "," + best[1] + " facing " + best[2] + ", " + spawned + " zombies behind at " + best[3] + "," + best[4]);
+      return best;
+   }
+
+   /**
+    * place_tile=sprite@x,y[,z]/... (2026-10-01): adds each tile object to its square of the run's save copy
+    * (IsoGridSquare.addTileObject, which invalidates the chunk level), e.g. a glass balustrade for the glassTilesPerFrame A/B.
+    */
+   private static void placeTiles(String spec) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      for (String part : spec.split("/")) {
+         int at = part.indexOf('@');
+         if (at < 0) continue;
+         String name = part.substring(0, at).trim();
+         String[] xyz = part.substring(at + 1).trim().split(",");
+         int x = Integer.parseInt(xyz[0].trim()), y = Integer.parseInt(xyz[1].trim()), z = xyz.length > 2 ? Integer.parseInt(xyz[2].trim()) : 0;
+         zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, z);
+         if (sq == null) {
+            Log.info("harness: place_tile: no square at " + x + "," + y + "," + z);
+            continue;
+         }
+         zombie.iso.IsoObject o = sq.addTileObject(name);
+         zombie.iso.sprite.IsoSprite s = o == null ? null : o.getSprite();
+         Log.info("harness: place_tile: " + name + " at " + x + "," + y + "," + z + (s == null ? " (no sprite)" : " depthFlags " + s.depthFlags + (GlassTiles.isGlass(s) ? " glass" : "")));
+      }
+   }
+
+   private static String spriteNames(zombie.iso.IsoGridSquare sq) {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; sq != null && i < sq.getObjects().size(); i++) {
+         zombie.iso.sprite.IsoSprite s = sq.getObjects().get(i).getSprite();
+         if (s != null) sb.append(sb.length() == 0 ? "" : " ").append(s.getName()).append(GlassTiles.isGlass(s) ? "[glass]" : "");
+      }
+      return sb.toString();
    }
 
    private static void findTranslucent(IsoPlayer p) {

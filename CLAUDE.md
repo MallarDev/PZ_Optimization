@@ -162,7 +162,8 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
 ## Current state (2026-09-19)
 
 - Adopted Config defaults (max-zoom route mean 6.2 → 4.4 ms, p99 19.3 → 8.3):
-  treesInChunkTexture, windowsInChunkTexture, bakeBudget=8 (never-baked
+  treesInChunkTexture, windowsInChunkTexture (off since 2026-10-01: baked glass hid the characters behind it, no
+  measured gain; Translucent glass tiles stay per frame too, `glassTilesPerFrame`), bakeBudget=8 (never-baked
   levels only), lightingBudget=8 (queued, never drops JNI dirty bits), hotsaveIntervalSec=30,
   on top of wake + recalc pool. persistentVbo and translucentTilesInChunkTexture are ON by
   default since 2026-09-20 afternoon (maintainer's decision after confirming the fix): the

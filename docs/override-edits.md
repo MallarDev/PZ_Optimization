@@ -186,6 +186,20 @@ objects, chunks by lighting counter, translucent squares). Every fix is marked
    the `doorTrans` door clauses are skipped when
    `pzopt.Config.WINDOWS_IN_CHUNK_TEXTURE` is set (they still go per-frame
    through the fading / obscuring-player clause that follows).
+   Default off since 2026-10-01 (Workshop discussion "zombies not visible at windows", RCwuhui's comment of
+   2026-09-30 "the window looks like it's become opaque"; glass doors and showers too): a baked window goes
+   through `tileWithDepth.frag`, which writes the sprite's depth for every texel the depth texture covers, glass
+   included, while stock draws windows in `renderOneChunk_Translucent` with `glDepthMask(false)`. A zombie outside
+   the pane (farther from the camera than the glass) then failed the depth test against the composited chunk
+   texture and was not drawn where the window covers it. It measured no gain when adopted (`windows-1` vs
+   `hotsave-1`: 5.0 / 5.0 ms mean). Rig: harness `--flag find=winzombie` (runs `wz3-win-on` / `wz3-win-off`: a
+   zombie behind the right-hand room's window shows through the glass only with the key off).
+   The maintainer's bus shelter (Riverside 6209-6213,5290-5292, 2026-10-01 screenshot): its panes are windows
+   (`walls_commercial_01_96` / `_97`, `IsoWindow`, glass alpha 0.6-0.8 under opaque brown frame strips
+   `walls_detailing_01_36` / `_45`). Runs `gs2-on` / `gs2-off` / `gs2-stock` (player at 6207,5288 behind it, three
+   pinned zombies, `--flag pin_zombies=`): with the key on the zombie behind the left pane came out washed out and
+   cut; off it matches stock. The player's body behind the shelter is hidden in stock too: it stands behind the
+   opaque top strip, only the head shows above it.
 4. **`Translucent`-flagged tiles in the chunk texture.** A private static
    helper `pzoptPerFrameTranslucentTile(IsoSprite)` returns
    `depthFlags & 2 != 0` unless `pzopt.Config.TRANSLUCENT_TILES_IN_CHUNK_TEXTURE`
@@ -219,6 +233,27 @@ objects, chunks by lighting counter, translucent squares). Every fix is marked
    harness `--flag find=translucent [--flag find_box=x0,y0,x1,y1]` lists the
    objects (sprite, class, depth flags, attached / overlay sprites, the floor
    above).
+   Since 2026-10-01 the helper also keeps Translucent glass tiles per frame while
+   `pzopt.Config.GLASS_TILES_PER_FRAME` (`glassTilesPerFrame`, default on) is set:
+   `pzopt.GlassTiles` says a sprite is glass when its definition names a glass
+   material (`MaterialType` / `Material` / `Material2` / `Material3` containing
+   "Glass": Glass, Glass_Light, Glass_Solid), a glass `GroupName` or has a
+   `GlassRemovedOffset` (182 of the 15.8k Translucent definitions of 42.21: shop
+   and restaurant display cases, glass-door fridges, escalator and mall
+   balustrades, glass doors, shower screens), cached per sprite. Baked, such a
+   pane writes its depth like any baked tile (`tileWithDepth.frag` keeps every
+   texel the depth texture covers; the alpha test only drops alpha 0), so a
+   character behind it fails the depth test against the composited chunk texture;
+   stock draws the pane per frame after the characters with depth writes off and
+   it blends over them. A depth-only second bake pass for the opaque texels was
+   tried and dropped: the panes are 0.6-0.8 alpha, so the character came out on
+   top of the glass instead of behind it, and every Translucent bake drew twice.
+   Rig: harness `--flag find=glasszombie` (nearest such tile, three zombies pinned
+   behind it in the same room). Confirmed against stock with `harness/glass-judge.py`
+   (2026-10-02, runs gw-* vs gv-*-stock / -stock2, default options): the zombie regions
+   behind the glass were 2.5-7.3x the stock-to-stock difference before, 0.67-0.98x after,
+   in both scenes (shelter windows, placed `location_shop_mall_01_24` balustrade); Jev:
+   balustrade fixed 0.88, shelter fixed 0.51 vs not_fixed 0.43 on the same numbers.
 5. **Dev counters** (only with `instrument=true`): `renderTranslucent(IsoObject)`
    and `renderTranslucent(IsoGridSquare)` count what the per-frame pass draws
    by kind (window, door, tree, Translucent-flagged tile with a per-tileset
