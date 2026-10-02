@@ -42,3 +42,4 @@ https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/imag
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/48-mod-compatibility.gif https://da.gd/M2HTDO
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/49-mac-unbound.gif https://da.gd/ZqFNOd
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/50-glass-car-windows.gif https://da.gd/9DB0c2
+https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/51-mod-compatibility-check.gif https://da.gd/9CWOx
