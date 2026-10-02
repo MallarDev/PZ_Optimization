@@ -200,6 +200,7 @@ public final class CapsuleShadow {
       }
       frameIndex++;
       f.n = 0;
+      f.devPlayer = -1;
       f.offX = IsoCamera.getOffX();
       f.offY = IsoCamera.getOffY();
       f.d0 = IsoDepthHelper.getSquareDepthData(ox, oy, ox, oy, 0.0F).depthStart;
@@ -754,6 +755,16 @@ public final class CapsuleShadow {
       // sun share through the grid (SunShadow's cached march, the same that darkens its model) scales the sun shadow
       float sunVis = f.sunOn && sq.isOutside() ? sunShare(chr) : 0F;
       boolean sun = sunVis > 0.05F;
+      boolean devPlayerNow = Config.DEV_CASTER_TRACE > 0 && !animal && chr instanceof zombie.characters.IsoPlayer pl && pl.isLocalPlayer();
+      devTraceNow = devPlayerNow && ++devTraceN % Config.DEV_CASTER_TRACE == 0;
+      if (devPlayerNow) {
+         f.devInfo = String.format(java.util.Locale.ROOT, "%.2f,%.2f facing %.0f sunVis %.2f", chr.getX(), chr.getY(), Math.toDegrees(chr.getAnimAngleRadians()), sunVis);
+      }
+      if (devTraceNow) {
+         Log.info(String.format(java.util.Locale.ROOT, "capsule shadows: dev caster %.2f,%.2f,%.2f facing %.1f deg anim %.1f deg outside %b sunVis %.3f (prep %.3f) cloud %.3f %s",
+            chr.getX(), chr.getY(), chr.getZ(), Math.toDegrees(chr.getDirectionAngleRadians()), Math.toDegrees(chr.getAnimAngleRadians()), sq.isOutside(), sunVis,
+            RenderPrep.sunVis(chr), CloudShadow.transmittanceAt(chr.getX(), chr.getY(), chr.getZ()), SunShadow.devMarch(chr.getX(), chr.getY(), chr.getZ())));
+      }
       if (!sun && f.nl == 0) {
          return; // indoors or in the shade in daylight without a torch around: nothing to cast
       }
@@ -809,6 +820,15 @@ public final class CapsuleShadow {
       }
       append(f, caps, K, cz, alpha, 0F, sun ? sunVis : 0F);
       assignTile(f, chr, sun);
+      if (devPlayerNow) {
+         f.devPlayer = f.n - 1;
+      }
+      if (devTraceNow) {
+         int base = (f.n - 1) * TEXELS * 4;
+         float[] d = f.data;
+         Log.info(String.format(java.util.Locale.ROOT, "capsule shadows: dev caster tile %.0f half %.2f alpha %.2f bound %.2f,%.2f,%.2f - %.2f,%.2f,%.2f r %.2f pts %s",
+            d[base], d[base + 1], alpha, d[base + 4], d[base + 5], d[base + 6], d[base + 8], d[base + 9], d[base + 10], d[base + 7], pts == SCRATCH ? "here" : "worker"));
+      }
       characters++;
       if (sun) {
          stockScale = 1F - Math.max(0, Math.min(100, Config.SUN_SHADOW_STOCK_FADE_PCT)) / 100F * Math.min(1F, sunVis);
@@ -816,6 +836,8 @@ public final class CapsuleShadow {
    }
 
    private static long animals;
+   private static long devTraceN; // dev (devCasterTrace)
+   private static boolean devTraceNow;
    private static final float[] SEG_LEN = new float[K];
    private static final int[] SEG_BONE = new int[K];
 
@@ -1291,8 +1313,13 @@ public final class CapsuleShadow {
       return h;
    }
 
-   /** Per sprite: edgeShape of its north and its west face. */
-   private static final java.util.IdentityHashMap<zombie.iso.sprite.IsoSprite, float[]> EDGE_SHAPE = new java.util.IdentityHashMap<>();
+   /** Any thread (SunShadow's march runs on the frame workers too): edgeHeight, the wall / fence top on a square's edge (levels). */
+   static float edgeTop(IsoGridSquare sq, boolean north) {
+      return edgeHeight(sq, north);
+   }
+
+   /** Per sprite: edgeShape of its north and its west face (IsoSprite keeps Object's identity hash; concurrent: the march's workers read it). */
+   private static final java.util.concurrent.ConcurrentHashMap<zombie.iso.sprite.IsoSprite, float[]> EDGE_SHAPE = new java.util.concurrent.ConcurrentHashMap<>();
    private static final float[] COLUMN_H = new float[8];
 
    /**
@@ -1366,6 +1393,8 @@ public final class CapsuleShadow {
       int oy;
       float d0;
       int playerIndex;
+      int devPlayer = -1; // dev (devCasterTrace): the local player's caster index this frame, its facts for the log
+      String devInfo;
 
       @Override
       public void render() {
@@ -1384,6 +1413,56 @@ public final class CapsuleShadow {
    private static final Gl GL = new Gl();
 
    private static final class Gl {
+      // dev (devCasterTrace): the local player's sun shadow alone, its shadowed pixels counted (GL_SAMPLES_PASSED: the pass
+      // discards every unshadowed fragment), read back a few frames later; the log gives the shadow's area per frame
+      private final int[] devQ = new int[8];
+      private final String[] devQInfo = new String[8];
+      private int devQNext;
+      private long devQFrame;
+
+      private void devPlayerQuery(Frame f) {
+         if (Config.DEV_CASTER_TRACE <= 0) {
+            return;
+         }
+         devQFrame++;
+         for (int k = 0; k < devQ.length; k++) { // the finished ones out
+            if (devQ[k] != 0 && devQInfo[k] != null && GL15.glGetQueryObjecti(devQ[k], GL15.GL_QUERY_RESULT_AVAILABLE) != 0) {
+               Log.info("capsule shadows: dev caster px " + GL15.glGetQueryObjecti(devQ[k], GL15.GL_QUERY_RESULT) + " " + devQInfo[k]);
+               devQInfo[k] = null;
+            }
+         }
+         int pi = f.devPlayer;
+         if (pi < 0 || pi >= f.n) {
+            Log.info("capsule shadows: dev caster px none (not a caster) frame " + devQFrame);
+            return;
+         }
+         int k = devQNext;
+         if (devQInfo[k] != null) {
+            return; // the ring is full: skip this frame
+         }
+         devQNext = (k + 1) % devQ.length;
+         if (devQ[k] == 0) {
+            devQ[k] = GL15.glGenQueries();
+         }
+         // the player's row as instance 0, one instance, no colour; then the frame's rows back for the real draw
+         this.upload.clear();
+         this.upload.put(f.data, pi * TEXELS * 4, TEXELS * 4).flip();
+         GL13.glActiveTexture(GL13.GL_TEXTURE1);
+         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.dataTex);
+         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, TEXELS, 1, GL11.GL_RGBA, GL11.GL_FLOAT, this.upload);
+         GL11.glColorMask(false, false, false, false);
+         GL15.glBeginQuery(GL15.GL_SAMPLES_PASSED, devQ[k]);
+         GL31.glDrawArraysInstanced(GL11.GL_TRIANGLE_FAN, 0, 4, 1);
+         GL15.glEndQuery(GL15.GL_SAMPLES_PASSED);
+         GL11.glColorMask(true, true, true, false);
+         int base = pi * TEXELS * 4;
+         devQInfo[k] = String.format(java.util.Locale.ROOT, "frame %d epoch_ms %d %s tile %.0f alpha %.2f sun %.2f", devQFrame, System.currentTimeMillis(), f.devInfo, f.data[base], f.data[base + 15], f.data[base + 14]);
+         this.upload.clear();
+         this.upload.put(f.data, 0, TEXELS * 4).flip();
+         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, TEXELS, 1, GL11.GL_RGBA, GL11.GL_FLOAT, this.upload);
+         GL13.glActiveTexture(GL13.GL_TEXTURE0);
+      }
+
       private int program;
       private int silProgram;
       private final int[] us = new int[12];
@@ -1574,6 +1653,7 @@ public final class CapsuleShadow {
             this.rsun.clear();
             this.rsun.put(ShadowAtlas.R).flip();
             GL20.glUniformMatrix3fv(this.us[8], true, this.rsun); // (rows)
+            this.devPlayerQuery(f);
             GL31.glDrawArraysInstanced(GL11.GL_TRIANGLE_FAN, 0, 4, f.n);
             if (atlasOn) {
                ShadowAtlas.unbind(3, 4);
@@ -1589,6 +1669,7 @@ public final class CapsuleShadow {
             GL20.glUniform4f(this.u[5], this.viewportF[0], this.viewportF[1], this.viewportF[2], this.viewportF[3]);
             GL20.glUniform1f(this.u[6], Config.SUN_SHADOW_MARCH ? 1.0F : 0.0F);
             GL20.glUniform4f(this.u[7], Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH), Config.SUN_SHADOW_CHARACTER_LOD_PCT / 100.0F, 0.0F, devTipOld());
+            this.devPlayerQuery(f);
             GL31.glDrawArraysInstanced(GL11.GL_TRIANGLE_FAN, 0, 4, f.n);
          }
          int pairs = f.nl > 0 ? this.pairs(f) : 0;

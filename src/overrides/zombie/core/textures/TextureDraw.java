@@ -311,11 +311,21 @@ public final class TextureDraw {
       slotData.initModel(modelSlot);
       texd.drawer = slotData;
       if (DebugOptions.instance.threadModelSlotInit.getValue()) {
+         long pzoptQueued = System.nanoTime(); // pzopt: dev timing (pzopt.ModelInitOrder)
          texd.future = slotInitExec.submit(() -> {
+            long pzoptStart = System.nanoTime(); // pzopt: dev timing
             synchronized (slotData) {
-               slotData.init(modelSlot);
+               try { // pzopt: dev, which model's init fails (the 2026-10-02 playerData NPE)
+                  pzopt.ModelInitOrder.devLocked(modelSlot, pzoptQueued, pzoptStart); // pzopt: dev timing
+                  slotData.init(modelSlot);
+                  pzopt.ModelInitOrder.devDone(modelSlot); // pzopt: dev timing
+               } catch (RuntimeException pzoptE) { // pzopt: dev
+                  pzopt.CharDraw.devInitFailed(modelSlot, pzoptE); // pzopt: dev
+                  throw pzoptE; // pzopt: dev
+               } // pzopt: dev
             }
          });
+         pzopt.ModelInitOrder.queued(modelSlot, texd.future); // pzopt: ModelManager.Reset waits for it before re-dressing the slot
       } else {
          slotData.init(modelSlot);
       }
@@ -1277,6 +1287,7 @@ public final class TextureDraw {
                slotData.init(model);
             }
          });
+         pzopt.ModelInitOrder.queued(model, texd.future); // pzopt: ModelManager.Reset waits for it before re-dressing the slot
       } else {
          slotData.init(model);
       }

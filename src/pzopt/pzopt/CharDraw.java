@@ -388,6 +388,28 @@ public final class CharDraw {
       return id >= 0 && id < table.length && table[id] != null;
    }
 
+   private static int devInitFailures;
+
+   /** Slot-init pool thread, dev: what the model whose ModelSlotRenderData.init threw looked like (first 20). */
+   public static void devInitFailed(ModelManager.ModelSlot slot, RuntimeException e) {
+      if (devInitFailures++ >= 20) {
+         return;
+      }
+      try {
+         ModelInstance m = slot.model;
+         Object o = m == null ? null : m.object;
+         Object chr = m == null ? null : m.character;
+         int pi = zombie.iso.IsoCamera.frameState.playerIndex;
+         Log.info("charDrawPrep: dev init failed " + e + " slot " + slot.id + " active " + slot.active + " slot rendering " + slot.renderRefCount
+            + " object " + (o == null ? "null" : o.getClass().getSimpleName() + "@" + System.identityHashCode(o)) + " character " + (chr == null ? "null" : chr.getClass().getSimpleName() + "@" + System.identityHashCode(chr))
+            + (chr instanceof zombie.characters.IsoGameCharacter c ? " sq " + c.getCurrentSquare() + " removed " + (c.getCurrentSquare() == null) : "")
+            + " model rendering " + (m == null ? -1 : m.renderRefCount) + " resetAfterRender " + (m != null && m.resetAfterRender)
+            + " playerData " + (m == null || m.playerData == null ? "null" : String.valueOf(m.playerData[pi & 3])) + " lightsStamp " + (m == null ? 0 : m.pzoptLightsStamp) + " stamp " + stamp + " active " + active + " thread " + Thread.currentThread().getName());
+      } catch (Throwable t) {
+         Log.info("charDrawPrep: dev init failed " + e + " (state unreadable: " + t + ")");
+      }
+   }
+
    /** TextureDraw.drawModel: the prepared data for this slot, once, or null for the stock path. */
    public static ModelSlotRenderData take(ModelManager.ModelSlot slot) {
       if (!active) {

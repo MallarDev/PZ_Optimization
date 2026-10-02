@@ -143,12 +143,14 @@ public class WeatherShader extends Shader {
       this.timerWrapVal = 1.0F - 2.0F * (this.timerVal / 2.1474836E9F);
       GL20.glUniform2f(this.textureSize, textureWidth, textureHeight);
       GL20.glUniform1f(this.zoom, zoom);
-      GL20.glUniform4f(this.searchModeId, texd.vars[6], texd.vars[7], texd.vars[8], texd.vars[9]);
-      GL20.glUniform4f(this.screenInfo, texd.vars[10], texd.vars[11], texd.vars[12], texd.vars[13]);
-      GL20.glUniform4f(this.paramInfo, texd.vars[14], texd.vars[15], texd.vars[16], texd.vars[17]);
-      GL20.glUniform4f(this.varInfo, texd.vars[18], texd.vars[19], texd.vars[20], texd.vars[21]);
-      GL20.glUniform1f(this.drunkFactor, texd.vars[22]);
-      GL20.glUniform1f(this.blurFactor, texd.vars[23]);
+      if (texd.vars != null) { // pzopt: a state drawn again after an aborted frame had its vars returned (postRender): keep the last frame's uniforms
+         GL20.glUniform4f(this.searchModeId, texd.vars[6], texd.vars[7], texd.vars[8], texd.vars[9]);
+         GL20.glUniform4f(this.screenInfo, texd.vars[10], texd.vars[11], texd.vars[12], texd.vars[13]);
+         GL20.glUniform4f(this.paramInfo, texd.vars[14], texd.vars[15], texd.vars[16], texd.vars[17]);
+         GL20.glUniform4f(this.varInfo, texd.vars[18], texd.vars[19], texd.vars[20], texd.vars[21]);
+         GL20.glUniform1f(this.drunkFactor, texd.vars[22]);
+         GL20.glUniform1f(this.blurFactor, texd.vars[23]);
+      } // pzopt
       pzopt.Hdr.worldUniforms(); // pzopt: HDR output, the world expansion's uniforms on the bound composite program
       pzopt.Grade.worldUniforms(this.getID()); // pzopt: colour grading, the LUT and its switch on the bound composite program
       pzopt.GodRays.worldUniforms(this.getID()); // pzopt: god rays, the volume and its mapping on the bound composite program

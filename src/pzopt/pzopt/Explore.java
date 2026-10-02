@@ -88,6 +88,12 @@ public final class Explore {
          StairsWalk.worldReady(p); // explore=stairs: up to the top floor and down to the lowest level (the wall flicker report)
          return;
       }
+      walk = "walk".equalsIgnoreCase(HarnessFlags.get("explore", "").trim());
+      if (walk) {
+         on = true;
+         walkSetUp(p);
+         return;
+      }
       circle = "circle".equalsIgnoreCase(HarnessFlags.get("explore", "").trim());
       if (circle) {
          on = true;
@@ -178,6 +184,10 @@ public final class Explore {
          walkCircle(p, nowNs);
          return;
       }
+      if (walk) {
+         walkPoints(p, nowNs);
+         return;
+      }
       if (stairs) {
          StairsWalk.tick(p, nowNs);
          return;
@@ -236,6 +246,101 @@ public final class Explore {
          lastStateNs = nowNs;
          writeState(p, here, nowNs);
       }
+   }
+
+   // explore=walk (2026-10-02, the lost character shadow): walk=x1,y1;x2,y2;... the player walks to each point in turn on
+   // foot (the movement keys, straight lines: pick points with a clear line), back and forth until the route ends.
+   // walk=probe logs a map of the squares round the player instead (walls, roads, buildings) to pick the points from
+   private static boolean walk;
+   private static float[] walkPts = new float[0];
+   private static int walkIdx, walkLegs;
+   private static long walkLogNs;
+
+   private static void walkSetUp(IsoPlayer p) {
+      String spec = HarnessFlags.get("walk", "probe").trim();
+      if (spec.equalsIgnoreCase("probe")) {
+         probeMap(p);
+         return;
+      }
+      String[] pts = spec.split(";");
+      walkPts = new float[pts.length * 2];
+      for (int i = 0; i < pts.length; i++) {
+         String[] xy = pts[i].split(",");
+         walkPts[i * 2] = Float.parseFloat(xy[0].trim()) + 0.5F;
+         walkPts[i * 2 + 1] = Float.parseFloat(xy[1].trim()) + 0.5F;
+      }
+      Log.info("harness: explore=walk between " + spec + " from " + p.getX() + "," + p.getY());
+   }
+
+   private static void walkPoints(IsoPlayer p, long nowNs) {
+      Showcase.releaseKeys();
+      int n = walkPts.length / 2;
+      if (n == 0) {
+         return;
+      }
+      float dx = walkPts[walkIdx * 2] - p.getX(), dy = walkPts[walkIdx * 2 + 1] - p.getY();
+      if (dx * dx + dy * dy < 0.35F * 0.35F) {
+         walkIdx = (walkIdx + 1) % n;
+         walkLegs++;
+         Log.info(String.format(Locale.ROOT, "harness: explore: walk reached point %d at %.2f,%.2f (+%.1f s, leg %d)", (walkIdx + n - 1) % n, p.getX(), p.getY(), (nowNs - startNs) / 1e9, walkLegs));
+         dx = walkPts[walkIdx * 2] - p.getX();
+         dy = walkPts[walkIdx * 2 + 1] - p.getY();
+      }
+      Showcase.moveKeys(dx, dy);
+      if (nowNs - walkLogNs >= 1_000_000_000L) {
+         walkLogNs = nowNs;
+         Log.info(String.format(Locale.ROOT, "harness: explore: walk t=%.1fs pos=%.2f,%.2f to point %d", (nowNs - startNs) / 1e9, p.getX(), p.getY(), walkIdx));
+      }
+   }
+
+   /** walk=probe: the squares 24 round the player as rows of characters, and the floor sprites' names. */
+   private static void probeMap(IsoPlayer p) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = (int)p.getX(), py = (int)p.getY(), pz = (int)p.getZ();
+      java.util.TreeMap<String, Integer> floors = new java.util.TreeMap<>();
+      Log.info("harness: explore: probe map round " + px + "," + py + " (rows y, columns x from " + (px - 24) + "; @ player, B inside a building, | W wall, - N wall, + both, f fence edge, = road / street / dirt floor, t tree, s solid, . other floor, space none)");
+      for (int y = py - 24; y <= py + 24; y++) {
+         StringBuilder row = new StringBuilder();
+         for (int x = px - 24; x <= px + 24; x++) {
+            zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, pz);
+            char c = ' ';
+            if (sq != null) {
+               zombie.iso.IsoObject fl = sq.getFloor();
+               String name = fl != null && fl.getSprite() != null && fl.getSprite().getName() != null ? fl.getSprite().getName() : "";
+               floors.merge(name, 1, Integer::sum);
+               boolean wn = sq.has(zombie.iso.SpriteDetails.IsoFlagType.WallN), ww = sq.has(zombie.iso.SpriteDetails.IsoFlagType.WallW);
+               boolean cn = sq.has(zombie.iso.SpriteDetails.IsoFlagType.collideN), cw = sq.has(zombie.iso.SpriteDetails.IsoFlagType.collideW);
+               if (x == px && y == py) c = '@';
+               else if (wn && ww) c = '+';
+               else if (ww) c = '|';
+               else if (wn) c = '-';
+               else if (cn || cw) c = 'f';
+               else if (sq.getTree() != null) c = 't';
+               else if (sq.getRoom() != null) c = 'B';
+               else if (name.contains("street") || name.contains("road") || name.contains("dirt") || name.contains("gravel")) c = '=';
+               else if (sq.has(zombie.iso.SpriteDetails.IsoFlagType.solid) || sq.has(zombie.iso.SpriteDetails.IsoFlagType.solidtrans)) c = 's';
+               else c = '.';
+            }
+            row.append(c);
+         }
+         Log.info(String.format(Locale.ROOT, "harness: explore: probe %5d %s", y, row));
+      }
+      java.util.List<String> top = new java.util.ArrayList<>(floors.keySet());
+      top.sort((a, b) -> floors.get(b) - floors.get(a));
+      for (int y = py - 24; y <= py + 24; y++) {
+         StringBuilder row = new StringBuilder();
+         for (int x = px - 24; x <= px + 24; x++) {
+            zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, pz);
+            zombie.iso.IsoObject fl = sq == null ? null : sq.getFloor();
+            String name = fl != null && fl.getSprite() != null && fl.getSprite().getName() != null ? fl.getSprite().getName() : "";
+            int k = top.indexOf(name);
+            row.append(sq == null ? ' ' : k >= 0 && k < 26 ? (char)('a' + k) : '?');
+         }
+         Log.info(String.format(Locale.ROOT, "harness: explore: probe floor %5d %s", y, row));
+      }
+      StringBuilder sb = new StringBuilder("harness: explore: probe floors (a = most common):");
+      for (int i = 0; i < top.size(); i++) sb.append(' ').append(i < 26 ? (char)('a' + i) : '?').append(':').append(top.get(i)).append('=').append(floors.get(top.get(i)));
+      Log.info(sb.toString());
    }
 
    /** explore=circle: head for a point 45 degrees further round the circle (+y is south, so + angle = clockwise on screen). */

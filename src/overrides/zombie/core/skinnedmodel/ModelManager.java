@@ -464,6 +464,7 @@ public final class ModelManager {
    public void Reset(IsoGameCharacter chr) {
       if (chr.legsSprite != null && chr.legsSprite.modelSlot != null) {
          ModelManager.ModelSlot modelSlot = chr.legsSprite.modelSlot;
+         pzopt.ModelInitOrder.beforeReset(modelSlot); // pzopt: a draw init still queued reads slot.model: let it read the old one before the new goes in
          this.resetModelInstance(modelSlot.model, modelSlot);
 
          for (int i = 0; i < modelSlot.sub.size(); i++) {
@@ -1976,6 +1977,7 @@ public final class ModelManager {
       public boolean remove;
       public int renderRefCount;
       public int framesSinceStart;
+      public java.util.concurrent.Future<?> pzoptInit; // pzopt: the draw init TextureDraw queued last for this slot (pzopt.ModelInitOrder)
 
       public ModelSlot(int id, ModelInstance model, IsoGameCharacter character) {
          this.id = id;

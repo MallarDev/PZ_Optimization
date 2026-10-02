@@ -5663,3 +5663,29 @@ quarter, measured).
   `.cgon` / `.cgoff`).
 - `zombie.core.opengl.ShaderUnit` (compile): `pzopt.CarGlass.patchShader` innermost in the chain; it touches only the
   `pzopt_glass_*` units (vertex: the chassis-frame position and normal as varyings; fragment: the compact glass program).
+
+### Model re-dress order and the fence height of the sun share (2026-10-02; `pzopt.ModelInitOrder`, `pzopt.SunShadow`)
+
+A player report ("8 errors", the character's shadow lost while walking). The errors were render-thread exceptions:
+`ModelManager.Reset` (a character re-dressed: clothes, hair, a timed action) puts a new `ModelInstance` into `slot.model`
+on the game thread, while the draw init TextureDraw queued for that slot in the previous frame (the stock slot-init pool)
+may not have run yet; that init reads `slot.model` when it runs, found the new instance with no per-player lights
+(`playerData is null`), and the render thread dropped the rest of the frame (the sun shadow pass with it), after which the
+replayed state threw `texd.vars is null` in the weather composite for a few dozen frames.
+
+- `zombie.core.textures.TextureDraw.drawModel` / `DrawQueued`: the queued init's future goes to the slot
+  (`pzopt.ModelInitOrder.queued`). Dev only: an init that throws logs the model's state (`CharDraw.devInitFailed`) and is
+  thrown again; with `devCasterTrace` inits over 2 ms from queued are logged with their queue / lock / run time.
+- `zombie.core.skinnedmodel.ModelManager.Reset`: `ModelInitOrder.beforeReset(slot)` waits for that future (at most 50 ms,
+  then on as stock) before the slot's model is replaced. New field `ModelSlot.pzoptInit`.
+- `zombie.iso.weather.WeatherShader.startRenderThread`: the uniforms from `texd.vars[6..23]` are set only when `vars` is
+  there (stock already guards `vars[0..5]`); a missing array keeps the last frame's values.
+- `pzopt.SunShadow.march` (no game class): with `sunShareWallHeight` (default on, live) a wall / fence edge the ray to the
+  sun crosses shades the caster only when the ray passes below the edge's top measured from the sprite
+  (`CapsuleShadow.edgeTop`, the sunShadowWallCut measure; its cache is concurrent now, the march runs on the frame
+  workers); before, any collide / wall edge at any height took the whole sun share, so a hoppable fence up to ~5 squares
+  off under an evening sun put the shadows of the characters and animals beside it out. Off: the old test.
+- Dev: `devCasterTrace=N` logs the local player's caster facts every Nth frame and, every frame, the player's sun shadow
+  area on screen (its instance alone in a `GL_SAMPLES_PASSED` query, read back later, with the epoch); harness
+  `--flag explore=walk --flag "walk=x1,y1;x2,y2"` walks the player between points on foot (`walk=probe` logs a map of
+  the squares round the player).

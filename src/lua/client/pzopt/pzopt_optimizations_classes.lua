@@ -145,6 +145,7 @@ PzoptOptionClasses = {
     devCarGlassSkip = { "pzopt.CarGlass" },
     devCarGlassView = { "pzopt.CarGlass" },
     devCarGlassViewCycle = { "pzopt.CarGlass" },
+    devCasterTrace = { "pzopt.CapsuleShadow", "pzopt.ModelInitOrder" },
     devCloudAlternate = { "pzopt.CloudShadow" },
     devCloudCover = { "pzopt.CloudShadow" },
     devCloudSkip = { "pzopt.CloudShadow" },

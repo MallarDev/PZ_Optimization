@@ -258,7 +258,7 @@ public final class SunShadow {
    /** How much of the sun a point one square above (x, y, z) sees through the grid (walls, upper floors, solid objects, trees). */
    static float visibleAt(float x, float y, float z) {
       int hx = (int)Math.floor(x * 2F), hy = (int)Math.floor(y * 2F), iz = (int)Math.floor(z);
-      long key = ((long)(hx & 0xFFFFF) << 40 | (long)(hy & 0xFFFFF) << 20 | (iz + 64) & 0xFF) * 31L + state;
+      long key = ((long)(hx & 0xFFFFF) << 40 | (long)(hy & 0xFFFFF) << 20 | (iz + 64) & 0xFF) * 31L + state + (Config.SUN_SHARE_WALL_HEIGHT ? 0L : 0x5DEECE66DL);
       long h = key * 0x9E3779B97F4A7C15L;
       h ^= h >>> 31;
       int slot = (int)(h & (CACHE - 1));
@@ -267,12 +267,20 @@ public final class SunShadow {
       if (e != 0L && (e & 0xFFFFFFFF00000000L) == tag) {
          return Float.intBitsToFloat((int)e);
       }
-      float v = march((hx + 0.5F) * 0.5F, (hy + 0.5F) * 0.5F, iz);
+      float v = march((hx + 0.5F) * 0.5F, (hy + 0.5F) * 0.5F, iz, null);
       CACHE_E[slot] = tag | Float.floatToRawIntBits(v) & 0xFFFFFFFFL;
       return v;
    }
 
-   private static float march(float x, float y, int z) {
+   /** Dev (devCasterTrace): visibleAt's march again, uncached, with what it hit. */
+   static String devMarch(float x, float y, float z) {
+      StringBuilder why = new StringBuilder();
+      int hx = (int)Math.floor(x * 2F), hy = (int)Math.floor(y * 2F);
+      float v = march((hx + 0.5F) * 0.5F, (hy + 0.5F) * 0.5F, (int)Math.floor(z), why);
+      return String.format(java.util.Locale.ROOT, "march %.3f sun %.2f,%.2f,%.2f%s", v, world[0], world[1], world[2], why);
+   }
+
+   private static float march(float x, float y, int z, StringBuilder why) {
       zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
       float lx = world[0], ly = world[1], lz = world[2];
       if (cell == null || lz <= 0.02F) {
@@ -304,27 +312,46 @@ public final class SunShadow {
          }
          float above = pz - lvl * LEVEL; // the ray's height inside this level
          if (lvl > z && sq.getFloor() != null) {
+            if (why != null) why.append(" roof@").append(sx).append(',').append(sy).append(',').append(lvl);
             return 0F; // an upper floor or a roof of a building between us and the sun
          }
          // a wall on the edge the ray crossed into this square (N edge: coming from y - 1; W edge: from x - 1), or leaving it
+         // (moving north / west: the wall sits on the square we left). sunShareWallHeight: only one standing above the ray,
+         // its top measured from the sprite as for sunShadowWallCut; a hoppable fence 5 squares off under an evening sun
+         // took the whole sun share and the character's shadow went out on part of every lap round it (2026-10-02)
          boolean crossN = prevY != Integer.MIN_VALUE && prevY < sy, crossW = prevX != Integer.MIN_VALUE && prevX < sx;
-         boolean wall = crossN && (sq.has(zombie.iso.SpriteDetails.IsoFlagType.collideN) || sq.has(zombie.iso.SpriteDetails.IsoFlagType.WallN))
-            || crossW && (sq.has(zombie.iso.SpriteDetails.IsoFlagType.collideW) || sq.has(zombie.iso.SpriteDetails.IsoFlagType.WallW));
-         if (!wall && (prevY > sy || prevX > sx)) { // moving north / west: the wall sits on the square we left
-            zombie.iso.IsoGridSquare from = cell.getGridSquare(prevX, prevY, lvl);
-            if (from != null) {
-               wall = prevY > sy && (from.has(zombie.iso.SpriteDetails.IsoFlagType.collideN) || from.has(zombie.iso.SpriteDetails.IsoFlagType.WallN))
-                  || prevX > sx && (from.has(zombie.iso.SpriteDetails.IsoFlagType.collideW) || from.has(zombie.iso.SpriteDetails.IsoFlagType.WallW));
+         boolean leaveN = prevY != Integer.MIN_VALUE && prevY > sy, leaveW = prevX != Integer.MIN_VALUE && prevX > sx;
+         zombie.iso.IsoGridSquare from = leaveN || leaveW ? cell.getGridSquare(prevX, prevY, lvl) : null;
+         boolean wall;
+         float top = 0F;
+         if (Config.SUN_SHARE_WALL_HEIGHT) {
+            if (crossN) top = Math.max(top, CapsuleShadow.edgeTop(sq, true));
+            if (crossW) top = Math.max(top, CapsuleShadow.edgeTop(sq, false));
+            if (from != null && leaveN) top = Math.max(top, CapsuleShadow.edgeTop(from, true));
+            if (from != null && leaveW) top = Math.max(top, CapsuleShadow.edgeTop(from, false));
+            wall = top * LEVEL > above;
+         } else {
+            wall = crossN && (sq.has(zombie.iso.SpriteDetails.IsoFlagType.collideN) || sq.has(zombie.iso.SpriteDetails.IsoFlagType.WallN))
+               || crossW && (sq.has(zombie.iso.SpriteDetails.IsoFlagType.collideW) || sq.has(zombie.iso.SpriteDetails.IsoFlagType.WallW));
+            if (!wall && from != null) {
+               wall = leaveN && (from.has(zombie.iso.SpriteDetails.IsoFlagType.collideN) || from.has(zombie.iso.SpriteDetails.IsoFlagType.WallN))
+                  || leaveW && (from.has(zombie.iso.SpriteDetails.IsoFlagType.collideW) || from.has(zombie.iso.SpriteDetails.IsoFlagType.WallW));
             }
+         }
+         if (why != null && (wall || top > 0F)) {
+            why.append(wall ? " wall@" : " under@").append(sx).append(',').append(sy).append(',').append(lvl).append(" from ").append(prevX).append(',').append(prevY)
+               .append(String.format(java.util.Locale.ROOT, " ray %.2f top %.2f", above, top * LEVEL));
          }
          if (wall) {
             return 0F;
          }
          if ((sq.has(zombie.iso.SpriteDetails.IsoFlagType.solid) || sq.has(zombie.iso.SpriteDetails.IsoFlagType.solidtrans)) && above < 0.5F * LEVEL) {
             vis *= 0.25F;
+            if (why != null) why.append(" solid@").append(sx).append(',').append(sy);
          }
          if (sq.getTree() != null && above > 0.3F * LEVEL) {
             vis *= 0.45F; // a crown lets some light through
+            if (why != null) why.append(" tree@").append(sx).append(',').append(sy).append(String.format(java.util.Locale.ROOT, " h %.2f", above));
          }
          if (vis < 0.05F) {
             return 0F;

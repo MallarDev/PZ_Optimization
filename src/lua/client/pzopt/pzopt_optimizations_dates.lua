@@ -280,6 +280,7 @@ PzoptOptionDates = {
     devSwayFlipY = "2026-09-28",
     devSwayGainPct = "2026-09-28",
     devSwayNoPatch = "2026-09-28",
+    devSwayPushOld = "2026-10-02",
     devSwayPushOrbit = "2026-09-28",
     devSwaySkip = "2026-09-28",
     devSwayVariantAll = "2026-09-28",
