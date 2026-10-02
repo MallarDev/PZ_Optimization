@@ -244,6 +244,7 @@ PzoptOptionClasses = {
     devSwayFlipY = { "pzopt.Sway" },
     devSwayGainPct = { "pzopt.Sway" },
     devSwayNoPatch = { "pzopt.Sway" },
+    devSwayPushOld = { "pzopt.Sway" },
     devSwayPushOrbit = { "pzopt.Sway" },
     devSwaySkip = { "pzopt.Sway" },
     devSwayVariantAll = { "pzopt.Sway" },

@@ -2058,16 +2058,26 @@ public final class Sway {
       if (Config.SWAY_PUSH) {
          L.accept("uniform vec4 pzSwPush[" + MAX_PUSH + "];"); // characters walking through plants: u, v, radius (squares), strength
          L.accept("uniform float pzSwPushN;");
-         // the texel bends away from each pusher (screen x ~ u); a texel sits up to a plant's height above its base (v smaller)
+         // the texel bends away from each pusher (screen x ~ u); a texel sits up to a plant's height above its base (v smaller).
+         // The bend is a continuous odd function of the offset, zero on the pusher's own column: a sign flip there (full
+         // bend left beside full bend right) tore a vertical seam through the plants above every walker (2026-10-02). Over
+         // t = du / (1.5 r): 2.5 t (1 - t^2)^2, peak 0.72 at t = 0.45; its slope stays under 1 px/px for a character
+         // (r 0.9, 64 px per u, 29 px at full weight), so s = p - D(s) neither folds nor tears.
          L.accept("float pzSwPushX(vec2 wp) {");
          L.accept("   float x = 0.0;");
          L.accept("   for (int i = 0; i < " + MAX_PUSH + "; i++) {");
          L.accept("      if (float(i) >= pzSwPushN) break;");
          L.accept("      vec4 P = pzSwPush[i];");
          L.accept("      vec2 d = wp - P.xy; d -= " + GUST_PERIOD_SQ + " * floor(d / " + GUST_PERIOD_SQ + " + 0.5);");
-         L.accept("      float fu = max(0.0, 1.0 - abs(d.x) / P.z);");
          L.accept("      float fv = d.y > 0.0 ? max(0.0, 1.0 - d.y / P.z) : clamp(1.0 + (d.y + 3.0) / P.z, 0.0, 1.0);");
-         L.accept("      x += (d.x >= 0.0 ? 1.0 : -1.0) * fu * fu * fv * P.w;");
+         if (Config.DEV_SWAY_PUSH_OLD) {
+            L.accept("      float fu = max(0.0, 1.0 - abs(d.x) / P.z);");
+            L.accept("      x += (d.x >= 0.0 ? 1.0 : -1.0) * fu * fu * fv * P.w;");
+         } else {
+            L.accept("      float t = d.x / (1.5 * P.z);");
+            L.accept("      float fu = max(0.0, 1.0 - t * t);");
+            L.accept("      x += 2.5 * t * fu * fu * fv * P.w;");
+         }
          L.accept("   }");
          L.accept("   return x;");
          L.accept("}");

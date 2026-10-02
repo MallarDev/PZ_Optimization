@@ -1092,6 +1092,7 @@ public final class Config {
    public static final boolean SWAY_MV_NO_BLEND = bool("swayMvNoBlend", true); // foliage sway: the motion attachment is written, never blended (the composite's glEnable(GL_BLEND) covers every draw buffer)
    public static final boolean SWAY_PUSH = bool("swayPush", true); // foliage sway: characters and cars bend the grass and bushes they move through (replaces stock's rustle: its per-frame draw and two re-bakes per bush)
    public static final float DEV_SWAY_PUSH_ORBIT = (float)integer("devSwayPushOrbit", 0); // dev: squares; a pusher circles the camera's character at that radius
+   public static final boolean DEV_SWAY_PUSH_OLD = bool("devSwayPushOld", false); // dev: the push kernel before 2026-10-02 (bend sign flips on the pusher's column: a vertical seam above every walker), for same-build A/Bs
    public static final int SWAY_ITERATIONS = integer("swayIterations", 1); // foliage sway: fixed-point steps of the inverse lookup inside a plant (2: the texel's own attribute re-read at the first guess; +1 dependent fetch)
    public static final boolean SWAY_MASK = bool("swayMask", true); // foliage sway: a byte per 16 x 16 texels says whether a plant can reach it (the composite skips the rest with one cached tap)
    public static final boolean DEV_SWAY_VARIANT_ALL = bool("devSwayVariantAll", false); // dev: every chunk composite draw uses the sway variant while sway is on (no program alternation; textures without plants skip the lookup by a uniform)
