@@ -1226,6 +1226,8 @@ public final class Config {
    public static final int DEV_SSR_VIEW = integer("devSsrView", 0); // dev: 1 = water and puddles show the reflection term alone
    public static final boolean DEV_SSR_NO_PATCH = bool("devSsrNoPatch", false); // dev: the shaders stay stock (cost of the patched programs with the reflections off)
    public static final String DEV_SSR_DUMP_AT = string("devSsrDumpAt", ""); // dev: seconds after the world is up at which the world colour + depth before and after the puddles and the water go to ~/Zomboid/pzopt-ssr/ (pzopt.Ssr)
+   public static final boolean DEV_HDR_FRAME_LOG = bool("devHdrFrameLog", false); // dev: one line per HDR world composite into ~/Zomboid/pzopt-hdrframe.out (epoch ms, the bloom / light / aux / glint state and the sun keys the composite reads; the flip one-frame-dark hunt, 2026-10-02)
+   public static final String DEV_AO_DEFINES = string("devAoDefines", ""); // dev: preprocessor names (comma separated) defined in the chunk AO / sun kernel, e.g. TREE_NO_CLASS, TREE_NO_SKIP, TREE_NO_SUNPATH, TREE_NO_SKY (in-game ablation of the tree terms)
    public static final int DEV_AO_DUMP_TREE = integer("devAoDumpTree", 0); // dev: the first N chunk AO computes with a tree in reach (sunShadowTrees) or in the chunk are dumped like devAoDumpFrame's into ~/Zomboid/pzopt-chunkao/<k>/ (plus raw4: AO, depth, sun, and the source depths + uniforms for harness/trees/tree_rig.py)
    public static final int DEV_AO_DUMP_FRAME = integer("devAoDumpFrame", 0); // dev: on this AO frame the scene depth + colour go to ~/Zomboid/pzopt-ao-*.bin
    public static final boolean DEV_AO_NO_MIPS = bool("devAoNoMips", false); // dev: a deferred chunk AO does not rebuild the texture's mipmaps (cost probe)

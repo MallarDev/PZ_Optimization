@@ -2334,9 +2334,19 @@ public final class ChunkAo {
          return src.replaceFirst("#version 140", "#version 140\n#define " + define);
       }
 
+      /** devAoDefines: the kernel with those names defined (in-game ablation of its terms, the debug views below). */
+      private static String devVariant(String src) {
+         for (String d : Config.DEV_AO_DEFINES.split(",")) {
+            if (!d.isBlank()) {
+               src = variant(src, d.trim());
+            }
+         }
+         return src;
+      }
+
       private boolean init() {
-         this.aoProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, AO_FRAG);
-         this.aoOnlyProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, variant(AO_FRAG, "AO_PASS"));
+         this.aoProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, devVariant(AO_FRAG));
+         this.aoOnlyProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, variant(devVariant(AO_FRAG), "AO_PASS"));
          this.blurProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, BLUR_FRAG);
          this.mulProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, MUL_FRAG);
          this.ratioProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, RATIO_FRAG);
@@ -2952,6 +2962,17 @@ public final class ChunkAo {
       "      else if (kind == 1) { lit = sunVisibility(c, d, Ns, planeS, P, bayer, jitter, ppu, kz, ys, ownTree); sun = 1.0 - sunDir.w * (1.0 - lit); }",
       "      else if (kind == 2) lit = 1.0;",
       "   }",
+      "#endif",
+      // dev views (devAoDefines; the raw sun term replaced): TREE_DEBUG_OWN the texels taken for a tree's card,
+      // TREE_DEBUG_OWNID which tree's card (an id shade), TREE_DEBUG_D0 the depth: 0, within two DEPTH16 steps, then steps mod 16
+      "#ifdef TREE_DEBUG_OWN",
+      "   sun = ownTree >= 0 ? 1.0 : 0.0;",
+      "#endif",
+      "#ifdef TREE_DEBUG_OWNID",
+      "   sun = ownTree >= 0 ? 0.25 + 0.75 * fract(float(ownTree) * 0.618034) : 0.0;",
+      "#endif",
+      "#ifdef TREE_DEBUG_D0",
+      "   sun = d0 < 1e-6 ? 0.0 : d0 < 3.1e-5 ? 0.33 : 0.33 + 0.67 * fract(d0 * 65535.0 / 16.0);",
       "#endif",
       "   result = vec4(ao, d, sun, lit);",
       "}");

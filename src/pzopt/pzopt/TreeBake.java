@@ -151,6 +151,18 @@ public final class TreeBake {
       return ix0 < own.x0 || ix1 > own.x1 || iy0 < own.y0 || iy1 > own.y1;
    }
 
+   /**
+    * treeAppend: may a tree be drawn into a finished texture? Not while a pass keeps per-texel data of the texture's colour:
+    * the chunk AO / sun-shadow term (pzopt.ChunkAo) and the relief code (pzopt.ReliefAux). A deferred AO recompute applies
+    * new / old term to the colour, assuming every texel holds the old term; an appended crown never got it, so it came
+    * out multiplied by 1 / (the term of the ground under it): bright horizontal bands across the crown (the maintainer's
+    * flip report, 2026-10-02, "artifacts in the trees on the right side while driving at max zoom", the 2026-10-01 player
+    * stripes with sunShadows). Those textures re-bake instead, as with treeAppend off.
+    */
+   public static boolean appendAllowed() {
+      return !ChunkAo.enabled() && !ReliefAux.wanted();
+   }
+
    /** Depth step between neighbouring trees of one iso row ({@link #rowStagger}): ~6.5 DEPTH16 steps, a seventh of a square. */
    public static final float ROW_STAGGER_STEP = 1.0E-4F;
 

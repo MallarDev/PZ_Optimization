@@ -3489,7 +3489,7 @@ public final class FBORenderCell {
                // pzopt: treeAppend. A first export (no copy of this chunk's trees in that texture yet, the usual case:
                // a newly loaded chunk next to baked ones while driving) only adds quads on top of a finished texture,
                // so they are drawn into it after the bakes of this frame instead of re-baking the whole texture.
-               if (before == 0 && pzopt.Overrides.enabled() && pzopt.Config.TREE_APPEND
+               if (before == 0 && pzopt.Overrides.enabled() && pzopt.Config.TREE_APPEND && pzopt.TreeBake.appendAllowed() // pzopt: not under AO / sun shadows / relief (their kept per-texel term)
                      && this.pzoptQueueTreeAppend(c, e, minLevel, topLevel, playerIndex, zoom, aiming, camX, camY, tileScale)) {
                   continue;
                }

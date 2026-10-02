@@ -68,6 +68,8 @@ public final class HdrLight {
       final float[] an = new float[MAX * MAX], ar = new float[MAX * MAX], ag = new float[MAX * MAX], ab = new float[MAX * MAX], tmp = new float[MAX * MAX];
       /** Per texel: sun exposure (outdoors x the square's light), blurred; red in the aux map. */
       final float[] sun = new float[MAX * MAX];
+      /** Per texel: its square was read this build. */
+      final boolean[] got = new boolean[MAX * MAX];
       /** Per texel: the ambient reference from that square's own room, never the player's room. */
       final float[] localAmbient = new float[MAX * MAX];
       /** RG16F aux map: sun exposure and local mean linear luminance for night amplification. */
@@ -78,6 +80,8 @@ public final class HdrLight {
       /** window px -> light map UV: u = m[0]*x + m[1]*y + m[2], v = m[3]*x + m[4]*y + m[5] */
       final float[] m = new float[6];
       float ambient;
+      /** devHdrFrameLog: the map's mean sun exposure */
+      float sunMean;
       int counted, maxExcess, lit;
       long buildNs;
 
@@ -106,6 +110,13 @@ public final class HdrLight {
    /** Uploaded coverage in normalized texture coordinates; render thread only. */
    static float mapWidthUV, mapHeightUV;
    static int mapZ, mapW, mapH;
+   /** devHdrFrameLog (render thread): maps uploaded so far, the last one's mean sun exposure and squares read */
+   static int uploads, uploadCounted;
+   static float uploadSunMean;
+   /** Worker thread: the share of the map's squares the last kept build read, consecutive short builds, short builds dropped. */
+   private static float goodFrac;
+   private static int shortBuilds;
+   static volatile int droppedBuilds;
    private static int tex, auxTex;
    static final int AUX_UNIT = 2;
    private static final byte[] ZERO = new byte[MAX * MAX * 4];
@@ -305,6 +316,7 @@ public final class HdrLight {
          d.put(0, ZERO, 0, w * h * 4);
          java.util.Arrays.fill(f.an, 0, w * h, 0F);
          java.util.Arrays.fill(f.sun, 0, w * h, 0F);
+         java.util.Arrays.fill(f.got, 0, w * h, false);
          java.util.Arrays.fill(f.localAmbient, 0, w * h, 1F);
          float ambientSum = 0F;
          int counted = 0;
@@ -386,6 +398,7 @@ public final class HdrLight {
                      f.an[t] = ir * 0.2126F + ig * 0.7152F + ib * 0.0722F;
                      // sunlight reaches squares open to the sky; how much is the square's light (0 in the dark, ~1 by day)
                      f.sun[t] = sq.isOutside() ? Math.max(r, Math.max(g, b)) / 255F : 0F;
+                     f.got[t] = true;
                      f.ar[t] = ir;
                      f.ag[t] = ig;
                      f.ab[t] = ib;
@@ -395,15 +408,47 @@ public final class HdrLight {
          }
          // This mean is diagnostic only. Applying it to all texels would let one room's switch
          // change another room's HDR gain. Each texel below uses its own local reference.
+         // A map that read far fewer squares than the last good one was built while the game thread re-centred the chunk
+         // map (driving across a chunk line: cell.getChunk returns null for most of the grid for a moment). Its missing
+         // squares carry no sun exposure, and the one frame that drew it lost the HDR sun gain everywhere: the whole world
+         // a frame darker about once a second while driving (flip, 2026-10-02: 2,401 squares read normally, 22-1,500 in
+         // those). Drop it (the held map stays, re-projected); a lower count that persists (a world edge) is accepted.
+         float frac = (float)counted / Math.max(1, w * h);
+         if (frac < 0.9F * goodFrac && ++shortBuilds < 3) {
+            droppedBuilds++;
+            f.state.set(Frame.FREE);
+            return;
+         }
+         shortBuilds = 0;
+         goodFrac = frac;
          float amb = counted > 0 ? ambientSum / counted : 1F;
          float hot = Math.max(0F, Math.min(1F, Hdr.tune.lightHot));
          // the per-square light lists are all-or-nothing at a cone's edge or a wall: a separable 5-tap blur (~2 squares)
          // keeps the analytic field from cutting a hard edge into the smooth vertex light (hdrcmp-ours, 09:25)
          blur5(f.an, f.tmp, w, h);
+         // squares not read (an unloaded chunk at the map's edge, a chunk-map shift that a kept map still caught a part of):
+         // the mean sun exposure of the squares read, not 0 (0 took the sun gain away there for the frame)
+         if (counted > 0 && counted < w * h) {
+            double gs = 0.0;
+            for (int i = 0, n = w * h; i < n; i++) {
+               if (f.got[i]) {
+                  gs += f.sun[i];
+               }
+            }
+            float fill = (float)(gs / counted);
+            for (int i = 0, n = w * h; i < n; i++) {
+               if (!f.got[i]) {
+                  f.sun[i] = fill;
+               }
+            }
+         }
          blur5(f.sun, f.tmp, w, h);
+         double sunSum = 0.0;
          for (int i = 0, n = w * h; i < n; i++) {
             f.aux.put(i * 2, clamp255(f.sun[i]) / 255F);
+            sunSum += f.sun[i];
          }
+         f.sunMean = (float)(sunSum / Math.max(1, w * h));
          f.aux.position(0).limit(w * h * 2);
          int maxExcess = 0, lit = 0;
          for (int i = 0, n = w * h; i < n; i++) {
@@ -548,6 +593,9 @@ public final class HdrLight {
       mapWidthUV = sx;
       mapHeightUV = sy;
       mapZ = f.z;
+      uploads++;
+      uploadSunMean = f.sunMean;
+      uploadCounted = f.counted;
       mapW = f.w;
       mapH = f.h;
       publish(f.m, f.w, f.h);

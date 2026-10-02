@@ -5700,3 +5700,43 @@ replayed state threw `texd.vars is null` in the weather composite for a few doze
   area on screen (its instance alone in a `GL_SAMPLES_PASSED` query, read back later, with the epoch); harness
   `--flag explore=walk --flag "walk=x1,y1;x2,y2"` walks the player between points on foot (`walk=probe` logs a map of
   the squares round the player).
+
+## The flip's driving report (2026-10-02): whole-scene flicker (HDR) and striped crowns (treeAppend under AO / sun shadows)
+
+The maintainer's flip (Radeon 890M, Mesa; their save `Sandbox/2026-09-26_03-37-09` and options file: HDR, FSR1, AO, sun
+shadows, pixelLight, relief, ...) while driving through Riverside at max zoom: "heavy flickering of the whole scene" and
+"artifacts in the trees on the right side of the screen" (horizontal bands across crowns). Rigs and numbers:
+`docs/findings-flip-drive-2026-10-02.md`.
+
+### pzopt.HdrLight: a light map read during a chunk-map shift is dropped
+
+The worker builds the HDR light map from the cell's chunks on its own thread. When the car crosses a chunk line the game
+thread re-centres the chunk map and `cell.getChunk` returns null for most of the grid for a moment; a map built then read
+22-1,500 of its 2,401 squares, the missing ones carry no sun exposure (aux red = 0), and the one composite that used it
+lost the HDR sun gain (`hdrSunPct`) everywhere: the world one frame ~12 % darker, ~0.3 times a second (32 frames on the
+94 s town drive, 0 with `hdr=false` or `hdrSunPct=0`). A build that reads under 90 % of the last kept one's share is
+dropped (the held map stays, re-projected); a lower share that persists for three builds (a world edge) is kept. Squares
+a kept map did not read take the mean sun exposure of those it did, not 0. Town drive 32 -> 0 dark frames, frame times
+unchanged. `hdr: light map ... N short maps dropped` in the periodic line.
+
+### pzopt.HdrExposure: the floor comes from the player's z
+
+The sample that selects the light map's floor took it from `player.getCurrentSquare()`, null for a frame now and then
+while driving (10 in 23 s); the sample was then UNAVAILABLE and the composite dropped the aux map for that frame. The
+floor is now `floor(player.getZ())`, as `HdrLight.queue` builds the map. (Not the main cause of the dark frames.)
+
+### zombie.iso.fboRenderChunk.FBORenderCell: no treeAppend while a pass keeps a per-texel term of the texture
+
+`treeAppend` draws a newly arrived chunk's trees into finished neighbour textures. With the chunk AO / sun-shadow term
+(`pzopt.ChunkAo`) on, a texture's later deferred recompute applies new / old term to its colour, assuming every texel
+holds the old term; an appended crown never got it and came out divided by the term of the ground under it: bright
+horizontal bands, several pixels wide, across the crown (in-game ablations: gone with `treeAppend=false`,
+`sunShadowTrees=false`, `sunShadowTreeCards=false` or the kernel's crown sun path off; the kernel's tree classification
+was not it). The append is now refused (`pzopt.TreeBake.appendAllowed()`: not with `ChunkAo.enabled()` or relief, whose
+code is per texel too) and the texture re-bakes as with `treeAppend` off. Forest spot still, crown band energy 8.4 ->
+5.0 (control `sunShadowTrees=false` 5.4, Jev fixed 0.89); flip town drive 86.0 -> 86.2 fps, p99.9 35.4 -> 32.5 ms.
+
+- Dev: `devAoDefines=A,B` defines names in the chunk AO / sun kernel (`TREE_NO_CLASS`, `TREE_NO_SKIP`, `TREE_NO_SUNPATH`,
+  `TREE_NO_SKY`, and the views `TREE_DEBUG_OWN` / `TREE_DEBUG_OWNID` / `TREE_DEBUG_D0` that replace the raw sun term);
+  `devHdrFrameLog=true` writes one line per HDR composite (`pzopt-hdrframe.out`: epoch ms, bloom / aux / light map state,
+  the map's uploads and the last upload's sun mean and squares read).

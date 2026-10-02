@@ -58,6 +58,9 @@ final class HdrExposure {
   // input.
   static Sample current = Sample.UNAVAILABLE;
 
+  /** Game thread: samples whose player square was null / on another level than the player's z (logged with the light map). */
+  static int nullSquares, otherFloor;
+
   private HdrExposure() {}
 
   /** Render thread: do not apply a stale map while the current floor's replacement is building. */
@@ -69,11 +72,21 @@ final class HdrExposure {
    * Game thread: capture the player's floor in draw order. Optionally sample player-local light for
    * diagnostics. The rendering references are built per square by LocalAmbient.
    */
-  static Sample sample(IsoCell cell, IsoGridSquare center, float gamma, boolean diagnostics) {
-    if (cell == null || center == null) {
+  static Sample sample(IsoCell cell, IsoGridSquare center, int floor, float gamma, boolean diagnostics) {
+    if (cell == null) {
       return Sample.UNAVAILABLE;
     }
-    if (!diagnostics) return new Sample(1F, 0, center.x, center.y, center.z);
+    // The floor is the light map's own (HdrLight.queue: floor(player z)), not the square's: while driving the player's
+    // current square is null for a frame now and then (or on another level than its z), and an UNAVAILABLE sample turned
+    // the composite's sun-exposure gain off for that frame: the whole world one frame darker (flip, 2026-10-02).
+    if (center == null) {
+      nullSquares++;
+    } else if (center.z != floor) {
+      otherFloor++;
+    }
+    if (!diagnostics || center == null) {
+      return new Sample(1F, 0, center != null ? center.x : 0, center != null ? center.y : 0, floor);
+    }
     int count = 0;
     double luminance = 0;
     var room = center.getRoom();
@@ -90,7 +103,7 @@ final class HdrExposure {
       }
     }
     return new Sample(
-        count > 0 ? (float) (luminance / count) : 1F, count, center.x, center.y, center.z);
+        count > 0 ? (float) (luminance / count) : 1F, count, center.x, center.y, floor);
   }
 
   /** Cached light before visibility shading. Scratch RGB belongs to the calling thread. */

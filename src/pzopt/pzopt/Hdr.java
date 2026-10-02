@@ -837,6 +837,38 @@ public final class Hdr {
       if (uBloom >= 0) {
          GL20.glUniform1i(uBloom, BLOOM_UNIT);
       }
+      if (Config.DEV_HDR_FRAME_LOG) {
+         frameLog(aux, glint);
+      }
+   }
+
+   // devHdrFrameLog: per composite, what it read (render thread)
+   private static final StringBuilder FRAME_LOG = new StringBuilder();
+   private static int frameLogLines, worldPassRuns, worldPassRunsLogged, composites;
+
+   private static void frameLog(boolean aux, boolean glint) {
+      composites++;
+      int passes = worldPassRuns - worldPassRunsLogged;
+      worldPassRunsLogged = worldPassRuns;
+      float[] m = HdrLight.mapping;
+      FRAME_LOG.append(System.currentTimeMillis()).append(' ').append(composites).append(" passes=").append(passes)
+            .append(" bloom=").append(bloomReady ? 1 : 0).append(" aux=").append(aux ? 1 : 0).append(" ready=").append(HdrLight.ready ? 1 : 0)
+            .append(" mapZ=").append(HdrLight.mapZ).append(" curZ=").append(HdrExposure.current.z).append(" glint=").append(glint ? 1 : 0)
+            .append(" sun=").append(HdrGlint.sunStrength).append(" day=").append(HdrGlint.daylight).append(" flash=").append(flash)
+            .append(" active=").append(active ? 1 : 0).append(" wr=").append(worldRectUv[2]).append(',').append(worldRectUv[3])
+            .append(" map=").append(m[0]).append(',').append(m[1]).append(',').append(m[2]).append(',').append(m[3]).append(',').append(m[4]).append(',').append(m[5])
+            .append(" mapWH=").append(HdrLight.mapWidthUV).append(',').append(HdrLight.mapHeightUV)
+            .append(" uploads=").append(HdrLight.uploads).append(" upSun=").append(HdrLight.uploadSunMean).append(" upCounted=").append(HdrLight.uploadCounted)
+            .append('\n');
+      if (++frameLogLines % 240 == 0) {
+         try {
+            java.nio.file.Files.writeString(java.nio.file.Path.of(zombie.ZomboidFileSystem.instance.getCacheDir(), "pzopt-hdrframe.out"), FRAME_LOG,
+                  java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+         } catch (java.io.IOException e) {
+            Log.warn("hdr frame log: " + e);
+         }
+         FRAME_LOG.setLength(0);
+      }
    }
 
    /**
@@ -930,7 +962,8 @@ public final class Hdr {
          zombie.characters.IsoPlayer player = zombie.characters.IsoPlayer.players[0];
          HdrExposure.Sample exposure = HdrExposure.sample(
                zombie.iso.IsoWorld.instance != null ? zombie.iso.IsoWorld.instance.currentCell : null,
-               player != null ? player.getCurrentSquare() : null, tune.gamma, Config.DEV_HDR_TRACE_MS > 0);
+               player != null ? player.getCurrentSquare() : null, player != null ? (int)Math.floor(player.getZ()) : Integer.MIN_VALUE,
+               tune.gamma, Config.DEV_HDR_TRACE_MS > 0);
          // Select the map's floor in draw order; player-local luminance is diagnostic only.
          SpriteRenderer.instance.drawGeneric(exposure);
          // Local night amplification needs the aux map even when lamp enhancement is disabled.
@@ -963,6 +996,7 @@ public final class Hdr {
    private static final int[] SAVED_VIEWPORT = new int[4];
 
    private static void worldPasses() {
+      worldPassRuns++;
       if (CoreGl.legacyMac()) {
          return; // the stats / bloom passes need GL 3+ (texture storage, VAOs, GLSL 330); not on the macOS legacy 2.1 context
       }
@@ -1389,7 +1423,8 @@ public final class Hdr {
          }
          reloadTune();
          if ((frames % 2400) == 0 && HdrLight.builds > 0) {
-            Log.info(String.format("hdr: light map %.3f ms/frame over %d builds", HdrLight.buildNs / 1e6 / HdrLight.builds, HdrLight.builds));
+            Log.info(String.format("hdr: light map %.3f ms/frame over %d builds, %d short maps dropped; player square null %d, other level %d",
+                  HdrLight.buildNs / 1e6 / HdrLight.builds, HdrLight.builds, HdrLight.droppedBuilds, HdrExposure.nullSquares, HdrExposure.otherFloor));
             HdrLight.buildNs = 0;
             HdrLight.builds = 0;
          }
