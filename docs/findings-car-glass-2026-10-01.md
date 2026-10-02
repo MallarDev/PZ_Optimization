@@ -152,3 +152,21 @@ the depth test per pixel and the stock sky map showed through. Fix: the glass pa
 (-1, -4) (`carGlassDepthOffset`, default on). A per-term cycle on the flip (probe lookups, sky texture, cabin ray-cast off
 in turn) left the flicker in every glass variant and none with the glass off, which is what pointed at the pass itself.
 Window pixels changing per frame on the same walk: 3.38 % without the offset, 0.09 % with it.
+
+## macOS (2026-10-03)
+
+Car glass never ran on a Mac: `CarGlass.active()` and the shader hook excluded macOS outright (the glass was written
+alongside `macGlCore`, which moved every other enhancement's gate to `CoreGl.legacyMac()`). With that gate the glass
+program then failed to link on Apple's GL 4.1: `ERROR: Input of fragment shader 'pzEnv' not written by vertex shader`.
+The vertex patch declared the per-panel environment varying but wrote it only with `carGlassVertexEnv` (off); NVIDIA and
+Mesa accept an unwritten varying, Apple's linker does not. The patch now writes `pzEnv = vec4(0.0)` when the vertex
+environment is off. (The `pz_*` "attribute not found" lines in a macGlCore link log are warnings; read on to the ERROR.)
+
+Mac runs (MacBook Pro M1 Pro, `car_rig=8 car_rig_seat=true zoom=0.5`, `cgmac-seat2`, `cgmac-seat3`, `cgmac-views`): both
+glass programs link, ~20,600 glass draws a run, uniforms ~4 us per car on the render thread; the windows show the tinted
+cabin where stock draws flat blue-grey.
+
+The driver: dev view 5 marks the player's seat as occupied (yellow) and the other three empty, so the cabin ray-cast has
+the occupant. In the picture it is not distinguishable from an empty seat (< 1/255 at the seat, view 3 and view 0): the
+torso box is near black (albedo 0.045, like the seats) and from the iso camera the head sphere sits behind the roof when
+the driver's side faces away. Same on every platform; a visible occupant (clothing / skin colour) is a look change, open.

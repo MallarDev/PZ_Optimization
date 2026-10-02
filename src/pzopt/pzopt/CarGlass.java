@@ -49,21 +49,20 @@ public final class CarGlass {
    private CarGlass() {
    }
 
-   private static final boolean MAC = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("mac");
    static final int SNAP_UNIT = 10;
    static final int PROBE_TILE = 32, PROBE_COLS = 8, PROBE_MAX = PROBE_COLS * PROBE_COLS, PROBE_UNIT = 14;
    private static volatile boolean failed;
    private static long patchedFrag, patchedVert, draws, frames, lodSkipped;
 
    public static boolean active() {
-      return Config.CAR_GLASS && Overrides.enabled() && !MAC && !failed;
+      return Config.CAR_GLASS && Overrides.enabled() && !CoreGl.legacyMac() && !failed; // macOS: the 4.1 core context (macGlCore), not Apple's 2.1 one
    }
 
    // ------------------------------------------------------------------------------------------------ shaders
 
    /** ShaderUnit hook (innermost: the HDR glint patch reads the same final line afterwards). */
    public static String patchShader(String fileName, String code) {
-      if (fileName == null || code == null || MAC || !noCompileCheck && (!Overrides.enabled() || !Config.CAR_GLASS)) {
+      if (fileName == null || code == null || CoreGl.legacyMac() || !noCompileCheck && (!Overrides.enabled() || !Config.CAR_GLASS)) {
          return code;
       }
       String f = fileName.replace('\\', '/');
@@ -117,6 +116,7 @@ public final class CarGlass {
             "\tfloat pzF = clamp(pzGlassFres(clamp(dot(pzN, -pzV), 0.0, 1.0), pzGlassA.y) * pzGlassT.w, 0.0, 1.0);",
             "\tpzEnv = vec4(pzRefl * pzF, pzF);",
             "\t}");
+      else body += "\n\tpzEnv = vec4(0.0); // unread then, but written: Apple's linker refuses a fragment input the vertex stage never writes";
       String c = code.substring(0, main) + decl + code.substring(main, at + anchor.length()) + body + code.substring(at + anchor.length());
       if (!compiles(GL20.GL_VERTEX_SHADER, c, fileName)) {
          return code;
