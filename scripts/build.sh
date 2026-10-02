@@ -113,6 +113,21 @@ if [[ -f "$sh/puddles_common.frag.glsl" && -f "$sh/puddles_common.vert.glsl" ]];
 else
   echo "puddle shaders not found next to the jar; the puddleEarlyZ shaders are not generated" >&2
 fi
+# Car glass programs for Config.carGlass (media/shaders/pzopt_glass_*): plain copies of the installed game's vehicle
+# shaders, so the stock vehicle programs stay exactly the game's (the glass code inflates a program's registers and cut
+# every car fragment's speed to a quarter when it lived in them, 2026-10-01) and only these copies get the glass patch at
+# load time (pzopt.CarGlass.patchShader); Model.drawVehicle draws them over the windows after the stock draw.
+if [[ -f "$sh/vehicle_multiuv.frag" ]]; then
+  osh="$OUT/media/shaders"
+  mkdir -p "$osh"
+  for v in vehicle vehicle_multiuv vehicle_norandom_multiuv vehicle_noreflect vehicle_multiuv_noreflect vehicle_norandom_multiuv_noreflect; do
+    for f in "$v.frag" "$v.vert" "${v}_static.vert"; do
+      [[ -f "$sh/$f" ]] && cp "$sh/$f" "$osh/pzopt_glass_$f"
+    done
+  done
+else
+  echo "vehicle shaders not found next to the jar; the car glass programs are not generated" >&2
+fi
 # Vision-cone blur split for Config.visBlurReduce (media/shaders/pzopt_visBlurReduce.*, pzopt_visibilityBlur.*), derived
 # from the installed game's visibilityBlur shader: its 25-tap sum depends only on the blur-texture texel a screen pixel
 # maps to, so pzopt_visBlurReduce runs the stock loop once per blur texel into a float texture and pzopt_visibilityBlur is

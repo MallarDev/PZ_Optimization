@@ -465,6 +465,7 @@ public final class Scene {
       LightWalk.tick(p, nowNs); // explore=lights: walk, circle, watch; the lights' screen positions
       RoomLightRig.tick(p, nowNs); // room_light=auto: the room light off / on timeline
       ThumpRig.tick(p, nowNs); // thump=N: zombies thumping a door off-screen (the thump-burst repro)
+      CarGlassRig.tick(p, nowNs); // car_rig=N: a ring of parked cars around the player (the car glass rig)
       CarSiege.tick(p, nowNs); // siege=N: zombies around the player's parked car (the "crowd the car, never attack" repro)
       crowdTick(p, nowNs); // crowd=N: a crowd around the player (the capsule shadow rig)
       animalsTick(p, nowNs); // animals=N[:type]: animals around the player (the animal line-of-sight rig; mixed kinds: the detailed shadow rig)
@@ -817,7 +818,7 @@ public final class Scene {
    }
 
    static boolean requested() {
-      return timeOfDay >= 0f || !weather.isEmpty() || fog >= 0f || wind >= 0f || !torch.isEmpty() || visible || population >= 0f || carSpawn > 0 || seeAll || zombiesOff || soundRadius > 0 || helicopter || fires > 0 || !lights.isEmpty() || headlights || puddles >= 0F || SoundProbe.requested();
+      return timeOfDay >= 0f || !weather.isEmpty() || fog >= 0f || wind >= 0f || !torch.isEmpty() || visible || population >= 0f || carSpawn > 0 || seeAll || zombiesOff || soundRadius > 0 || helicopter || fires > 0 || !lights.isEmpty() || headlights || puddles >= 0F || SoundProbe.requested() || CarGlassRig.active();
    }
 
    /** Flag see_all=true: read by the LightingJNI override on every player update (false until apply() ran). */

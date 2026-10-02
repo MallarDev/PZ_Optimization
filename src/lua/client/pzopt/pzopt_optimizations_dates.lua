@@ -313,6 +313,7 @@ PzoptOptionDates = {
     gcG1Cores = "2026-09-23",
     gcMode = "2026-09-23",
     gcPauseMs = "2026-09-23",
+    glassTilesPerFrame = "2026-10-02",
     glNamePool = "2026-09-25",
     glNoSync = "2026-09-25",
     godRays = "2026-09-27",

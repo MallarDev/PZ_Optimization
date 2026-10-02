@@ -1692,7 +1692,7 @@ public final class FBORenderCell {
       this.renderOpaqueObjectsEvent(playerIndex);
       SpriteRenderer.instance.beginProfile(movingObjectsProbe);
       if (!pzopt.ResumeShot.noMoving) { // pzopt: resumeShot's exit capture (below "full"): no vehicles or characters
-      long pzoptMoving = pzopt.GtAb.begin(); pzopt.GpuSections.begin("moving"); /* pzopt: GPU section */ this.renderMovingObjects(); pzopt.GpuSections.end("moving"); pzopt.GtAb.end(pzopt.GtAb.S_MOVING, pzoptMoving); // pzopt: devGtAlternate section timer
+      pzopt.CarGlass.beforeMoving(playerIndex); /* pzopt: car glass, this frame's sky and the cars' snapshots before they draw */ long pzoptMoving = pzopt.GtAb.begin(); pzopt.GpuSections.begin(pzopt.CarGlass.section("moving")); /* pzopt: GPU section */ this.renderMovingObjects(); pzopt.GpuSections.end(pzopt.CarGlass.section("moving")); pzopt.GtAb.end(pzopt.GtAb.S_MOVING, pzoptMoving); // pzopt: devGtAlternate section timer
       }
       pzopt.CapsuleShadow.afterMoving(playerIndex); // pzopt: sunShadowSilhouette, the casters' shadows from their drawn shapes (after they are drawn)
       SpriteRenderer.instance.endProfile(movingObjectsProbe);

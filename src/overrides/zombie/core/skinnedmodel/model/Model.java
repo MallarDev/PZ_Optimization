@@ -563,7 +563,8 @@ public final class Model extends Asset {
             if (effect != null) {
                effect.Start();
                this.setLights(slotData, slotData.effectLights.length);
-               if (effect.isVehicleShader()) {
+               VehicleModelInstance pzoptVmi = null; // pzopt: car glass
+            if (effect.isVehicleShader()) {
                   VehicleModelInstance vmi = (VehicleModelInstance)Type.tryCastTo(inst, VehicleModelInstance.class);
                   if (inst instanceof VehicleSubModelInstance) {
                      vmi = (VehicleModelInstance)Type.tryCastTo(inst.parent, VehicleModelInstance.class);
@@ -615,6 +616,7 @@ public final class Model extends Asset {
                   effect.setMatrixBlood2(vmi.matrixBlood2Enables1, vmi.matrixBlood2Enables2);
                   effect.setTextureRustA(vmi.textureRustA);
                   effect.setTexturePainColor(vmi.painColor, slotData.alpha);
+                  pzoptVmi = vmi; // pzopt: car glass
                   if (this.isStatic) {
                      effect.setTransformMatrix(IDENTITY, false);
                   } else {
@@ -642,6 +644,10 @@ public final class Model extends Asset {
                   pzopt.HdrGlint.vehicleOff(); // pzopt: HDR output
                }
                effect.End();
+               Shader pzoptGlass = pzopt.CarGlass.glassFor(effect, slotData, instData, pzoptVmi); // pzopt: car glass, the windows again with the glass program
+               if (pzoptGlass != null) { // pzopt
+                  this.pzoptDrawGlass(pzoptGlass, slotData, instData, pzoptVmi, ambientR, ambientG, ambientB, tintR, tintG, tintB, targetDepth); // pzopt
+               } // pzopt
             }
 
             if (Core.debug && DebugOptions.instance.model.render.lights.getValue() && instData == slotData.modelData.get(0)) {
@@ -653,6 +659,65 @@ public final class Model extends Asset {
             PZGLUtil.checkGLErrorThrow("Model.drawVehicle Exit inst: %s, instTex: %s, slotData: %s", new Object[]{inst, instTex, slotData});
          }
       }
+   }
+
+   // pzopt: car glass (pzopt.CarGlass): the car body's mesh drawn once more with the glass program, which discards every
+   // texel but the windows' and shades those as glass; the stock draw's uniforms set on it the same way, depth LEQUAL (the
+   // stock draw wrote the same depth)
+   private void pzoptDrawGlass(Shader glass, ModelSlotRenderData slotData, ModelInstanceRenderData instData, VehicleModelInstance vmi, float ambientR,
+         float ambientG, float ambientB, float tintR, float tintG, float tintB, float targetDepth) {
+      glass.Start();
+      if (!pzopt.CarGlass.compact()) {
+         // the stock-based glass program (carGlassCompact=false, A/B) reads the stock uniforms: set them as the stock draw did
+         for (int i = 0; i < 5; i++) {
+            EffectLight el = slotData.effectLights[i];
+            glass.setLight(i, el.x, el.y, el.z, el.r, el.g, el.b, el.radius, slotData.animPlayerAngle, slotData.x, slotData.y, slotData.z, slotData.object);
+         }
+         glass.setTexture(vmi.tex, "Texture0", 0);
+         glass.setTexture(vmi.textureRust, "TextureRust", 1);
+         glass.setTexture(vmi.textureMask, "TextureMask", 2);
+         glass.setTexture(vmi.textureLights, "TextureLights", 3);
+         glass.setTexture(vmi.textureDamage1Overlay, "TextureDamage1Overlay", 4);
+         glass.setTexture(vmi.textureDamage1Shell, "TextureDamage1Shell", 5);
+         glass.setTexture(vmi.textureDamage2Overlay, "TextureDamage2Overlay", 6);
+         glass.setTexture(vmi.textureDamage2Shell, "TextureDamage2Shell", 7);
+         glass.setReflectionParam(SkyBox.getInstance().getTextureShift(), vmi.refWindows, vmi.refBody);
+         glass.setTextureUninstall1(vmi.textureUninstall1);
+         glass.setTextureUninstall2(vmi.textureUninstall2);
+         glass.setTextureLightsEnables1(vmi.textureLightsEnables1);
+         glass.setTextureLightsEnables2(vmi.textureLightsEnables2);
+         glass.setTextureDamage1Enables1(vmi.textureDamage1Enables1);
+         glass.setTextureDamage1Enables2(vmi.textureDamage1Enables2);
+         glass.setTextureDamage2Enables1(vmi.textureDamage2Enables1);
+         glass.setTextureDamage2Enables2(vmi.textureDamage2Enables2);
+         glass.setMatrixBlood1(vmi.matrixBlood1Enables1, vmi.matrixBlood1Enables2);
+         glass.setMatrixBlood2(vmi.matrixBlood2Enables1, vmi.matrixBlood2Enables2);
+         glass.setTextureRustA(vmi.textureRustA);
+         glass.setTexturePainColor(vmi.painColor, slotData.alpha);
+         glass.setAmbient(ambientR, ambientG, ambientB);
+         glass.setTint(tintR, tintG, tintB);
+      }
+      // (the compact program: the stock draw left the textures bound on their units; its samplers keep those units; the
+      // windows' flags, the light and the alpha come with the glass data)
+      if (this.isStatic) {
+         glass.setTransformMatrix(IDENTITY, false);
+      } else {
+         glass.setMatrixPalette(instData.matrixPalette, true);
+      }
+      glass.setTargetDepth(targetDepth);
+      pzopt.CarGlass.draw(glass, slotData, instData, vmi, ambientR, ambientG, ambientB, tintR, tintG, tintB);
+      GL11.glDepthFunc(515);
+      int[] tris = pzopt.CarGlass.glassTriangles(this.mesh, vmi);
+      if (tris != null && this.mesh.vb != null) {
+         boolean blend = this.mesh.vb.BeginDraw(glass);
+         org.lwjgl.opengl.GL15.glBindBuffer(org.lwjgl.opengl.GL15.GL_ELEMENT_ARRAY_BUFFER, tris[0]);
+         GL11.glDrawElements(4, tris[1], 5125, 0L);
+         this.mesh.vb.FinishDraw(glass, blend);
+      } else {
+         this.mesh.Draw(glass);
+      }
+      GL11.glDepthFunc(513);
+      glass.End();
    }
 
    public static void debugDrawAxis(float x, float y, float z, boolean flipX, boolean flipY, boolean flipZ, float length, float thickness) {

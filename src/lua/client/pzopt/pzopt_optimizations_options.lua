@@ -40,8 +40,8 @@ local MASTER = { key = "enabled", label = "Optimizations enabled (master switch)
 -- (Config's GATED list) while the choices below stay saved for when it is on again. Both apply at once; the features
 -- that pick their shaders or window at start-up (NEXT_LAUNCH_ONLY) follow on the next launch.
 local ENHANCEMENTS_MASTER = { key = "enhancementsEnabled", label = "Enhancements enabled (master switch)", live = true,
-  restartKeys = { "hdr", "hdrAuto", "pixelLight", "reflections" },
-  tip = "Off = the picture is the stock game's: upscaling, sprite filtering, HDR output, ambient occlusion, sun shadows, reflections, the darkness floor, remembered places, colour grading, per-pixel lighting, god rays and foliage sway are all off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply. HDR output, per-pixel lighting and reflections switch on the next launch." }
+  restartKeys = { "hdr", "hdrAuto", "pixelLight", "reflections", "carGlass" },
+  tip = "Off = the picture is the stock game's: upscaling, sprite filtering, HDR output, ambient occlusion, sun shadows, reflections, car glass, the darkness floor, remembered places, colour grading, per-pixel lighting, god rays and foliage sway are all off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply. HDR output, per-pixel lighting, reflections and car glass switch on the next launch." }
 local PROFILER_MASTER = { key = "profilerEnabled", label = "Profiler enabled (master switch)", live = true,
   tip = "Off = no performance overlay, no measuring and no frame log: the overlay's samplers never start and the toggle key only says the profiler is off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply." }
 
@@ -876,6 +876,25 @@ local ENHANCEMENT_SECTIONS = {
         },
     },
     {
+        title = "Car glass (windows that reflect the world and show the cabin)", clip = "hdr",
+        entries = {
+            { key = "carGlass", label = "Car glass",
+              tip = "Car windows become glass instead of the stock opaque blue: they mirror the sky (the game's own, with its clouds and sunsets, turned to the real sun), the buildings, trees and road around the car (each car's small reflection probe, marched through the scene before the cars are drawn), and glint where they mirror the sun, the moon, the street lamps and headlights, more at grazing angles (Fresnel); and through them you see the cabin: seats, headrests, the dashboard, the driver and passengers, and the street behind the car where you look out through the far window. Cracks, blood and broken-out windows stay as the game draws them; rain beads on the glass. About a hundredth of a millisecond for a street of parked cars on a fast GPU; nothing when no car is on screen. Windows and Linux (not on macOS, OpenGL 2.1). Turning it on applies on the next launch (the game's vehicle shaders are only patched when it starts with car glass on)." },
+            { key = "carGlassReflectPct", label = "Car glass: reflection strength (%)",
+              choices = { "60", "100", "150", "200" }, note = { ["100"] = "default" },
+              tip = "How strongly the windows mirror (100: real glass, four percent head-on, more at grazing angles; higher reads more like a mirror)." },
+            { key = "carGlassInteriorPct", label = "Car glass: cabin light (%)",
+              choices = { "50", "100", "150", "200" }, note = { ["100"] = "default" },
+              tip = "How bright the inside of the car is behind the glass." },
+            { key = "carGlassSunPct", label = "Car glass: sun and moon glint (%)",
+              choices = { "0", "50", "100", "200" }, note = { ["100"] = "default", ["0"] = "none" },
+              tip = "The sharp highlight where a window mirrors the sun (or the moon at night)." },
+            { key = "carGlassRainPct", label = "Car glass: raindrops (%)",
+              choices = { "0", "50", "100" }, note = { ["100"] = "default", ["0"] = "none" },
+              tip = "Drops beading on the windows of cars standing out in the rain, each a tiny lens that catches the sky and the glints." },
+        },
+    },
+    {
         title = "Wet blood (fresh blood reflects and catches the light)", clip = "hdr",
         entries = {
             { key = "bloodWet", label = "Wet blood",
@@ -1011,6 +1030,8 @@ local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true,
     -- reflections: the water, puddle and chunk composite shaders are patched when the game loads them (only then);
     -- strength and puddles apply at once
     reflections = true,
+    -- car glass: the vehicle shaders are patched when the game loads them (only then); its strengths apply at once
+    carGlass = true,
     -- relief: compiled into the chunk composite programs when the game loads them
     relief = true, reliefDepthPct = true, reliefSunPct = true, reliefTorchShadowSteps = true }
 for _, section in ipairs(ENHANCEMENT_SECTIONS) do
@@ -1501,6 +1522,11 @@ local EFFECTS = {
     sunShadowRate = { render = 1, gpu = 1 },
     cloudShadows = { gpu = 1 },
     reflections = { gpu = 1, vram = 1 },
+    carGlass = { gpu = 1 },
+    carGlassReflectPct = {},
+    carGlassInteriorPct = {},
+    carGlassSunPct = {},
+    carGlassRainPct = {},
     bloodWet = { gpu = 1, cpu = 1 },
     bloodWetMinutes = { gpu = 1 },
     bloodReflectPct = {},
@@ -3426,7 +3452,7 @@ PAGES = {
         tab = ENHANCEMENTS_TAB, sections = ENHANCEMENT_SECTIONS,
         master = ENHANCEMENTS_MASTER, masterField = "pzoptEnhancementMaster", masterClip = "upscale",
         buttons = function(o, splitpoint, y)
-            addResetButton(o, splitpoint, y, "pzoptEnhancementOptions", "Applies as soon as you press Apply; HDR output, per-pixel lighting and reflections on the next launch.", "pzoptEnhancementMaster")
+            addResetButton(o, splitpoint, y, "pzoptEnhancementOptions", "Applies as soon as you press Apply; HDR output, per-pixel lighting, reflections and car glass on the next launch.", "pzoptEnhancementMaster")
             addTransferButtons(o, splitpoint, y)
             addUpscalerDepsButton(o, splitpoint, y)
         end,

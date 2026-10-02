@@ -5642,3 +5642,24 @@ Nothing below changes anything off macOS or with `macGlCore=false`: `CoreGl.wind
   `CoreGl.drawQuads` (a shared quad -> triangle index buffer, `glDrawElementsBaseVertex` at the run's first vertex; the run's
   own indices are sequential by construction) and the renderer's element buffer is bound again; the core profile has no
   `GL_QUADS`, so these runs (corpse / item atlas blits, debug quads) drew nothing.
+### Car glass (`carGlass`, 2026-10-01; `pzopt.CarGlass`, `docs/findings-car-glass-2026-10-01.md`)
+
+Nothing below changes a pixel or a timing while `carGlass` is off (the default): the hooks return at once, no shader is
+patched, the `pzopt_glass_*` copies build.sh installs are never loaded. The game's own vehicle programs are never patched,
+on or off: the glass is a program of its own (inlining it into the stock vehicle shader cut every car fragment's speed to a
+quarter, measured).
+
+- `zombie.core.skinnedmodel.model.Model.DrawVehicle`: the vehicle-shader branch keeps its `VehicleModelInstance` in
+  `pzoptVmi`; after the stock `mesh.Draw` and `effect.End()`, `pzopt.CarGlass.glassFor(effect, slotData, instData, vmi)` returns
+  the glass program for a car body on this frame's list (null for sub-models, cars off screen or too small, glass off) and
+  the new `pzoptDrawGlass` draws the body again with it: the transform / palette and target depth (the compact glass
+  program reads nothing else of the stock uniforms; with `carGlassCompact=false` the stock draw's setters are repeated),
+  `CarGlass.draw` (one upload of the car's glass data, the frame's once), depth func LEQUAL (the stock draw wrote the same
+  depth), and only the mesh's glass triangles (`CarGlass.glassTriangles`: an index buffer per mesh and skin glass map,
+  read back asynchronously) through `VertexBufferObject.BeginDraw` / `glDrawElements` / `FinishDraw`, else the full mesh.
+- `zombie.iso.fboRenderChunk.FBORenderCell` (before `renderMovingObjects`): `pzopt.CarGlass.beforeMoving(playerIndex)` (the
+  frame's sky, sun and cars on screen; queues the probe pass that marches the cars' reflection probes, GPU section
+  `carGlassProbe`); the moving objects' GPU section name goes through `pzopt.CarGlass.section` (`devCarGlassAlternate`:
+  `.cgon` / `.cgoff`).
+- `zombie.core.opengl.ShaderUnit` (compile): `pzopt.CarGlass.patchShader` innermost in the chain; it touches only the
+  `pzopt_glass_*` units (vertex: the chassis-frame position and normal as varyings; fragment: the compact glass program).

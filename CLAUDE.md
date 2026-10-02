@@ -544,6 +544,14 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   alpha-gain with its world passes. Cost at parity with 2.1 (spin 106 vs 107 fps) only with `macGlTimerQueries=false` (the
   default): Apple's GL timer queries cost a third of the frame rate. Mac cost runs need an empty
   `-Dpzopt.userOptionsFile` (the Mac's tab file has the Enhancements on). `run-mac.sh install` now ships pzopt's shader files.
+- Car glass (2026-10-01/02, `docs/findings-car-glass-2026-10-01.md`, worktree `~/pzopt-wt/carglass` branch `car-glass`, off by default,
+  Enhancements tab "Car glass", next launch): car windows become glass (Fresnel, the game's sky texture in the world frame, per-car
+  octahedral reflection probes marched through the scene depth before the vehicles, GGX sun / moon / lamp glints, an analytic cabin
+  with seats and occupants behind the glass, raindrops, stock cracks / blood kept; side mirrors silvered and glass painted outside the window zones, e.g. the CarLuxury coupe's rear
+  quarter windows, found per skin from the diffuse). The game's vehicle programs stay stock: a separate
+  glass program (build.sh's `pzopt_glass_*` copies) redraws only the window triangles. Trap: glass code inlined into the stock vehicle
+  shader made every car fragment ~4x slower (registers). Drive cost ~+15 us GPU. Rig `car_rig=N`; in-run variant cycles
+  `devCarGlassAlternate` + `devCarGlassCycle`; `scripts/test.sh` links the glass programs headless (`/tmp/glslcheck`).
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

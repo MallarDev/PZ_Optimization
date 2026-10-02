@@ -1235,6 +1235,49 @@ public final class Config {
    public static final int SSR_REFINE = integer("ssrRefine", 3); // reflections: binary refinements between the last miss and the hit
    public static final int SSR_THICKNESS_PCT = integer("ssrThicknessPct", 150); // reflections: how far behind a surface the ray may pass and still count it as hit, % of a square
    public static final int SSR_DISTORT_PCT = integer("ssrDistortPct", 100); // reflections: how far the waves displace the reflected image
+   public static final boolean CAR_GLASS = bool("carGlass", false); // car windows reflect the sky, the sun, the lamps and the ground around them and show the cabin behind them (pzopt.CarGlass; the vehicle shaders are patched at launch)
+   public static final boolean CAR_GLASS_SNAP = bool("carGlassSnap", true) && "blit".equals(string("carGlassSnapMode", "live")); // car glass: each car's screen rect of the scene copied before the vehicles draw (the ground it reflects, the scene behind it through the far window)
+   public static final String CAR_GLASS_SNAP_MODE = string("carGlassSnapMode", "live"); // car glass: live = no copy, the world read as drawn (one barrier a frame with probes, else before each car); pass = each car drawn body first (glass discarded), then a texture barrier and the glass reading the world as drawn (no copies); blit = each car's rect copied before the vehicles draw; live = no copy, a texture barrier before each car and the world read as drawn so far; off = neither (sky, glints, cabin only)
+   public static final int CAR_GLASS_SNAP_SCALE_PCT = integer("carGlassSnapScalePct", 100); // car glass: the snapshot copied at most at this % of the screen resolution
+   public static final int CAR_GLASS_SNAP_ATLAS = integer("carGlassSnapAtlas", 2048); // car glass: the snapshot atlas' size (px a side, RGBA8)
+   public static final int CAR_GLASS_SNAP_MARGIN_PCT = integer("carGlassSnapMarginPct", 40); // car glass: how far beyond the car the snapshot reaches, % of a square
+   public static final boolean CAR_GLASS_SKY_TEXTURE = bool("carGlassSkyTexture", true); // car glass: the game's own sky texture (clouds, sunset) in the reflection; false = its gradient alone
+   public static volatile int CAR_GLASS_STRENGTH_PCT; // car glass: 0 = the stock window look, 100 = the glass (live)
+   public static final int CAR_GLASS_F0_PCT = integer("carGlassF0Pct", 4); // car glass: reflectance head-on, % (4 = glass, n 1.52)
+   public static volatile int CAR_GLASS_REFLECT_PCT; // car glass: the Fresnel reflection scaled, % (live)
+   public static final int CAR_GLASS_TRANSMIT_PCT = integer("carGlassTransmitPct", 85); // car glass: light through one pane, %
+   public static final int CAR_GLASS_TINT_PCT = integer("carGlassTintPct", 100); // car glass: the green-grey tint of the pane, %
+   public static final boolean CAR_GLASS_CABIN = bool("carGlassCabin", true); // car glass: the cabin ray-cast behind the glass (seats, occupants, dashboard; false = a flat dark interior)
+   public static volatile int CAR_GLASS_INTERIOR_PCT; // car glass: the cabin's light, % (live)
+   public static volatile int CAR_GLASS_RAIN_PCT; // car glass: raindrops on the windows of a car outdoors in rain (their curved faces reflect the sky and the glints), % of the rain's intensity (0 = none) (live)
+   public static final String CAR_GLASS_SSR_MODE = string("carGlassSsrMode", "probe"); // car glass: probe = a reflection probe per car (octahedral, its directions marched through the scene depth before the vehicles draw), the glass reads it; pixel = every glass pixel marches its own ray
+   public static final int CAR_GLASS_PROBE_HEIGHT_PCT = integer("carGlassProbeHeightPct", 80); // car glass: the probe's centre above the floor, % of the car's height
+   public static final boolean CAR_GLASS_LIVE_READS = bool("carGlassLiveReads", false); // car glass with probes: the glass also reads the world framebuffer as drawn (the scene behind the car through the far window, the ground it mirrors per pixel); false = the probe gives those too
+   public static final boolean CAR_GLASS_COMPACT = bool("carGlassCompact", true); // car glass: the glass program's fragment unit is a compact one (false: the stock vehicle shader with the glass appended, A/B)
+   public static final int CAR_GLASS_MIN_PX = integer("carGlassMinPx", 40); // car glass: a car shorter than this on screen (display px) keeps the stock windows (no glass draw, no probe)
+   public static final boolean CAR_GLASS_EXTRA = bool("carGlassExtra", true); // car glass: glass the artist painted outside the window zones (the CarLuxury coupe's rear quarter windows) and the side mirrors (window-coloured blobs in the door zones) count as glass, found per skin from its diffuse
+   public static final boolean CAR_GLASS_VERTEX_ENV = bool("carGlassVertexEnv", false); // car glass: the reflection lookups and Fresnel per vertex (flat panes under the ortho camera: exact), per pixel only under raindrops; measured a loss on the 4090 (the glass draws are too small to hide the vertex fetches), off
+   public static final boolean CAR_GLASS_WINDOW_TRIS = bool("carGlassWindowTris", true); // car glass: the glass pass draws only the mesh's window triangles (found once per model from its mask texture); false = the whole mesh, the rest discarded
+   static volatile boolean carGlassWindowTrisFailed;
+   public static final boolean CAR_GLASS_PROBE_PARALLAX = bool("carGlassProbeParallax", true); // car glass: probe lookups corrected for the texel's offset from the probe centre (the hit distance in the probe's alpha; one more fetch)
+   public static final int CAR_GLASS_PROBE_EVERY = integer("carGlassProbeEvery", 8); // car glass: the probes are marched again every N frames (all at once; a moving car's every other frame)
+   public static final int CAR_GLASS_PROBE_MOVING_EVERY = integer("carGlassProbeMovingEvery", 4); // car glass: a moving car's probe is marched every N frames
+   public static final boolean CAR_GLASS_FRAME_BARRIER = bool("carGlassFrameBarrier", false); // car glass (dev): a texture barrier before the vehicles (the live world's coherence for the glass's reads)
+   public static final int CAR_GLASS_SSR_STEPS = integer("carGlassSsrSteps", 12); // car glass: screen-space reflection march steps through the scene depth (0 = the sky and the ground plane only)
+   public static final int CAR_GLASS_SSR_REACH_PCT = integer("carGlassSsrReachPct", 1000); // car glass: how far the reflected ray is marched, % of a square
+   public static final int CAR_GLASS_SSR_THICKNESS_PCT = integer("carGlassSsrThicknessPct", 150); // car glass: how far behind a surface the ray may pass and still hit it (x + y + 2z units), %
+   public static volatile int CAR_GLASS_SUN_PCT; // car glass: the sun / moon glint, % (live)
+   public static final int CAR_GLASS_SUN_ROUGH_PCT = integer("carGlassSunRoughPct", 4); // car glass: the sun glint's GGX roughness, % (the disk's size on glass)
+   public static final int CAR_GLASS_LAMP_ROUGH_PCT = integer("carGlassLampRoughPct", 12); // car glass: the lamps' glint roughness, %
+   public static final float CAR_GLASS_SEAT_FWD = integer("carGlassSeatFwd", 1) < 0 ? -1F : 1F; // car glass (dev): the chassis axis the seats face, +1 = +z
+   public static final int CAR_GLASS_SEAT_HIP_PCT = integer("carGlassSeatHipPct", 15); // car glass (dev): the seat's hip point above the script's inside position, % of a square
+   public static final int CAR_GLASS_CABIN_Y_PCT = integer("carGlassCabinYPct", 0); // car glass (dev): script chassis positions -> render frame, vertical offset, % of a square
+   public static final int CAR_GLASS_GROUND_OFFSET_PCT = integer("carGlassGroundOffsetPct", 0); // car glass (dev): the reflected ground plane moved up, % of a square
+   public static final int DEV_CAR_GLASS_VIEW = integer("devCarGlassView", 0); // dev: car glass shows 1 normal, 2 reflection, 3 cabin, 4 chassis position, 5 seats, 6 Fresnel x4, 7 snapshot, 8 glints, 9 see-through / drop / probe, 10 every car texel by its glass class (window red, extra glass green, mirror cyan, unmarked blue, other zones grey), 11 the diffuse with the glass tinted
+   public static final int DEV_CAR_GLASS_VIEW_CYCLE = integer("devCarGlassViewCycle", 0); // dev: the car glass dev view steps 0..9 every N ms (logged with its epoch)
+   public static final int DEV_CAR_GLASS_SKIP = integer("devCarGlassSkip", 0); // dev: car glass cost probes, bits: 1 no probe pass, 2 the probe framebuffer switch without the draw, 4 the probe draw without world reads, 8 the glass without live world reads, 16 no cabin ray-cast, 32 no probe lookups, 64 no sky texture, 128 no lamp glints, 256 the glass draw alone (constant colour), 512 the environment per pixel (not per vertex)
+   public static final String DEV_CAR_GLASS_CYCLE = string("devCarGlassCycle", ""); // dev: with devCarGlassAlternate, one entry per period: off (glass off) or devCarGlassSkip bits; GPU sections tagged .cg<entry>
+   public static final int DEV_CAR_GLASS_ALTERNATE = integer("devCarGlassAlternate", 0); // dev: car glass on / off every N ms in one run (GPU sections "moving" / "carGlassSnap" split .cgon / .cgoff with gpuSections=true)
    public static volatile int HDR_UI_NITS; // UI / SDR white on the panel in cd/m², 0 = the desktop's reference white
    public static volatile int HDR_PAPER_PCT; // world paper white, % of the UI white (lower = more room for highlights)
    public static volatile int HDR_PEAK_NITS; // brightest highlight in cd/m², 0 = the panel's peak
@@ -1374,6 +1417,11 @@ public final class Config {
       String plant = raw("aoStrengthPlantPct");
       AO_STRENGTH_PLANT_PCT = register("aoStrengthPlantPct", plant == null ? AO_STRENGTH_VEGETATION_PCT : parseInt("aoStrengthPlantPct", plant, AO_STRENGTH_VEGETATION_PCT), 100);
       SSR = bool("reflections", false);
+      CAR_GLASS_STRENGTH_PCT = Math.max(0, Math.min(400, integer("carGlassStrengthPct", 100)));
+      CAR_GLASS_RAIN_PCT = Math.max(0, Math.min(400, integer("carGlassRainPct", 100)));
+      CAR_GLASS_SUN_PCT = Math.max(0, Math.min(400, integer("carGlassSunPct", 100)));
+      CAR_GLASS_INTERIOR_PCT = Math.max(0, Math.min(400, integer("carGlassInteriorPct", 100)));
+      CAR_GLASS_REFLECT_PCT = Math.max(0, Math.min(400, integer("carGlassReflectPct", 100)));
       SSR_STRENGTH_PCT = Math.max(0, Math.min(100, integer("reflectionStrengthPct", 45)));
       SSR_PUDDLES = bool("reflectionPuddles", true);
       BLOOD_WET = bool("bloodWet", false);
@@ -1543,7 +1591,7 @@ public final class Config {
          // the switch of each feature on the Enhancements tab; the rest of each section only tunes it
          {"enhancementsEnabled", "upscaler", "off", "spriteFilter", "stock", "hdr", "false", "hdrAuto", "false",
             "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "bloodWet", "false", "darknessFloorPct", "0",
-            "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false", "relief", "false"},
+            "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false", "relief", "false", "carGlass", "false"},
          // everything that makes the overlay measure or show (Overlay.configure; harness runs still measure)
          {"profilerEnabled", "overlaySampling", "false", "overlay", "false", "overlayLog", "false"},
       };
