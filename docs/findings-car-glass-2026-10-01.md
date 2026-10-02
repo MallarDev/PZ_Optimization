@@ -142,3 +142,13 @@ are shaded silvered (75 % reflection at every angle, nothing through). Until a s
 skin) the car keeps the stock windows. `tests/pzopt/CarGlassTest` runs the classifier on the game's own textures (the
 coupe: 946 extra texels = the two quarter windows, 791 mirror). Cost on 18 distinct models + the save's cars at zoom 1:
 +66 us (the same per car as before, desktop under load), probe pass 2.7 us a frame. Key `carGlassExtra` (default on).
+
+## Window flicker on Mesa (2026-10-02)
+
+The maintainer's flip (Radeon 890M, Mesa 26.2) showed parked cars' windows "flickering like crazy": the glass pass drew at
+GL_LEQUAL over the stock window, and Mesa compiled the glass copy's depth a rounding step off the stock program's (no
+`invariant gl_Position`; the copy computes `transform * position` once more for the chassis position), so the glass lost
+the depth test per pixel and the stock sky map showed through. Fix: the glass pass draws with a polygon offset of
+(-1, -4) (`carGlassDepthOffset`, default on). A per-term cycle on the flip (probe lookups, sky texture, cabin ray-cast off
+in turn) left the flicker in every glass variant and none with the glass off, which is what pointed at the pass itself.
+Window pixels changing per frame on the same walk: 3.38 % without the offset, 0.09 % with it.

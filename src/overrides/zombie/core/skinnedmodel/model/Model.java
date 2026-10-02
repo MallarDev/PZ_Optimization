@@ -707,6 +707,11 @@ public final class Model extends Asset {
       glass.setTargetDepth(targetDepth);
       pzopt.CarGlass.draw(glass, slotData, instData, vmi, ambientR, ambientG, ambientB, tintR, tintG, tintB);
       GL11.glDepthFunc(515);
+      boolean pzoptOffset = pzopt.Config.CAR_GLASS_DEPTH_OFFSET; // pzopt: the glass over its own window whatever the driver's rounding (Mesa: the copy's depth a step off, LEQUAL failed per pixel)
+      if (pzoptOffset) { // pzopt
+         GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL); // pzopt
+         GL11.glPolygonOffset(-1.0F, -4.0F); // pzopt
+      } // pzopt
       int[] tris = pzopt.CarGlass.glassTriangles(this.mesh, vmi);
       if (tris != null && this.mesh.vb != null) {
          boolean blend = this.mesh.vb.BeginDraw(glass);
@@ -716,6 +721,10 @@ public final class Model extends Asset {
       } else {
          this.mesh.Draw(glass);
       }
+      if (pzoptOffset) { // pzopt
+         GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL); // pzopt
+         GL11.glPolygonOffset(0.0F, 0.0F); // pzopt
+      } // pzopt
       GL11.glDepthFunc(513);
       glass.End();
    }

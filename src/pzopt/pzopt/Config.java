@@ -1267,6 +1267,7 @@ public final class Config {
    public static final boolean CAR_GLASS_PROBE_PARALLAX = bool("carGlassProbeParallax", true); // car glass: probe lookups corrected for the texel's offset from the probe centre (the hit distance in the probe's alpha; one more fetch)
    public static final int CAR_GLASS_PROBE_EVERY = integer("carGlassProbeEvery", 8); // car glass: the probes are marched again every N frames (all at once; a moving car's every other frame)
    public static final int CAR_GLASS_PROBE_MOVING_EVERY = integer("carGlassProbeMovingEvery", 4); // car glass: a moving car's probe is marched every N frames
+   public static final boolean CAR_GLASS_DEPTH_OFFSET = bool("carGlassDepthOffset", true); // car glass: the glass pass drawn with a polygon offset towards the camera (Mesa compiles the glass copy's depth a rounding step off the stock draw's: the LEQUAL test then failed per pixel, the windows flickered; false = the plain LEQUAL pass, A/B)
    public static final boolean CAR_GLASS_FRAME_BARRIER = bool("carGlassFrameBarrier", false); // car glass (dev): a texture barrier before the vehicles (the live world's coherence for the glass's reads)
    public static final int CAR_GLASS_SSR_STEPS = integer("carGlassSsrSteps", 12); // car glass: screen-space reflection march steps through the scene depth (0 = the sky and the ground plane only)
    public static final int CAR_GLASS_SSR_REACH_PCT = integer("carGlassSsrReachPct", 1000); // car glass: how far the reflected ray is marched, % of a square

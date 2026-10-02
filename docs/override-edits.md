@@ -5664,6 +5664,16 @@ quarter, measured).
 - `zombie.core.opengl.ShaderUnit` (compile): `pzopt.CarGlass.patchShader` innermost in the chain; it touches only the
   `pzopt_glass_*` units (vertex: the chassis-frame position and normal as varyings; fragment: the compact glass program).
 
+Window flicker on the flip (2026-10-02, maintainer's save Sandbox/2026-09-26_03-37-09, Radeon 890M / Mesa 26.2): the glass pass
+(`Model.pzoptDrawGlass`) redraws the window triangles with GL_LEQUAL against the depth the stock body draw wrote, but the
+glass program is a different program (the patched `pzopt_glass_*` vertex copy computes `transform * position` again for
+`pzGP`) and nothing declares `gl_Position` invariant, so Mesa's depth came out a rounding step off: per pixel and per frame
+the glass lost the test and the stock window's striped sky map showed through (halftone dots, staircases, whole panes
+toggling as the camera moved). `Model.pzoptDrawGlass` now draws the glass with `glPolygonOffset(-1, -4)` (key
+`carGlassDepthOffset`, default on; false = the old pass). Same build, same walk, 1:1 capture of three parked cars: window
+pixels changing per frame 3.38 % (p90 9.6 %) with the offset off, 0.09 % (p90 0.27 %) with it on (runs `cgfix-off` /
+`cgfix-on`; `cgflick-*` = the repro and the per-term cycle, which ruled out probe, sky texture and cabin).
+
 ### Model re-dress order and the fence height of the sun share (2026-10-02; `pzopt.ModelInitOrder`, `pzopt.SunShadow`)
 
 A player report ("8 errors", the character's shadow lost while walking). The errors were render-thread exceptions:

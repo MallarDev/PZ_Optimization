@@ -66,6 +66,7 @@ PzoptOptionClasses = {
     carGlassCabin = { "pzopt.CarGlass" },
     carGlassCabinYPct = { "pzopt.CarGlass" },
     carGlassCompact = { "pzopt.CarGlass" },
+    carGlassDepthOffset = { "Model" },
     carGlassExtra = { "pzopt.CarGlass" },
     carGlassF0Pct = { "pzopt.CarGlass" },
     carGlassFrameBarrier = { "pzopt.CarGlass" },
