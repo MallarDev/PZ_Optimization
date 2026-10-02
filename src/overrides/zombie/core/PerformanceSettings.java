@@ -161,6 +161,12 @@ public final class PerformanceSettings {
       return pzopt.ModCompat.summary();
    }
 
+   // pzopt: the main menu's "PZ Optimization mod compatibility check" (media/lua/client/pzopt/pzopt_mainscreen_compat.lua):
+   // the launch's scan per jar file, tab-separated lines (pzopt.ModCompat.details).
+   public String getPzoptModCompatDetails() {
+      return pzopt.ModCompat.details();
+   }
+
    /** "" removes the key (default on the next launch). */
    public void setPzoptOption(String key, String value) {
       if (pzopt.Config.knows(key)) {
@@ -207,7 +213,7 @@ public final class PerformanceSettings {
       pzopt.GifTextures.releaseAll();
    }
 
-   // pzopt: the main menu's "Update PZ Optimization" item (media/lua/client/pzopt/pzopt_mainscreen_update.lua)
+   // pzopt: the main menu's "PZ Optimization update" item (media/lua/client/pzopt/pzopt_mainscreen_update.lua)
    // polls pzopt.Updater through these: one release check per boot, then the download + install on a
    // daemon thread; state names in Updater.State. The game restarts to load the new classes.
    public void pzoptUpdateCheck() {

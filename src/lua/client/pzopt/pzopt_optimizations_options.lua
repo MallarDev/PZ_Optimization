@@ -444,11 +444,14 @@ local SECTIONS = {
     {
         title = "Mod compatibility", clip = "spin",
         entries = {
+            { key = "modProfile", label = "Mods: max performance or max compatibility",
+              choices = { "performance", "compatibility" }, note = { ["performance"] = "max performance" },
+              tip = "Sets the two settings below at once (also from the main menu's PZ OPTIMIZATION MOD COMPATIBILITY CHECK). Performance (default): Java mods are checked and listed but switch nothing off, and windows mods draw in are reused like the game's own. Compatibility: the settings a Java mod patches are switched off so the mod meets the code its author tested, and windows mods draw in are redrawn at the game's own rate. A value you pick for either setting below still wins. Applies on the next launch." },
             { key = "modCompat", label = "Java mods: switch off what they patch",
-              choices = { "auto", "report", "off" }, note = { ["auto"] = "default" },
-              tip = "PZ Optimization ships whole game classes; a Java mod (a ZombieBuddy mod, or a -javaagent such as PZMulticore) patches methods of the same classes. At launch the mods' jars are read: where one patches a method we changed, the settings that live in that method are switched off, so the mod meets the code its author tested. Mods tested together with ours keep everything. Your own choice on this tab still wins. Report = only list them (Zomboid/pzopt/mod-compat.txt and the console); off = no check. Applies on the next launch." },
+              choices = { "auto", "report", "off" }, note = { ["auto"] = "max compatibility", ["report"] = "max performance" },
+              tip = "PZ Optimization ships whole game classes; a Java mod (a ZombieBuddy mod, or a -javaagent such as PZMulticore) patches methods of the same classes. At launch the mods' jars are read: where one patches a method we changed, the settings that live in that method are switched off, so the mod meets the code its author tested. Mods tested together with ours keep everything. Your own choice on this tab still wins. Report = only list them (Zomboid/pzopt/mod-compat.txt, the console and the main menu's mod compatibility check); off = no check. The default follows Mods: max performance (report) or max compatibility (auto). Applies on the next launch." },
             { key = "uiRetainedMods", label = "UI: reuse windows that mods draw in",
-              tip = "Windows and buttons that carry a mod's drawing (a mod's own window, or a game window whose drawing a mod replaced or extended) are redrawn at the game's own rate, because a mod may draw from state the reuse cannot see. On = reuse them like the game's own windows (faster, but a mod's display can lag by up to a second). Applies on the next launch." },
+              tip = "Windows and buttons that carry a mod's drawing (a mod's own window, or a game window whose drawing a mod replaced or extended). On = reused like the game's own windows (faster, but a mod's display can lag by up to a second, because a mod may draw from state the reuse cannot see); off = redrawn at the game's own rate. The default follows Mods: on for max performance, off for max compatibility. Applies on the next launch." },
             { key = "luaWorkerGate", label = "Lua from helper threads runs on the game thread",
               tip = "With zombie updates spread over helper threads, a mod's Lua the update reaches (a zombie trampling a crop runs the farming mod code, a mod hooked into the zombie update) ran on the helper thread, beside the game's own Lua: an error \"Lua code called from the wrong thread\" and, at worst, a broken Lua stack. With this on such calls run on the game thread, in the game's order. Applies on the next launch." },
         },
@@ -555,7 +558,7 @@ local SECTIONS = {
         title = "Updates", clip = "load",
         entries = {
             { key = "updateCheck", label = "Offer new releases in the main menu",
-              tip = "Once per boot the main menu asks the GitHub releases (one request to api.github.com) whether a newer build for this game revision exists. The \"UPDATE PZ OPTIMIZATION\" item between Credits and Exit is greyed out while the build is current and enabled when a newer one exists: it downloads the zip, replaces the installed files and asks to quit so the next launch loads them. Nothing is downloaded without that click. Applies on the next launch." },
+              tip = "Once per boot the main menu asks the GitHub releases (one request to api.github.com) whether a newer build for this game revision exists. The \"PZ OPTIMIZATION UPDATE\" item between Credits and Exit is greyed out while the build is current and enabled when a newer one exists: it downloads the zip, replaces the installed files and asks to quit so the next launch loads them. Nothing is downloaded without that click. Applies on the next launch." },
             { key = "updatePrefetch", label = "Get an offered update ready in the background",
               tip = "When the check finds a newer build, the files that differ from the installed ones are fetched right away (a release apart is usually a few files, tens of KB, read out of the release zip with range requests; the whole zip is never downloaded without the click), so Update now only writes them: a few milliseconds instead of downloading and unpacking 59 MB. Needs the first setting. Applies on the next launch." },
             { key = "updateFromWorkshop", label = "Update from the Steam Workshop copy",
@@ -1165,6 +1168,21 @@ local function perf()
     return getPerformance()
 end
 
+-- The tab label and section title of a key (nil when the tab has no row for it), for the main menu's mod compatibility
+-- check (pzopt_mainscreen_compat.lua).
+function PzoptOptionLabel(key)
+    for _, list in ipairs({ SECTIONS, ENHANCEMENT_SECTIONS, PROFILER_SECTIONS }) do
+        for _, section in ipairs(list) do
+            for _, entry in ipairs(section.entries or {}) do
+                if entry.key == key and type(entry.label) == "string" then
+                    return entry.label, section.title
+                end
+            end
+        end
+    end
+    return nil
+end
+
 -- The value the next launch will read: pinned > saved > default.
 -- "" or why mod compatibility switched the key off at this launch (pzopt.ModCompat: a Java mod patches its method)
 local function compatReason(key)
@@ -1591,6 +1609,7 @@ local EFFECTS = {
     uiRetainedChildren = { cpu = -1 },
     uiTickStagger = {},
     uiLuaFast = { cpu = -1 },
+    modProfile = { cpu = -1 },
     modCompat = {},
     uiRetainedMods = { cpu = -1 },
     luaWorkerGate = {},

@@ -502,7 +502,7 @@ bash ~/Library/Application\ Support/Steam/steamapps/workshop/content/108600/3805
 ```
 
 The script finds the unpacked `pzopt-classes/` folder next to itself and installs from it,
-no download. Updates: the main menu's UPDATE PZ OPTIMIZATION item copies a newer Workshop
+no download. Updates: the main menu's PZ OPTIMIZATION UPDATE item copies a newer Workshop
 download over the installed files, no installer run needed. Item layout and upload procedure:
 [`docs/workshop.md`](docs/workshop.md).
 
@@ -627,7 +627,7 @@ deleted by hand; without the overrides the game uses whatever its own `options.i
 ### Updating the mod
 
 Once installed by either script (Workshop copy or release download), the game updates it
-by itself: the main menu has an **UPDATE PZ OPTIMIZATION** item between CREDITS and QUIT,
+by itself: the main menu has an **PZ OPTIMIZATION UPDATE** item between CREDITS and QUIT,
 styled like the stock ones, greyed out while your build is current. Once per boot the menu
 checks the GitHub releases and, when a newer build for your game revision exists, the item
 lights up. It opens a dialog with the installed and offered builds and

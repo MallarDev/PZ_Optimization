@@ -22,7 +22,7 @@ Or run install.ps1 / install.bash from this item's folder (steamapps/workshop/co
 [b]Uninstall before you unsubscribe:[/b] unsubscribing deletes this item, not the installed files. Already unsubscribed, or no game? The one-line installer with -Uninstall: [code]& ([scriptblock]::Create((irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1))) -Uninstall[/code] (Linux, macOS: the curl line ending in [b]| bash -s -- --uninstall[/b]).
 
 [h1]Updates[/h1]
-No need to run the installer again: the main menu shows UPDATE PZ OPTIMIZATION when a new build is out (copied from this item's download or GitHub, only the changed files), then Restart game. Off in Options > Optimizations > Updates. After a game update the old build can stop the game at start: run the installer again once the new build is out.
+No need to run the installer again: the main menu shows PZ OPTIMIZATION UPDATE when a new build is out (copied from this item's download or GitHub, only the changed files), then Restart game. Off in Options > Optimizations > Updates. After a game update the old build can stop the game at start: run the installer again once the new build is out.
 
 [url=https://github.com/xD3I/PZ_Optimization#readme][img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/00-showcase-thumbnail.gif[/img][/url]
 [i]Uncapped at 5120x2160, the in-game overlay (F9 / L3 + R3) live at the bottom; video on the repository page.[/i]

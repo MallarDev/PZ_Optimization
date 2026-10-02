@@ -67,12 +67,18 @@ public final class ModCompat {
    /** One place a mod touches a class we ship. */
    static final class Hit {
       final String source; // mod id, or the agent jar's file name
+      final String jar; // the jar file's name (null in tests)
       final String cls; // internal name, zombie/iso/IsoChunk
       final String method; // null: the class only (a transformer naming it, no method found)
       final String how;
 
       Hit(String source, String cls, String method, String how) {
+         this(source, null, cls, method, how);
+      }
+
+      Hit(String source, String jar, String cls, String method, String how) {
          this.source = source;
+         this.jar = jar;
          this.cls = cls;
          this.method = method;
          this.how = how;
@@ -86,6 +92,13 @@ public final class ModCompat {
    private static final List<String> report = new ArrayList<>();
    private static final Map<String, String> reasons = new TreeMap<>(); // key -> why compat switched it off
    private static final List<String> notes = new ArrayList<>(); // one line per mod for the tab
+   private static final Map<String, List<File>> scanned = new LinkedHashMap<>(); // source -> its jars, for the menu's check
+   private static final List<Hit> found = new ArrayList<>();
+   private static final Map<String, String> verdicts = new LinkedHashMap<>(); // source -> "<status>\t<keys>"
+   private static final Map<String, Boolean> agents = new HashMap<>(); // source -> loaded with -javaagent
+   private static final List<String> problems = new ArrayList<>(); // jars or files the scan could not read
+   private static Map<String, Map<String, String[]>> editedSeen = new HashMap<>();
+   private static int enabledCount;
    private static String mode = "auto";
    private static long scanMs;
    private static boolean logged;
@@ -107,14 +120,17 @@ public final class ModCompat {
          Set<String> shadowed = shadowedClasses();
          List<Hit> hits = new ArrayList<>();
          Map<String, String> policy = knownPolicies();
-         for (Map.Entry<String, List<File>> src : sources().entrySet()) {
+         editedSeen = edited;
+         scanned.putAll(sources());
+         for (Map.Entry<String, List<File>> src : scanned.entrySet()) {
             for (File jar : src.getValue()) {
                scanJar(src.getKey(), jar, shadowed, edited, hits);
             }
          }
+         found.addAll(hits);
          apply(hits, edited, policy, out);
       } catch (Throwable t) {
-         report.add("mod compat: scan failed (" + t + "); nothing switched");
+         problem("mod compat: scan failed (" + t + "); nothing switched");
       }
       scanMs = (System.nanoTime() - t0) / 1_000_000L;
       writeReport();
@@ -142,6 +158,45 @@ public final class ModCompat {
       return String.join("\n", notes);
    }
 
+   /**
+    * The main menu's compatibility check (pzopt_mainscreen_compat.lua): one tab-separated line per fact, the Lua groups
+    * them by jar file. {@code scan mode ms enabledMods} / {@code problem text} / {@code mod source agent|mod status keys}
+    * (status ok, off, report, edits, none) / {@code jar source fileName path} / {@code hit source fileName Class.method
+    * edited|stock|class how keys}; one hit line per distinct place a jar patches.
+    */
+   public static String details() {
+      StringBuilder b = new StringBuilder();
+      b.append("scan\t").append(mode).append('\t').append(scanMs).append('\t').append(enabledCount).append('\n');
+      for (String p : problems) {
+         b.append("problem\t").append(p.replace('\t', ' ').replace('\n', ' ')).append('\n');
+      }
+      for (Map.Entry<String, List<File>> e : scanned.entrySet()) {
+         String source = e.getKey();
+         b.append("mod\t").append(source).append('\t').append(agents.getOrDefault(source, false) ? "agent" : "mod").append('\t')
+               .append(verdicts.getOrDefault(source, "none\t")).append('\n');
+         for (File jar : e.getValue()) {
+            b.append("jar\t").append(source).append('\t').append(jar.getName()).append('\t').append(jar.getPath()).append('\n');
+            Set<String> seen = new HashSet<>();
+            for (Hit h : found) {
+               if (!h.source.equals(source) || !jar.getName().equals(h.jar) || !seen.add(h.where())) {
+                  continue;
+               }
+               Map<String, String[]> methods = editedSeen.get(h.cls);
+               String kind = h.method == null ? "class" : methods != null && methods.containsKey(h.method) ? "edited" : "stock";
+               String keys = kind.equals("edited") ? String.join(",", methods.get(h.method)) : "";
+               b.append("hit\t").append(source).append('\t').append(jar.getName()).append('\t').append(h.where()).append('\t')
+                     .append(kind).append('\t').append(h.how).append('\t').append(keys).append('\n');
+            }
+         }
+      }
+      return b.toString();
+   }
+
+   private static void problem(String line) {
+      report.add(line);
+      problems.add(line.startsWith("mod compat: ") ? line.substring("mod compat: ".length()) : line);
+   }
+
    // ── policy ─────────────────────────────────────────────────────────────────────────────────────────────────
 
    /** ModCompatTest: the policy alone, under a given modCompat mode. */
@@ -149,6 +204,7 @@ public final class ModCompat {
       mode = m;
       reasons.clear();
       notes.clear();
+      verdicts.clear();
       apply(hits, edited, policy, out);
    }
 
@@ -201,9 +257,12 @@ public final class ModCompat {
             line.append(editedHits.isEmpty() && stockHits.isEmpty() ? "" : "; ").append("names ").append(classOnly).append(" (method unknown)");
          }
          String verdict;
+         String status;
          if (rule.equals("ok")) {
             verdict = "known compatible";
+            status = "ok";
          } else if (switching) {
+            status = "off";
             verdict = "switched off: " + String.join(",", keys);
             for (String k : keys) {
                out.setProperty(k, "false");
@@ -212,9 +271,12 @@ public final class ModCompat {
             }
          } else if (keys.isEmpty()) {
             verdict = editedHits.isEmpty() ? "nothing of ours to switch" : "edits without a switch, left as is";
+            status = editedHits.isEmpty() ? "none" : "edits";
          } else {
             verdict = "report only (modCompat=" + mode + "), would switch off " + String.join(",", keys);
+            status = "report";
          }
+         verdicts.put(source, status + "\t" + (rule.equals("ok") ? "" : String.join(",", keys)));
          line.append(" -> ").append(verdict);
          report.add(line.toString());
          notes.add(source + ": " + (rule.equals("ok") ? "tested with ours" : switching ? keys.size() + " setting(s) off: " + String.join(", ", keys)
@@ -237,7 +299,7 @@ public final class ModCompat {
             }
             report.add("mod compat: rules from " + user + ": " + p);
          } catch (IOException e) {
-            report.add("mod compat: could not read " + user + ": " + e);
+            problem("mod compat: could not read " + user + ": " + e);
          }
       }
       return m;
@@ -300,13 +362,17 @@ public final class ModCompat {
                int eq = path.indexOf('=');
                File jar = new File(eq >= 0 ? path.substring(0, eq) : path);
                String owner = ownerMod(jar, modDirs);
-               out.computeIfAbsent(owner != null ? owner : jar.getName(), k -> new ArrayList<>()).add(jar);
+               String source = owner != null ? owner : jar.getName();
+               out.computeIfAbsent(source, k -> new ArrayList<>()).add(jar);
+               agents.put(source, true);
             }
          }
       } catch (Throwable t) {
-         report.add("mod compat: JVM arguments unreadable (" + t + ")");
+         problem("mod compat: JVM arguments unreadable (" + t + ")");
       }
-      for (String id : enabledMods()) {
+      List<String> enabled = enabledMods();
+      enabledCount = enabled.size();
+      for (String id : enabled) {
          File dir = modDirs.get(id);
          if (dir == null) {
             continue;
@@ -362,7 +428,7 @@ public final class ModCompat {
             }
          }
       } catch (IOException e) {
-         report.add("mod compat: could not read " + f + ": " + e);
+         problem("mod compat: could not read " + f + ": " + e);
       }
       return ids;
    }
@@ -452,18 +518,23 @@ public final class ModCompat {
                continue;
             }
             try (InputStream in = zip.getInputStream(e)) {
-               scanClass(source, in.readAllBytes(), shadowed, edited, hits);
+               scanClass(source, jar.getName(), in.readAllBytes(), shadowed, edited, hits);
             } catch (IOException | RuntimeException ex) {
                // a class file we cannot read is not a patch we can see
             }
          }
       } catch (IOException e) {
-         report.add("mod compat: could not open " + jar + ": " + e);
+         problem("mod compat: could not open " + jar + ": " + e);
       }
    }
 
    /** One class file: its ZombieBuddy @Patch annotations, else the string constants a transformer would compare. */
    static void scanClass(String source, byte[] bytes, Set<String> shadowed, Map<String, Map<String, String[]>> edited, List<Hit> hits) throws IOException {
+      scanClass(source, null, bytes, shadowed, edited, hits);
+   }
+
+   static void scanClass(String source, String jar, byte[] bytes, Set<String> shadowed, Map<String, Map<String, String[]>> edited, List<Hit> hits)
+         throws IOException {
       ClassFile cf = ClassFile.parse(bytes);
       boolean patched = false;
       for (Map<String, Object> a : cf.annotations) {
@@ -475,7 +546,7 @@ public final class ModCompat {
          if (cn instanceof String c) {
             String internal = c.replace('.', '/');
             if (shadows(shadowed, internal)) {
-               hits.add(new Hit(source, internal, mn instanceof String m ? m : null, "ZombieBuddy @Patch"));
+               hits.add(new Hit(source, jar, internal, mn instanceof String m ? m : null, "ZombieBuddy @Patch"));
                patched = true;
             }
          }
@@ -497,13 +568,13 @@ public final class ModCompat {
          if (methods != null) {
             for (String s : cf.strings) {
                if (methods.containsKey(s)) {
-                  hits.add(new Hit(source, cls, s, "string constants"));
+                  hits.add(new Hit(source, jar, cls, s, "string constants"));
                   method = true;
                }
             }
          }
          if (!method) {
-            hits.add(new Hit(source, cls, null, "string constants"));
+            hits.add(new Hit(source, jar, cls, null, "string constants"));
          }
       }
    }

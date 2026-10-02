@@ -1,4 +1,4 @@
--- pzopt: "Update PZ Optimization" item in the main menu.
+-- pzopt: the "PZ Optimization update" and "PZ Optimization mod compatibility check" items in the main menu.
 --  The Java side (pzopt.Updater, reached through the overridden PerformanceSettings) asks the GitHub
 --  releases once per boot whether a newer build for this game revision exists. The main menu (never
 --  the pause menu) has one more item in the style of the stock ones (ISLabel, UIFont.Large, the same
@@ -17,10 +17,13 @@
 --  Controller: the item has its own row in the menu's joypad list while it is enabled (the D-pad reaches
 --  it between Credits and Exit, A is the click), the dialog takes the joypad focus like the stock modals
 --  (A = first button, B = second one or close, D-pad scrolls the notes) and hands it back to the item.
+--  Under it, always enabled, "PZ OPTIMIZATION MOD COMPATIBILITY CHECK" opens PzoptCompatDialog
+--  (pzopt_mainscreen_compat.lua): what the launch's Java mods patch and which settings that switched off.
 -- Installed by scripts/pzopt.sh into <game dir>/media/lua/client/pzopt/ (loose game-dir Lua is
 -- loaded like any other, no mod to enable).
 
-local ITEM_TEXT = "UPDATE PZ OPTIMIZATION"   -- the stock items are capitals (UI_mainscreen_* translations)
+local ITEM_TEXT = "PZ OPTIMIZATION UPDATE"   -- the stock items are capitals (UI_mainscreen_* translations)
+local COMPAT_TEXT = "PZ OPTIMIZATION MOD COMPATIBILITY CHECK"
 local ITEM_RESTART = "RESTART TO FINISH THE UPDATE"
 
 local function perf()
@@ -365,6 +368,13 @@ local function onItemClick(item, x, y)
     PzoptUpdateDialog.show()
 end
 
+local function onCompatClick(item, x, y)
+    local ms = MainScreen.instance
+    if ms.delay > 0 or ms.tutorialButton or ms.checkSavefileModal or not PzoptCompatDialog then return end
+    getSoundManager():playUISound("UIActivateMainMenuItem")
+    PzoptCompatDialog.show()
+end
+
 -- The version line under the item: the installed build's commit, and "-> <commit>" of the offered
 -- release (tag b<version>-<yyyymmdd>-<hhmm>-<commit>) while one is offered, downloading, installed or failed.
 local function versionText()
@@ -395,9 +405,10 @@ local function itemPrerender(self)
     end
 end
 
--- Adds the label to the column right after the stock instantiate, between Credits and Exit (Exit and
--- the panel move down one row). Same metrics as the stock labels in MainScreen:instantiate. Always
--- there, like the stock items; enabled or greyed by the updater's state (syncItem).
+-- Adds the labels to the column right after the stock instantiate, between Credits and Exit (Exit and
+-- the panel move down two rows). Same metrics as the stock labels in MainScreen:instantiate. Always
+-- there, like the stock items; the update item enabled or greyed by the updater's state (syncItem), the
+-- compatibility check always enabled.
 local function addItem(self)
     if self.inGame or not self.creditOption or not self.exitOption or self.pzoptUpdateOption then return end
     local rowHgt = getTextManager():getFontHeight(UIFont.Large) + 8 * 2
@@ -411,21 +422,34 @@ local function addItem(self)
     label.pzoptEnabled = false
     label:setColor(0.45, 0.45, 0.45)
     label:setVisible(false)
-    self.exitOption:setY(self.exitOption:getY() + labelHgt)
-    self.bottomPanel:setHeight(self.bottomPanel:getHeight() + labelHgt)
-    self.maxMenuItemWidth = math.max(self.maxMenuItemWidth or 0, getTextManager():MeasureStringX(UIFont.Large, ITEM_RESTART))
+    local compat = ISLabel:new(0, label:getBottom(), rowHgt, COMPAT_TEXT, 1, 1, 1, 1, UIFont.Large, true)
+    compat.internal = "PZOPT_COMPAT"
+    compat:initialise()
+    compat.onMouseDown = onCompatClick
+    compat.fade = UITransition.new()
+    compat.fade:setFadeIn(false)
+    compat.prerender = MainScreen.prerenderBottomPanelLabel
+    compat:setVisible(false)
+    self.exitOption:setY(self.exitOption:getY() + labelHgt + rowHgt)
+    self.bottomPanel:setHeight(self.bottomPanel:getHeight() + labelHgt + rowHgt)
+    self.maxMenuItemWidth = math.max(self.maxMenuItemWidth or 0, getTextManager():MeasureStringX(UIFont.Large, ITEM_RESTART),
+        getTextManager():MeasureStringX(UIFont.Large, COMPAT_TEXT))
     label:setWidth(self.maxMenuItemWidth)
+    compat:setWidth(self.maxMenuItemWidth)
     self.bottomPanel:addChild(label)
+    self.bottomPanel:addChild(compat)
     self.pzoptUpdateOption = label
+    self.pzoptCompatOption = compat
     pcall(function() perf():pzoptUpdateCheck() end)
     PzoptLogInfo("[pzopt] update: main menu item added")
 end
 
 -- Controller. The D-pad walks self.joypadButtonsY, which the stock MainScreen:onGainJoypadFocus rebuilds
 -- from its own list of labels (so a controller went from Credits straight to Exit), and A goes through
--- onMenuItemMouseDownMainMenu, which only knows the stock `internal` names. The label gets its own row
--- right after Credits while it is enabled and visible; a greyed item has no row, the D-pad skips it like
--- the mouse ignores it. Runs after every stock rebuild and once per frame while the menu holds the focus.
+-- onMenuItemMouseDownMainMenu, which only knows the stock `internal` names. Each label gets its own row
+-- (after Credits, the compatibility check after the update item) while it is enabled and visible; a greyed
+-- item has no row, the D-pad skips it like the mouse ignores it. Runs after every stock rebuild and once per
+-- frame while the menu holds the focus.
 local function joypadRowOf(rows, element)
     if not element then return nil end
     for i, row in ipairs(rows) do
@@ -434,14 +458,12 @@ local function joypadRowOf(rows, element)
     return nil
 end
 
-local function syncJoypadRow(self)
-    local label = self.pzoptUpdateOption
+local function syncJoypadRowOf(self, label, after, want)
     local rows = self.joypadButtonsY
     if not label or not rows then return end
     local at = joypadRowOf(rows, label)
-    local want = label.pzoptEnabled and label:isVisible()
     if want and not at then
-        local pos = joypadRowOf(rows, self.creditOption)
+        local pos = joypadRowOf(rows, after) or joypadRowOf(rows, self.creditOption)
         if pos then
             pos = pos + 1
         else
@@ -464,6 +486,16 @@ local function syncJoypadRow(self)
         elseif (self.joypadIndexY or 0) > at then
             self.joypadIndexY = self.joypadIndexY - 1
         end
+    end
+end
+
+local function syncJoypadRow(self)
+    local label = self.pzoptUpdateOption
+    if not label then return end
+    syncJoypadRowOf(self, label, self.creditOption, label.pzoptEnabled and label:isVisible())
+    local compat = self.pzoptCompatOption
+    if compat then
+        syncJoypadRowOf(self, compat, label, compat:isVisible())
     end
 end
 
@@ -503,6 +535,9 @@ local function syncItem(self)
     end
     label.pzoptVersion = versionText()
     label:setVisible(self.exitOption:isVisible())
+    if self.pzoptCompatOption then
+        self.pzoptCompatOption:setVisible(self.exitOption:isVisible())
+    end
     if self.joyfocus then syncJoypadRow(self) end
 end
 
@@ -563,6 +598,10 @@ local function install()
                 print("[pzopt] update item: sync failed, item removed: " .. tostring(err))
                 self.pzoptUpdateOption:setVisible(false)
                 self.pzoptUpdateOption = nil
+                if self.pzoptCompatOption then
+                    self.pzoptCompatOption:setVisible(false)
+                    self.pzoptCompatOption = nil
+                end
             end
         end
     end
@@ -575,8 +614,13 @@ local function install()
     local stockJoypadDown = MainScreen.onJoypadDown
     function MainScreen:onJoypadDown(button, ...)
         local label = self.pzoptUpdateOption
-        if label and button == Joypad.AButton and self.joypadButtons and self.joypadButtons[self.joypadIndex] == label then
+        local focused = button == Joypad.AButton and self.joypadButtons and self.joypadButtons[self.joypadIndex]
+        if label and focused == label then
             onItemClick(label, 0, 0)
+            return
+        end
+        if self.pzoptCompatOption and focused == self.pzoptCompatOption then
+            onCompatClick(focused, 0, 0)
             return
         end
         return stockJoypadDown(self, button, ...)

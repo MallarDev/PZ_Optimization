@@ -55,6 +55,69 @@ local quitAtMs = nil
 -- options_select=<key> (2026-09-26): the preview panel of every options page shows that setting (its clips, text, bars)
 -- instead of the page's first row, re-selected every tick until the screenshot (a mouse over the list would pick another).
 local optionsCheck = nil
+-- compat_check=1 (2026-10-02): stay on the main menu, log the pzopt menu items, write Screenshots/pzopt-menu.png, open
+-- the "PZ OPTIMIZATION MOD COMPATIBILITY CHECK" dialog through the item's own click handler, log its text, write
+-- Screenshots/pzopt-compat.png, close it and quit. With `--mod pzopt-compat-javafixture` (harness/compat/make-java-fixture.sh)
+-- the dialog lists the fixture's jars and the two settings it switches off. compat_choose=performance|compatibility
+-- presses that choice's button after the first screenshot, logs the profile state and writes
+-- Screenshots/pzopt-compat-chosen.png (it saves the choice: pass --vmarg -Dpzopt.userOptionsFile=<scratch file>).
+local compatCheck = nil
+
+local function compatTick()
+    local c = compatCheck
+    local ms = MainScreen.instance
+    if not ms or (ms.delay and ms.delay > 0) or not ms.exitOption or not ms.exitOption:isVisible() then return end
+    local now = getTimestampMs()
+    if not c.menuMs then
+        local names = {}
+        for _, child in pairs(ms.bottomPanel:getChildren()) do
+            if child.Type == "ISLabel" and child:isVisible() then
+                table.insert(names, string.format("%s@%d", tostring(child.name), child:getY()))
+            end
+        end
+        table.sort(names, function(a, b) return tonumber(a:match("@(%d+)$")) < tonumber(b:match("@(%d+)$")) end)
+        print("[pzopt-harness] compat check: menu " .. table.concat(names, " | "))
+        getCore():TakeFullScreenshot("pzopt-menu.png")
+        c.menuMs = now
+    elseif not c.openedMs and now - c.menuMs >= 2000 then
+        local item = ms.pzoptCompatOption
+        if not item then
+            print("[pzopt-harness] compat check: item NOT FOUND, quitting")
+            compatCheck = false
+            getCore():quit()
+            return
+        end
+        item.onMouseDown(item, 0, 0)
+        local dlg = PzoptCompatDialog and PzoptCompatDialog.instance
+        print("[pzopt-harness] compat check: dialog " .. (dlg and "open" or "NOT OPEN"))
+        if dlg then
+            print("[pzopt-harness] compat check: profile '" .. tostring(dlg.profileStatus) .. "' restart=" .. tostring(dlg.restart:isVisible()))
+            print("[pzopt-harness] compat check: text " .. tostring(dlg.text.text):gsub(" <[^>]*> ", " "):gsub("%s+", " "))
+        end
+        c.openedMs = now
+    elseif c.openedMs and not c.shotMs and now - c.openedMs >= 2000 then
+        getCore():TakeFullScreenshot("pzopt-compat.png")
+        c.shotMs = now
+    elseif c.choose and not c.choseMs and c.shotMs and now - c.shotMs >= 2000 then
+        local dlg = PzoptCompatDialog and PzoptCompatDialog.instance
+        if dlg then
+            dlg.profileButtons[c.choose]:forceClick()
+            local p = getPerformance()
+            print("[pzopt-harness] compat check: chose " .. c.choose .. "; modProfile now=" .. p:getPzoptOption("modProfile")
+                .. " saved=" .. p:getPzoptOptionSaved("modProfile") .. " status='" .. tostring(dlg.profileStatus)
+                .. "' restart=" .. tostring(dlg.restart:isVisible()))
+        end
+        c.choseMs = now
+    elseif c.choseMs and not c.chosenShotMs and now - c.choseMs >= 1500 then
+        getCore():TakeFullScreenshot("pzopt-compat-chosen.png")
+        c.chosenShotMs = now
+    elseif c.shotMs and (not c.choose or c.chosenShotMs) and now - (c.chosenShotMs or c.shotMs) >= 2000 then
+        if PzoptCompatDialog and PzoptCompatDialog.instance then PzoptCompatDialog.instance:close() end
+        compatCheck = false
+        print("[pzopt-harness] compat check: done, quitting")
+        getCore():quit()
+    end
+end
 
 local function selectPreview(mo, key)
     local n = 0
@@ -216,6 +279,13 @@ local function onMainMenuEnter()
     end
     if flags.consumed and not flags.pad then return end -- Continue already triggered by this process (Lua was reset)
     if flags.pad and pad == false then return end -- pad script done, quitting
+    if flags.compat_check and flags.compat_check ~= "" then
+        if compatCheck == nil then
+            appendFlag("consumed=1")
+            compatCheck = { choose = (flags.compat_choose and flags.compat_choose ~= "") and flags.compat_choose or nil }
+        end
+        return
+    end
     if flags.options_tab and flags.options_tab ~= "" then
         if optionsCheck == nil then
             appendFlag("consumed=1")
@@ -305,6 +375,11 @@ end
 -- OnFETick is the only per-frame event the main menu fires (OnTickEvenPaused is in-world only,
 -- which is why earlier versions of this file never pressed Continue by themselves)
 local function onFETick()
+    if compatCheck then
+        local ok, err = pcall(compatTick)
+        if not ok then print("[pzopt-harness] compat check: rig error " .. tostring(err)); compatCheck = false; getCore():quit() end
+        return
+    end
     if optionsCheck then
         local ok, err = pcall(optionsTick)
         if not ok then print("[pzopt-harness] options: rig error " .. tostring(err)); optionsCheck = false; getCore():quit() end

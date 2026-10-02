@@ -55,6 +55,9 @@ public class ModCompatTest {
       hits.clear();
       ModCompat.scanClass("modC", bytes(Plain.class), shadowed, edited, hits);
       Check.check(hits.isEmpty(), "a plain class naming ours in strings is not a patch");
+      ModCompat.scanClass("modA", "modA.jar", bytes(FakePatch.class), shadowed, edited, hits);
+      Check.check(hits.size() == 1 && "modA.jar".equals(hits.get(0).jar), "a hit carries its jar file for the menu's check");
+      hits.clear();
 
       // policy: unknown mod in auto switches the method's keys, a known-ok mod switches nothing, report only logs
       List<ModCompat.Hit> all = new ArrayList<>();
@@ -68,6 +71,8 @@ public class ModCompatTest {
       Check.check("false".equals(out.getProperty("wake")) && "false".equals(out.getProperty("centerFirstLoad")), "modA's edited method keys off: " + out);
       Check.check(out.getProperty("chunkHandoffSlack") == null, "a known-compatible mod switches nothing");
       Check.check(ModCompat.reason("wake") != null && ModCompat.reason("wake").contains("modA"), "the reason names the mod");
+      String details = ModCompat.details();
+      Check.check(details.startsWith("scan\tauto\t"), "details start with the scan line: " + details);
       Properties report = new Properties();
       ModCompat.applyForTest(all, edited, new HashMap<>(), report, "report");
       Check.check(report.isEmpty(), "modCompat=report switches nothing: " + report);

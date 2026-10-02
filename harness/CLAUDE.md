@@ -112,6 +112,13 @@ Modes:
   pause menu through `ToggleEscapeMenu`, closes it `pause_menu_secs` later; `pause_menu_cap` sets the Menu framerate combo for the
   rig and restores the player's choice; read the console's `frame cap: menu phase ... fps (cap ...)` line),
   `options_check=<s>` (harness Lua mod, 2026-09-23: `s` seconds into the world activates the in-game options screen's Optimizations tab without showing it and logs `[pzopt-harness] options check: built before/after, controls, changed`; the lazy tab build's rig, run `flip-lazytab`),
+  `compat_check=1` (harness Lua mod, 2026-10-02: stays on the main menu, logs the menu items with their y, writes
+  `Screenshots/pzopt-menu.png`, opens the "PZ OPTIMIZATION MOD COMPATIBILITY CHECK" dialog through the item's click
+  handler, logs its text, writes `Screenshots/pzopt-compat.png`, quits; with `--mod pzopt-compat-javafixture` from
+  `harness/compat/make-java-fixture.sh` the dialog lists two jars (with Max compatibility in force it switches `wake` +
+  `chunkHandoffSlack` off); `compat_choose=performance|compatibility` presses that button and writes
+  `Screenshots/pzopt-compat-chosen.png` — it saves the choice, so pass `--vmarg -Dpzopt.userOptionsFile=<scratch>`; runs
+  `compat-menu-*`, `compat-prof-*`, `--mode verify`, ~35 s),
   `options_tab=<tab name>` (harness Lua mod, 2026-09-24: stays on the main menu, opens Options on that tab, logs
   `[pzopt-harness] options: tabs ...`, writes `Screenshots/pzopt-options.png` 3 s later and quits; run-mac.sh copies
   `Screenshots/pzopt-*.png` into the run dir; menu checks without xdotool, e.g. `--machine mac -- --label x --mode verify

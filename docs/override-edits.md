@@ -5609,7 +5609,8 @@ Findings and the test matrix: `docs/findings-mod-compat-2026-10-01.md`.
 
 - Methods for Lua: `getPzoptLuaOrigin` (where a Lua function was loaded from: the game's file, ours, a mod's;
   `pzopt.LuaOrigin`), `getPzoptModCompatReason` and `getPzoptModCompatSummary` (`pzopt.ModCompat`, shown on the
-  Optimizations tab).
+  Optimizations tab), `getPzoptModCompatDetails` (2026-10-02: the launch's scan per jar file for the main menu's
+  "PZ OPTIMIZATION MOD COMPATIBILITY CHECK" dialog, `pzopt_mainscreen_compat.lua`).
 
 ### pzopt classes and Lua (no game class changed for these)
 

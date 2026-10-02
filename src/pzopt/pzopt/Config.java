@@ -52,7 +52,7 @@ import java.util.Properties;
  *                            them otherwise refuses the join with "File doesn't exist on the server" (default true; not
  *                            tied to `enabled`, the files are on disk either way)
  *   updateCheck true/false   the main menu asks the GitHub releases once per boot whether a newer build for this game
- *                            revision exists and offers an "Update PZ Optimization" menu item that downloads and
+ *                            revision exists and offers an "PZ Optimization update" menu item that downloads and
  *                            installs it (pzopt.Updater; default true; never in harness runs)
  *   updatePrefetch true/false  once a release is offered, the files that differ from the installed ones are fetched in
  *                            the background (range requests of the changed zip entries; default true), so Update now
@@ -380,8 +380,14 @@ public final class Config {
    private static final Properties props = load();
    /** The player's Options > Optimizations choices (Zomboid/pzopt/options.ini), below props and -D. */
    private static final Properties userProps = UserOptions.load();
+   /**
+    * Mods: max performance or max compatibility (2026-10-02, the main menu's mod compatibility check). It is the default
+    * of modCompat (report / auto) and uiRetainedMods (on / off); a value the player set for either key still wins.
+    */
+   private static final boolean MOD_PROFILE_COMPAT = "compatibility".equalsIgnoreCase(String.valueOf(upper("modProfile")).trim());
+   private static final String MOD_COMPAT_DEFAULT = MOD_PROFILE_COMPAT ? "auto" : "report";
    /** pzopt.ModCompat: keys a Java mod's patches of our edited methods switch off, below the player's options.ini. */
-   private static final Properties compatProps = ModCompat.scan(upper("modCompat"));
+   private static final Properties compatProps = ModCompat.scan(upper("modCompat") != null ? upper("modCompat") : MOD_COMPAT_DEFAULT);
    /** Master switch, read by {@link Overrides#enabled()}; false = stock behaviour everywhere. */
    public static final boolean ENABLED = bool("enabled", true);
    public static final boolean PARALLEL = bool("parallel", true);
@@ -657,11 +663,15 @@ public final class Config {
    /**
     * Java mod compatibility (pzopt.ModCompat, 2026-10-01): auto = a Java mod that patches a method we edited switches
     * off the features that method holds (unless the mod is on ModCompat.KNOWN); report = only log it
-    * (Zomboid/pzopt/mod-compat.txt); off = no scan.
+    * (Zomboid/pzopt/mod-compat.txt); off = no scan. Default by modProfile: report (performance), auto (compatibility).
     */
-   public static final String MOD_COMPAT = string("modCompat", "auto");
-   /** uiRetained: UI elements a mod draws (a render / prerender / class function from a mod file) replay too; off = stock rate for them. */
-   public static final boolean UI_RETAINED_MODS = bool("uiRetainedMods", false);
+   public static final String MOD_PROFILE = string("modProfile", "performance");
+   public static final String MOD_COMPAT = string("modCompat", MOD_COMPAT_DEFAULT);
+   /**
+    * uiRetained: UI elements a mod draws (a render / prerender / class function from a mod file) replay too; off = stock
+    * rate for them. Default by modProfile: on (performance), off (compatibility).
+    */
+   public static final boolean UI_RETAINED_MODS = bool("uiRetainedMods", !MOD_PROFILE_COMPAT);
    /** dev: pzopt_ui_fast.lua skips its "loaded from the game's own file" test (the behaviour before 2026-10-01), for the fixture A/B. */
    public static final boolean DEV_UI_FAST_NO_ORIGIN = bool("devUiFastNoOrigin", false);
    /**
