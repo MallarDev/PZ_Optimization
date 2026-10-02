@@ -75,6 +75,7 @@ public final class Scene {
    private static String weather = "";
    private static float fog = -1f;
    private static float wind = -1f; // wind=0..1: the wind intensity pinned (foliage sway runs); -1 = the save's / the weather flag's
+   private static float cloud = -1f; // cloud=0..1: with weather=, the cloud intensity it pins (a storm with the sun partly through: 0.8); -1 = the weather's own
    private static float windAngle = 0.7f; // wind_angle=-1..1: the climate's wind angle intensity (its sign is the downwind screen side)
    private static String torch = "";
    private static int fires; // fire=N: N fires lit near the player at the route start (HDR scenes)
@@ -117,6 +118,7 @@ public final class Scene {
       fog = parseFog(HarnessFlags.get("fog", ""));
       wind = Float.parseFloat(HarnessFlags.get("wind", "-1").trim());
       windAngle = Float.parseFloat(HarnessFlags.get("wind_angle", "0.7").trim());
+      cloud = Float.parseFloat(HarnessFlags.get("cloud", "-1").trim());
       fogTintDark = "dark".equalsIgnoreCase(HarnessFlags.get("fog_tint", "").trim());
       torch = HarnessFlags.get("torch", "").trim().toLowerCase(java.util.Locale.ROOT);
       torchToggleNs = (long)(Float.parseFloat(HarnessFlags.get("torch_toggle", "0").trim()) * 1e9);
@@ -767,7 +769,7 @@ public final class Scene {
       // zombie.iso.weather.WeatherPeriod, case 3): full rain and cloud, strong wind, dim desaturated light
       boolean storm = "storm".equals(weather);
       set(cm, ClimateManager.FLOAT_PRECIPITATION_INTENSITY, storm ? 1.0f : 0.0f);
-      set(cm, ClimateManager.FLOAT_CLOUD_INTENSITY, storm ? 1.0f : 0.0f);
+      set(cm, ClimateManager.FLOAT_CLOUD_INTENSITY, cloud >= 0f ? Math.min(1f, cloud) : storm ? 1.0f : 0.0f);
       set(cm, ClimateManager.FLOAT_WIND_INTENSITY, storm ? 0.9f : 0.1f);
       set(cm, ClimateManager.FLOAT_WIND_ANGLE_INTENSITY, storm ? 0.7f : 0.0f);
       if (fog < 0f) {
