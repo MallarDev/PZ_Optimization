@@ -214,6 +214,7 @@ PzoptOptionClasses = {
     devShadowAtlasDrop = { "pzopt.ShadowAtlas" },
     devShadowAtlasDump = { "pzopt.ShadowAtlas" },
     devShadowGlGet = { "pzopt.CapsuleShadow" },
+    devShadowTipTogglePeriod = { "pzopt.CapsuleShadow" },
     devSilCost = { "pzopt.CapsuleShadow" },
     devSimChecksum = { "pzopt.SimChecksum" },
     devSkyDate = { "pzopt.Sky" },

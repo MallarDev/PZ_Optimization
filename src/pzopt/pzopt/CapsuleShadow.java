@@ -1315,7 +1315,7 @@ public final class CapsuleShadow {
             GL20.glUniform4f(this.us[5], this.viewportF[0], this.viewportF[1], this.viewportF[2], this.viewportF[3]);
             GL20.glUniform4f(this.us[6], Math.max(0, Math.min(48, Config.SUN_SHADOW_SILHOUETTE_STEPS)), tanA, (float)(drawn & 63),
                Config.SUN_SHADOW_SHELL_LIMBS ? 1.0F : 0.0F);
-            GL20.glUniform4f(this.us[7], Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH), Config.SUN_SHADOW_CHARACTER_LOD_PCT / 100.0F, Config.DEV_SIL_COST, 0.0F);
+            GL20.glUniform4f(this.us[7], Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH), Config.SUN_SHADOW_CHARACTER_LOD_PCT / 100.0F, Config.DEV_SIL_COST, devTipOld());
             boolean atlasOn = f.meshes && ShadowAtlas.bind(3, 4);
             GL20.glUniform1i(this.us[10], 3);
             GL20.glUniform1i(this.us[11], 4);
@@ -1337,7 +1337,7 @@ public final class CapsuleShadow {
             GL20.glUniform4f(this.u[4], f.sun[0], f.sun[1], f.sun[2], 1.0F / tanA); // (both stages)
             GL20.glUniform4f(this.u[5], this.viewportF[0], this.viewportF[1], this.viewportF[2], this.viewportF[3]);
             GL20.glUniform1f(this.u[6], Config.SUN_SHADOW_MARCH ? 1.0F : 0.0F);
-            GL20.glUniform4f(this.u[7], Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH), Config.SUN_SHADOW_CHARACTER_LOD_PCT / 100.0F, 0.0F, 0.0F);
+            GL20.glUniform4f(this.u[7], Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH), Config.SUN_SHADOW_CHARACTER_LOD_PCT / 100.0F, 0.0F, devTipOld());
             GL31.glDrawArraysInstanced(GL11.GL_TRIANGLE_FAN, 0, 4, f.n);
          }
          int pairs = f.nl > 0 ? this.pairs(f) : 0;
@@ -1500,7 +1500,11 @@ public final class CapsuleShadow {
       // a caster above the ground (a porch, a balcony, an upper floor): its shadow may fall past its floor's edge onto the
       // level below, so the quad reaches that level's plane too (it ended on the caster's own floor: the shadow was cut)
       "   float fz = facts.x > 0.1 ? facts.x - 2.4494897 : facts.x;",
-      "   float ta = min(max(0.0, a.z - fz) / lz, reach.x / lxy), tb = min(max(0.0, b.z - fz) / lz, reach.x / lxy);",
+      // the far end: the shadow of the bounding capsule's top (its end points raised by the radius), not of its axis: a sun
+      // below ~45 deg throws the round top past the axis end's shadow plus the side pad, and the quad's edge cut the head's
+      // shadow flat (2026-10-02; reach.w = 1: the old end, dev devShadowTipTogglePeriod)
+      "   float lift = reach.w > 0.5 ? 0.0 : a.w;",
+      "   float ta = min(max(0.0, a.z + lift - fz) / lz, reach.x / lxy), tb = min(max(0.0, b.z + lift - fz) / lz, reach.x / lxy);",
       "   vec3 a2 = vec3(a.xy - L.xy * ta, fz), b2 = vec3(b.xy - L.xy * tb, fz);",
       "   vec2 s0 = toPx(a.xyz), s1 = toPx(b.xyz), s2 = toPx(a2), s3 = toPx(b2);",
       "   vec2 du = toPx(-L) - toPx(vec3(0.0));", // the shadow's direction on screen
@@ -1517,6 +1521,30 @@ public final class CapsuleShadow {
       "   if (facts.z <= 0.0 || reach.z > 1.5 && reach.z < 2.5) px = vec2(-1e4);", // (reach.z: dev devSilCost 2 = no fragments)
       "   gl_Position = vec4((px - vp.xy) / vp.zw * 2.0 - 1.0, 0.0, 1.0);",
       "}");
+
+   private static long tipT0;
+   private static boolean tipOldNow;
+
+   /**
+    * Render thread, dev (devShadowTipTogglePeriod, ms): 1 while the sun quads end at the old place (the shadow of the
+    * bounding capsule's axis end), every other period from the first pass; the log line's epoch labels a capture's frames.
+    */
+   private static float devTipOld() {
+      if (Config.DEV_SHADOW_TIP_TOGGLE_PERIOD <= 0) {
+         return 0.0F;
+      }
+      long now = System.currentTimeMillis();
+      if (tipT0 == 0L) {
+         tipT0 = now;
+         Log.info("capsule shadows: dev tip toggle fixed at epoch_ms " + now);
+      }
+      boolean old = (now - tipT0) / Config.DEV_SHADOW_TIP_TOGGLE_PERIOD % 2L == 1L;
+      if (old != tipOldNow) {
+         tipOldNow = old;
+         Log.info("capsule shadows: dev tip toggle " + (old ? "old" : "fixed") + " at epoch_ms " + now);
+      }
+      return old ? 1.0F : 0.0F;
+   }
 
    /** Quilez, capsule soft shadow: the ray's closest approach to the segment over the distance travelled (tmax: the light's distance). */
    private static final String CAPSULE_GLSL = String.join("\n",
