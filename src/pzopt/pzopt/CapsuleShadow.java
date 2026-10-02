@@ -20,6 +20,7 @@ import zombie.core.textures.TextureDraw;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoDepthHelper;
 import zombie.iso.IsoGridSquare;
+import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.LightingJNI;
 
 /**
@@ -56,7 +57,9 @@ public final class CapsuleShadow {
    /** Per caster: (unused), its bounding capsule (a xyz r, b xyz 0), its facts (floor z, kind, sun, alpha), then a (xyz, r) and b (xyz, 0) per capsule. */
    private static final int CENTRE = 4 + 2 * K; // the caster's atlas tile centre (sunShadowMeshes)
    private static final int LAMP0 = CENTRE + 1; // two lamp views (sunShadowLampMeshes), 3 texels each: tile, half size; centre now; lamp from the centre at the draw
-   private static final int TEXELS = LAMP0 + 6;
+   private static final int WALL0 = LAMP0 + 6; // sunShadowWallCut: the walls / fences along its sun shadow (walls()), a texel each
+   private static final int WALLS = 4;
+   private static final int TEXELS = WALL0 + WALLS;
    private static final int MAX = 1024;
    private static final int MAX_LIGHTS = 4;
    private static final float[] LIGHT_SCORE = new float[MAX_LIGHTS];
@@ -87,7 +90,7 @@ public final class CapsuleShadow {
 
    static String stats() {
       return "capsule shadows: frames=" + frames + " (with lights " + lightFrames + ", caster x light quads " + lightPairs + ") characters=" + characters + " vehicles=" + vehicles + " animals=" + animals + " atlas=" + atlas + " mesh draws=" + meshDraws + " lamp views drawn=" + lampDraws + " read=" + lampLooks + " (end points on the game thread "
-         + computedHere + ") draws=" + drawn + (failed ? " FAILED" : "") + " | " + ShadowAtlas.stats();
+         + computedHere + ") wall collects=" + wallCollects + " (squares " + WALL_CACHE.size() + ", last " + wallLast + ") draws=" + drawn + (failed ? " FAILED" : "") + " | " + ShadowAtlas.stats();
    }
 
    /** The end points of BONES (relative to the character, metric) into out; false when the skeleton lacks one. Any thread. */
@@ -1089,7 +1092,255 @@ public final class CapsuleShadow {
          d[o + 6] = has ? caps[s * 7 + 5] : 0F;
          d[o + 7] = 0F;
       }
+      walls(f, base + WALL0 * 4, mx, my, cz, sun > 0F ? 1F + 0.5F * Math.max(ex, ey) : 0F);
       f.n++;
+   }
+
+   private static final float[] NO_WALLS = new float[0];
+   /** A caster square's runs (collectWalls) and when / under which sun step they were collected. */
+   private static final class WallRuns {
+      float[] runs;
+      long serial;
+      long ms;
+   }
+   private static final java.util.HashMap<Long, WallRuns> WALL_CACHE = new java.util.HashMap<>();
+   private static long wallFrame = -1L;
+   private static int wallRefreshes;
+   private static final int WALL_REFRESH_BUDGET = 8; // stale entries renewed a frame (a sun step makes them all stale at once)
+   private static final float[] WALL_EDGES = new float[4 * 128];
+   private static long wallCollects;
+   private static String wallLast = "-"; // the last caster square with walls and its runs (stats)
+
+   /**
+    * sunShadowWallCut, game thread: the walls and fences standing in a caster's sun shadow (the squares within band of the
+    * shadow's line from its square) as up to WALLS runs into its texels (relative to the frame's origin; wallCut in the
+    * shaders). The shadow pass draws on whatever the scene depth shows, so without them a character beside a fence laid its
+    * shadow on the far side of the fence, which the fence's own shadow already covers (2026-10-02). band 0: none.
+    * Cached per square: an entry older than a second or of another sun step is renewed, at most WALL_REFRESH_BUDGET a frame
+    * (the others keep theirs a frame longer); a square without one is collected at once.
+    */
+   private static void walls(Frame f, int at, float x, float y, float cz, float band) {
+      float[] d = f.data;
+      java.util.Arrays.fill(d, at, at + WALLS * 4, 0F);
+      if (band <= 0F || !Config.SUN_SHADOW_WALL_CUT) {
+         return;
+      }
+      int sx = (int)Math.floor(x + f.ox), sy = (int)Math.floor(y + f.oy), level = (int)Math.floor(cz / METRIC_Z + 1e-3F);
+      int b = Math.min(3, (int)Math.ceil(band));
+      long serial = SunShadow.stepSerial();
+      long now = System.currentTimeMillis();
+      if (wallFrame != frames) {
+         wallFrame = frames;
+         wallRefreshes = 0;
+         if (WALL_CACHE.size() > 4096) {
+            WALL_CACHE.clear();
+         }
+      }
+      long key = ((long)(sx & 0xFFFFF) << 40 | (long)(sy & 0xFFFFF) << 20 | (long)(level + 64 & 0xFF) << 2 | b) & 0x7FFFFFFFFFFFFFFFL;
+      WallRuns e = WALL_CACHE.get(key);
+      if (e == null) {
+         e = new WallRuns();
+         WALL_CACHE.put(key, e);
+      }
+      if (e.runs == null || (e.serial != serial || now - e.ms > 1000L) && wallRefreshes++ < WALL_REFRESH_BUDGET) {
+         e.runs = collectWalls(sx, sy, level, b); // (a fence built or knocked down shows within a second)
+         e.serial = serial;
+         e.ms = now;
+      }
+      float[] runs = e.runs;
+      for (int i = 0; i < runs.length / 4; i++) {
+         int o = at + i * 4;
+         boolean alongX = runs[i * 4 + 1] < runs[i * 4 + 2];
+         d[o] = runs[i * 4] - (alongX ? f.oy : f.ox);
+         d[o + 1] = runs[i * 4 + 1] - (alongX ? f.ox : f.oy);
+         d[o + 2] = runs[i * 4 + 2] - (alongX ? f.ox : f.oy);
+         d[o + 3] = runs[i * 4 + 3];
+      }
+   }
+
+   /**
+    * The opaque wall / fence edges on the caster's level over the squares its sun shadow can reach (within band + 0.75 of the
+    * shadow's line), merged into runs, the nearest WALLS: (line, from, to, top metric) in world squares, a run along y
+    * stored from > to.
+    */
+   private static float[] collectWalls(int sx, int sy, int level, int band) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      float lx = SunShadow.world[0], ly = SunShadow.world[1], lz = SunShadow.world[2];
+      float lxy = (float)Math.sqrt(lx * lx + ly * ly);
+      if (cell == null || lxy < 1e-3F) {
+         return NO_WALLS;
+      }
+      wallCollects++;
+      float dx = -lx / lxy, dy = -ly / lxy; // along the shadow
+      float len = Math.min(Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH), lz > 1e-3F ? 2.6F * lxy / lz : 1e3F) + 1F;
+      float px = sx + 0.5F, py = sy + 0.5F, ex = px + dx * len, ey = py + dy * len;
+      int x0 = (int)Math.floor(Math.min(px, ex)) - band, x1 = (int)Math.floor(Math.max(px, ex)) + band;
+      int y0 = (int)Math.floor(Math.min(py, ey)) - band, y1 = (int)Math.floor(Math.max(py, ey)) + band;
+      float reach = band + 0.75F;
+      int edges = 0;
+      for (int qy = y0; qy <= y1; qy++) {
+         for (int qx = x0; qx <= x1; qx++) {
+            float rx = qx + 0.5F - px, ry = qy + 0.5F - py;
+            float t = Math.max(0F, Math.min(len, rx * dx + ry * dy));
+            float ox = rx - dx * t, oy = ry - dy * t;
+            if (ox * ox + oy * oy > reach * reach || edges >= WALL_EDGES.length / 4 - 1) {
+               continue;
+            }
+            IsoGridSquare sq = cell.getGridSquare(qx, qy, level);
+            if (sq == null) {
+               continue;
+            }
+            for (int e = 0; e < 2; e++) {
+               float h = edgeHeight(sq, e == 0);
+               if (h > 0F) {
+                  int o = edges++ * 4;
+                  WALL_EDGES[o] = e; // 0: the N edge (along x), 1: the W edge
+                  WALL_EDGES[o + 1] = e == 0 ? qy : qx; // its line
+                  WALL_EDGES[o + 2] = e == 0 ? qx : qy; // from here one square on
+                  WALL_EDGES[o + 3] = (level + h) * METRIC_Z;
+               }
+            }
+         }
+      }
+      if (edges == 0) {
+         return NO_WALLS;
+      }
+      // merge neighbours on one line (the same top), then keep the runs nearest the caster
+      float[] runs = new float[edges * 5];
+      int nr = 0;
+      boolean[] used = new boolean[edges];
+      for (int i = 0; i < edges; i++) {
+         if (used[i]) {
+            continue;
+         }
+         used[i] = true;
+         float axis = WALL_EDGES[i * 4], line = WALL_EDGES[i * 4 + 1], top = WALL_EDGES[i * 4 + 3];
+         float lo = WALL_EDGES[i * 4 + 2], hi = lo + 1F;
+         for (boolean grew = true; grew; ) {
+            grew = false;
+            for (int j = 0; j < edges; j++) {
+               if (!used[j] && WALL_EDGES[j * 4] == axis && WALL_EDGES[j * 4 + 1] == line && WALL_EDGES[j * 4 + 3] == top
+                     && (WALL_EDGES[j * 4 + 2] == hi || WALL_EDGES[j * 4 + 2] + 1F == lo)) {
+                  used[j] = true;
+                  lo = Math.min(lo, WALL_EDGES[j * 4 + 2]);
+                  hi = Math.max(hi, WALL_EDGES[j * 4 + 2] + 1F);
+                  grew = true;
+               }
+            }
+         }
+         // the distance from the caster's square centre to the run
+         float ax = axis == 0F ? Math.max(lo, Math.min(hi, px)) : line, ay = axis == 0F ? line : Math.max(lo, Math.min(hi, py));
+         int o = nr++ * 5;
+         runs[o] = (ax - px) * (ax - px) + (ay - py) * (ay - py);
+         runs[o + 1] = line;
+         runs[o + 2] = axis == 0F ? lo : hi; // along y: stored from > to
+         runs[o + 3] = axis == 0F ? hi : lo;
+         runs[o + 4] = top;
+      }
+      int keep = Math.min(WALLS, nr);
+      StringBuilder sb = new StringBuilder().append(sx).append(',').append(sy).append(':');
+      float[] out = new float[keep * 4];
+      for (int k = 0; k < keep; k++) {
+         int best = -1;
+         for (int i = 0; i < nr; i++) {
+            if (runs[i * 5] >= 0F && (best < 0 || runs[i * 5] < runs[best * 5])) {
+               best = i;
+            }
+         }
+         System.arraycopy(runs, best * 5 + 1, out, k * 4, 4);
+         runs[best * 5] = -1F;
+         sb.append(String.format(java.util.Locale.ROOT, " %s=%.0f %.0f..%.0f top %.2f", out[k * 4 + 1] < out[k * 4 + 2] ? "y" : "x", out[k * 4],
+            Math.min(out[k * 4 + 1], out[k * 4 + 2]), Math.max(out[k * 4 + 1], out[k * 4 + 2]), out[k * 4 + 3]));
+      }
+      wallLast = sb.toString();
+      return out;
+   }
+
+   /**
+    * How tall (levels, 0 = none) the opaque wall or fence on a square's north / west edge stands: walls and fences (a low
+    * fence's transparentN / W means the eye passes over it, not the sun); not windows or doors; nor see-through fences
+    * (chain-link, railings), which edgeShape finds mostly empty.
+    */
+   private static float edgeHeight(IsoGridSquare sq, boolean north) {
+      IsoFlagType collide = north ? IsoFlagType.collideN : IsoFlagType.collideW, wall = north ? IsoFlagType.WallN : IsoFlagType.WallW;
+      IsoFlagType cut = north ? IsoFlagType.cutN : IsoFlagType.cutW;
+      if (!sq.has(collide) && !sq.has(wall) && !sq.has(cut) && !sq.has(IsoFlagType.WallNW)) {
+         return 0F;
+      }
+      IsoFlagType window = north ? IsoFlagType.WindowN : IsoFlagType.WindowW;
+      IsoFlagType door = north ? IsoFlagType.doorN : IsoFlagType.doorW, doorWall = north ? IsoFlagType.DoorWallN : IsoFlagType.DoorWallW;
+      float h = 0F;
+      zombie.util.list.PZArrayList<zombie.iso.IsoObject> objs = sq.getObjects();
+      for (int i = 0; i < objs.size(); i++) {
+         zombie.iso.IsoObject obj = objs.get(i);
+         zombie.iso.sprite.IsoSprite sp = obj == null ? null : obj.getSprite();
+         zombie.core.properties.PropertyContainer p = sp == null ? null : sp.getProperties();
+         if (p == null || !(p.has(collide) || p.has(wall) || p.has(cut) || p.has(IsoFlagType.WallNW))) {
+            continue;
+         }
+         if (p.has(window) || p.has(door) || p.has(doorWall)) {
+            continue;
+         }
+         float[] shape = EDGE_SHAPE.get(sp);
+         if (shape == null) {
+            shape = new float[] {edgeShape(sp, true), edgeShape(sp, false)};
+            EDGE_SHAPE.put(sp, shape);
+         }
+         h = Math.max(h, shape[north ? 0 : 1]);
+      }
+      return h;
+   }
+
+   /** Per sprite: edgeShape of its north and its west face. */
+   private static final java.util.IdentityHashMap<zombie.iso.sprite.IsoSprite, float[]> EDGE_SHAPE = new java.util.IdentityHashMap<>();
+   private static final float[] COLUMN_H = new float[8];
+
+   /**
+    * A wall / fence sprite's height over one tile edge (levels; 0 = mostly see-through or nothing there), from its texture's
+    * mask: 8 columns along the face from the tile's north corner, in each the topmost drawn pixel over the edge's base line
+    * (a level is the tile's top three quarters, the floor diamond the bottom quarter); the median of the columns (a post
+    * standing above the boards does not count), if at least half the face below it is drawn (chain-link and railings are
+    * not). Without a mask: one level for a wall, half for a low fence.
+    */
+   private static float edgeShape(zombie.iso.sprite.IsoSprite sp, boolean north) {
+      zombie.core.properties.PropertyContainer p = sp.getProperties();
+      zombie.core.textures.Texture tex = sp.texture;
+      boolean low = p.has(north ? IsoFlagType.HoppableN : IsoFlagType.HoppableW) && !p.has(north ? IsoFlagType.TallHoppableN : IsoFlagType.TallHoppableW);
+      if (tex == null || tex.getMask() == null || tex.getWidthOrig() <= 0 || tex.getHeightOrig() <= 0) {
+         return p.has(north ? IsoFlagType.transparentN : IsoFlagType.transparentW) && !low ? 0F : low ? 0.5F : 1F;
+      }
+      int w = tex.getWidthOrig(), hgt = tex.getHeightOrig();
+      int ox = (int)tex.getOffsetX(), oy = (int)tex.getOffsetY(), tw = tex.getWidth(), th = tex.getHeight();
+      float level = 0.75F * hgt;
+      int found = 0;
+      long drawn = 0L, span = 0L;
+      for (int k = 0; k < 8; k++) {
+         float frac = (k + 0.5F) / 8F;
+         int x = (int)(w * 0.5F + (north ? frac : -frac) * w * 0.5F);
+         int base = (int)(level + frac * 0.125F * hgt);
+         if (x < ox || x >= ox + tw) {
+            continue;
+         }
+         int top = -1, set = 0;
+         for (int y = Math.max(0, oy); y < Math.min(base, oy + th); y++) {
+            if (tex.isMaskSet(x, y)) {
+               if (top < 0) {
+                  top = y;
+               }
+               set++;
+            }
+         }
+         if (top >= 0) {
+            COLUMN_H[found++] = (base - top) / level;
+            drawn += set;
+            span += base - top;
+         }
+      }
+      if (found < 4 || span <= 0L || drawn < span / 2) {
+         return 0F;
+      }
+      java.util.Arrays.sort(COLUMN_H, 0, found);
+      return Math.max(0.05F, Math.min(1F, COLUMN_H[found / 2]));
    }
 
    private static final class Frame extends TextureDraw.GenericDrawer {
@@ -1571,6 +1822,35 @@ public final class CapsuleShadow {
       "   float Z = (C - B) * 0.125;",
       "   float S = C - 2.0 * Z;",
       "   return vec3((S + A) * 0.5, (S - A) * 0.5, Z * 2.4494897);",
+      "}",
+      // sunShadowWallCut: 1 where one of the caster's walls / fences (texels WALL0.., walls()) stands between the receiver P
+      // and the sun L: that receiver is in the wall's own shadow, the caster's shadow ends there (it went through fences).
+      // A run along x is the line y = w.x from w.y to w.z (an N edge), along y (stored w.y > w.z) the line x = w.x (a W
+      // edge); w.w its top (metric), floor the caster's. The faces the camera sees look south (N edge) / east (W edge): a
+      // receiver on the line is on that face, in shade while the sun is on the other side
+      "float wallCut(vec3 P, vec3 L, int inst, float floorZ) {",
+      "   float cut = 0.0;",
+      "   for (int i = 0; i < " + WALLS + "; i++) {",
+      "      vec4 w = texelFetch(Data, ivec2(" + WALL0 + " + i, inst), 0);",
+      "      if (w.y == w.z) break;",
+      "      bool alongX = w.y < w.z;",
+      "      float lo = min(w.y, w.z), hi = max(w.y, w.z);",
+      "      float off = (alongX ? P.y : P.x) - w.x;", // > 0: the side the camera sees
+      "      float ln = alongX ? L.y : L.x;",
+      "      float a = alongX ? P.x : P.y;",
+      "      float zc = P.z;",
+      "      if (abs(off) < 0.1) {",
+      "         if (ln >= 0.0) continue;", // the sun on the seen face's side: lit
+      "      } else {",
+      "         if (off * ln >= 0.0) continue;", // the ray to the sun leaves the line behind
+      "         float t = -off / ln;",
+      "         a += (alongX ? L.x : L.y) * t;",
+      "         zc += L.z * t;",
+      "      }",
+      "      if (a < lo - 0.02 || a > hi + 0.02 || zc < floorZ - 0.05) continue;",
+      "      cut = max(cut, 1.0 - smoothstep(w.w - 0.08, w.w + 0.08, zc));",
+      "   }",
+      "   return cut;",
       "}");
 
    private static final String FRAG = String.join("\n",
@@ -1628,6 +1908,7 @@ public final class CapsuleShadow {
       "         if (gap > 0.12 && gap < 2.0) { vis = 1.0; break; }",
       "      }",
       "   }",
+      "   if (vis < 0.995) vis = mix(vis, 1.0, wallCut(P, sun.xyz, inst, facts.x));",
       "   float m = 1.0 - mapC.w * alpha * (1.0 - vis);",
       "   if (mapC.z > 0.5) m = mix(0.5, 1.0, vis);", // dev: the capsule term alone over grey
       "   if (m > 0.996) discard;",
@@ -1796,6 +2077,7 @@ public final class CapsuleShadow {
       "      }",
       "      vis = min(vcap, vss);",
       "   }",
+      "   if (vis < 0.995) vis = mix(vis, 1.0, wallCut(P, L0, inst, facts.x));",
       "   float m = 1.0 - mapC.w * alpha * (1.0 - vis);",
       "   if (mapC.z > 0.5) m = mix(0.5, 1.0, vis);", // dev: the term alone over grey
       "   if (m > 0.996) discard;",

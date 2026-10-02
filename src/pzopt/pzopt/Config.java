@@ -993,6 +993,7 @@ public final class Config {
    public static final boolean SUN_SHADOW_SILHOUETTE = bool("sunShadowSilhouette", true); // sunShadows, characters / animals / vehicles: the shadow takes the caster's drawn shape (limbs, hair, weapons, bags, an animal's legs, a car's body): after the moving objects are drawn, each caster's sun ray is marched through the scene depth inside its bounding capsule (pzopt.CapsuleShadow); where the penumbra grows wider than a limb the capsule model takes over; off: the capsules alone, drawn before the characters (2026-09-25)
    public static final boolean SUN_SHADOW_PASS_LATE = bool("sunShadowPassLate", true); // sunShadowSilhouette: the caster pass right before the god rays and the fog (its scene depth read beside theirs; translucent objects receive too); off: right after the moving objects
    public static final int SUN_SHADOW_SILHOUETTE_STEPS = integer("sunShadowSilhouetteSteps", 24); // sunShadowSilhouette: depth samples per pixel along the ray's stretch inside the caster's bounding capsule (at most)
+   public static volatile boolean SUN_SHADOW_WALL_CUT; // sunShadows, characters / animals / vehicles: the shadow ends at the walls and fences standing between the ground behind them and the sun (their own shadow is there already; it went through fences): the opaque wall / fence edges along each caster's shadow (pzopt.CapsuleShadow, cached per square and sun step, height from the sprite), up to 4 a caster, tested per pixel; off: drawn on whatever lies behind (live)
    public static volatile boolean SUN_SHADOW_MESHES; // sunShadows: characters and animals cast the shadow of their own model: right after its draw the model is drawn again from the sun into its tile of a depth atlas (pzopt.ShadowAtlas, 128 x 128 a caster), the shadow pass reads it with a percentage-closer soft shadow (every limb, hair, clothes, bags, weapons, an animal's legs and tail); off: capsules (+ the depth shell of sunShadowSilhouette) (live)
    public static final boolean SUN_SHADOW_MESH_VEHICLES = bool("sunShadowMeshVehicles", true); // sunShadowMeshes: vehicles too (their body, wheels, doors, bars as drawn); off: their three capsules
    public static final int SUN_SHADOW_MESH_BURST = integer("sunShadowMeshBurst", 6); // sunShadowMeshes, sunShadowRate N a second: redraws come in bursts of at least this many (the atlas flush's fixed cost shared), N a second on average
@@ -1438,6 +1439,7 @@ public final class Config {
       SUN_SHADOW_TORCHES = bool("sunShadowTorches", true);
       SUN_SHADOW_TREE_CARDS = bool("sunShadowTreeCards", true);
       SUN_SHADOW_MESHES = bool("sunShadowMeshes", true);
+      SUN_SHADOW_WALL_CUT = bool("sunShadowWallCut", true);
       SUN_SHADOW_ANIMALS = bool("sunShadowAnimals", true);
       SUN_SHADOW_STOCK_FADE_PCT = Math.max(0, Math.min(100, integer("sunShadowStockFadePct", 85)));
       SUN_SHADOW_RATE = string("sunShadowRate", "frame").trim().toLowerCase(java.util.Locale.ROOT);

@@ -229,3 +229,22 @@ compile.
 - A torch shadow's cost is its quads' area: long quads overlap in a crowd. One pass per lamp over its lit area, looping
   the lamp's casters with a bounding test each, would read the depth once a pixel instead of once a quad (~4-8x fewer
   fragments for a crowd in a beam).
+
+## Shadows through fences (2026-10-02, `sunShadowWallCut`)
+
+Player report (screenshot at 10751,6977, 19:20, evening sun from the west): the character beside a low wooden fence
+(`fencing_01_34/35`) laid its sun shadow on the fence's far face and on the grass behind it. The caster pass draws on
+whatever the scene depth shows and only tested the caster's own sun share (`sunShadowMarch`, the per-pixel test, is off
+for cost), so a receiver hidden from the sun by a wall or fence still took the shadow.
+
+`sunShadowWallCut` (default on, live): per caster, the opaque wall / fence edges on its level within its shadow's strip
+(`CapsuleShadow.collectWalls`, cached per square, renewed after a second or a sun step, at most 8 a frame) merged into up
+to 4 runs (texels `WALL0..`); `wallCut` in the sun shaders drops the shadow where the receiver's ray to the sun crosses a
+run below its top, or where the receiver lies on a seen face (south / east) turned away from the sun. Heights come from
+the sprite's mask (`edgeShape`: the median top of 8 columns along the face, a post does not count; a face less than half
+drawn, chain-link or railings, blocks nothing): the low fence measures 0.49 level. A low fence's `transparentN/W` means
+the eye passes over it, not the sun (the first try skipped them and changed nothing).
+
+Runs `fencecut-false` / `fencecut-v2` (the reported spot, 19:20): the dark column on the fence face and the streak on the
+grass behind are gone, the shadow on the caster's side unchanged. `fencecut-am-false` / `-true` (08:30, the caster east
+of the fence, the sun on its seen face): the shadow on the face is kept, identical.
