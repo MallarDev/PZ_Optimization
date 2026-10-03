@@ -12,6 +12,7 @@
 #   scripts/workshop.sh --out /tmp/ws         # somewhere other than ~/Zomboid/Workshop/PZ_Optimization
 #   scripts/workshop.sh --tag b<version>-<yyyymmdd>-<hhmm>-<commit> --upload "Release <commit> (Build <version>, game revision <rev>). ..."
 #
+# With --tag, a successful --upload is then announced on Discord (scripts/discord-announce.py).
 # --upload stages, then uploads with scripts/workshop-upload.py: the Steamworks API through the
 # game's libsteam_api.so and the running, logged-on Steam client, a few seconds, no game launch.
 # The item id comes from workshop.txt (docs/workshop/workshop.txt); only the very first upload of a
@@ -162,6 +163,11 @@ if (( upload )); then
   fi
   echo "  notes: ${notes:0:100}..."
   python3 scripts/workshop-upload.py --dir "$out" --notes "$notes"
+  # every release is announced on Discord once it is on the Workshop (a failed post does not undo the upload)
+  if [[ -n "$tag" ]]; then
+    python3 scripts/discord-announce.py --tag "$tag" ||
+      echo "discord announce failed; post it with: scripts/discord-announce.py --tag $tag" >&2
+  fi
 else
   echo "next: scripts/workshop-upload.py --dir $out --notes \"<change notes>\" (Steam running and logged on; no game)"
 fi

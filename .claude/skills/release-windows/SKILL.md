@@ -146,3 +146,17 @@ change detected`): verify it on the item page instead. EResult 8 (`InvalidParam`
 is over Steam's 8,000 characters (`workshop-upload.py` prints the length it sends, `Workshop ID` / `Mod ID` lines
 included): trim `docs/workshop/description.txt`, re-stage, upload again. EResult 2 with `Failed to initialize build
 on server (No Connection)` in `workshop_log.txt` = the Steam session is dead (restart Steam, above).
+
+## Discord announcement (every release, 2026-10-04)
+
+Every release is announced in the project's Discord server (https://discord.gg/WNeQqYZ4T) once it is on the Workshop.
+`scripts/workshop.sh --tag <tag> --upload ...` and the queued `workshop` job run `scripts/discord-announce.py --tag <tag>`
+after a successful upload: an embed with the release title and link, the release body's `--notes` part, and the Workshop
++ GitHub install links. A tag is posted once (`~/.config/pzopt/discord-announced.txt`; `--force` re-posts). For a better
+first line than the release title, post it yourself before the upload with `--headline "<the change in a few words>"`
+(the automatic step then sees the tag as done). `--dry-run` prints the payload.
+
+The invite link cannot post; the script needs a channel webhook URL (Discord: channel > Edit Channel > Integrations >
+Webhooks > New Webhook > Copy Webhook URL) in `~/.config/pzopt/discord-webhook` or `$PZOPT_DISCORD_WEBHOOK`. It is a write
+credential and this repo is public: never commit it, never echo it into a log. Without it the step prints
+`discord: no webhook URL` and the upload still counts as done; post the release by hand once the URL is there.

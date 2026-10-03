@@ -358,7 +358,8 @@ removing anything).
 - `workshop`: `scripts/workshop.sh` staging → `scripts/workshop-upload.py --notes` (Steamworks API through the
   game's `libsteam_api.so` and the running Steam client, no game, a few seconds; its `steam:` / `item` / progress /
   `upload OK: EResult 1` lines are in the result, 2026-09-24) → `workshop_log.txt` tail + the change-notes page's
-  newest entry; `~/Zomboid/.../workshop.txt` copied to `docs/workshop/workshop.txt` (uncommitted).
+  newest entry; `~/Zomboid/.../workshop.txt` copied to `docs/workshop/workshop.txt` (uncommitted); since 2026-10-04 the job then announces the
+  release on Discord (`scripts/discord-announce.py --tag`, its `discord:` line in the result; a failed post does not fail the job).
 - `cmd`: exit code, output tail, the run dir if the command produced one under the label.
 - `media` (every encode / re-encode / stitch / GIF render, 2026-09-21 night): shares the desktop queue with
   the runs, so an encode never overlaps a benchmark on this machine; since 2026-09-22 it goes before every

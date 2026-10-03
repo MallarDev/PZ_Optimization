@@ -941,6 +941,13 @@ workshop_job() { # stage, then the Steamworks API upload (scripts/workshop-uploa
   grep -q "^id=$WORKSHOP_ID" "$WS_DIR/workshop.txt" 2>/dev/null || { echo "[$(ts)] $WS_DIR/workshop.txt is not staged for item $WORKSHOP_ID" >> "$d/output.log"; return 1; }
   launch "$d" "$cwd" python3 scripts/workshop-upload.py --dir "$WS_DIR" --notes "$notes" || return $?
   cp "$WS_DIR/workshop.txt" "$cwd/docs/workshop/workshop.txt" 2>/dev/null && echo "[$(ts)] copied workshop.txt to $cwd/docs/workshop/workshop.txt (uncommitted)" >> "$d/output.log"
+  # every release is announced on Discord after the upload (2026-10-04); a failed post does not fail the job
+  local i tag=""
+  for ((i = 0; i < ${#argv[@]}; i++)); do [[ "${argv[i]}" == --tag ]] && tag="${argv[i+1]}"; done
+  if [[ -n "$tag" && -f "$cwd/scripts/discord-announce.py" ]]; then
+    launch "$d" "$cwd" python3 scripts/discord-announce.py --tag "$tag" ||
+      echo "[$(ts)] discord announce failed; post it with: scripts/discord-announce.py --tag $tag" >> "$d/output.log"
+  fi
   return 0
 }
 
@@ -950,6 +957,7 @@ result_workshop() {
   echo "--- change-notes page (newest entry)"; changelog_first_entry
   echo "--- staged"; grep -E '^(id|title)=' "$WS_DIR/workshop.txt" 2>/dev/null
   echo "--- workshop-upload.py"
+  echo "--- discord"; grep -a '^discord' "$d/output.log" | tail -2
   grep -a -E '^(steam:|item |description |submitted|  +[0-9.]+ s  |upload (OK|FAILED)|check OK|Steam |SteamAPI_|no result|the SubmitItemUpdate|note:)' "$d/output.log" | tail -16
   if (( rc == 0 )); then
     echo "next: commit $cwd/docs/workshop/workshop.txt (\"workshop: stage the <commit> release\")"

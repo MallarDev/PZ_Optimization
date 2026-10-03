@@ -86,8 +86,11 @@ line count) → `scripts/workshop.sh --tag b<version>-<yyyymmdd>-<hhmm>-<commit>
 `~/Zomboid/Workshop/PZ_Optimization/`, regenerates `workshop.txt`; copy it to `docs/workshop/workshop.txt`
 and commit "workshop: stage the <commit> release") → upload → verify. The upload is one Steamworks API call
 since 2026-09-24, no game and no OCR: `scripts/workshop.sh --tag <tag> --upload "<notes>"` stages and uploads in
-seconds (`scripts/workshop-upload.py`: the game's `libsteam_api.so` + the running Steam client). Details and pitfalls:
-`.claude/skills/release-windows` ("Steam Workshop deploy").
+seconds (`scripts/workshop-upload.py`: the game's `libsteam_api.so` + the running Steam client) → announce on Discord
+(https://discord.gg/WNeQqYZ4T, every release, maintainer 2026-10-04): `workshop.sh --tag ... --upload` runs
+`scripts/discord-announce.py --tag <tag>` after a successful upload (pass `--headline "<the change in a few words>"` by
+hand for a better first line; a tag is posted once). The webhook URL is a secret and stays out of the public repo:
+`~/.config/pzopt/discord-webhook`. Details and pitfalls: `.claude/skills/release-windows` ("Steam Workshop deploy").
 
 - **The upload needs a really connected Steam client.** Before uploading run
   `tail -3 ~/.local/share/Steam/logs/connection_log.txt`: it must end in `[Logged On` with no
