@@ -323,6 +323,22 @@ public final class PixelLight {
          traceSq = traceSeen = 0;
          traceLum = 0L;
       }
+      f.ease = Config.PPL_EASE_MS > 0 && LightDirt.globalEvents == easeGlobalEvents; // a flash or a dusk step snaps
+      easeGlobalEvents = LightDirt.globalEvents;
+      if (FrameLog.ON) {
+         int kind1 = 0;
+         for (int i = 0; i < f.lights; i++) {
+            kind1 += f.lc[i * 4 + 3] == 1.0F ? 1 : 0;
+         }
+         int busy = 0;
+         for (int i = 0; i < RING.size(); i++) {
+            busy += RING.get(i).free ? 0 : 1;
+         }
+         f.seq = ++FrameLog.seq;
+         f.rendered = 0;
+         FrameLog.game(f.seq, f.lights, kind1, mergedTorches, f.blocks, f.chunks, busy, f.ox, f.oy);
+      }
+      mergedTorches = 0;
       if (f.composite) {
          SpriteRenderer.instance.drawGeneric(f);
       } else {
@@ -604,6 +620,51 @@ public final class PixelLight {
    }
 
    static final int MAX_LIGHTS = 16;
+   private static int mergedTorches; // devPplFrameLog: torches merged into another at the same spot this frame
+   private static long easeGlobalEvents; // pplEaseMs: LightDirt's global light events as of the last frame
+
+   /**
+    * devPplFrameLog (2026-10-03, the one-frame light pops under a carried torch + lantern): one line per frame as the game
+    * thread hands it over (seq, lights, carried lights, merges, lattice blocks packed, chunks, frames in flight, origin) and
+    * one as the render thread draws it (seq, how many times: > 1 a replayed state), epoch ms each, to
+    * Zomboid/pzopt-pplframes.out, for lining a capture's pops up with what changed.
+    */
+   static final class FrameLog {
+      static final boolean ON = Config.DEV_PPL_FRAME_LOG;
+      static long seq;
+      static final java.util.concurrent.atomic.AtomicInteger capped = new java.util.concurrent.atomic.AtomicInteger(), cappedNoTorch = new java.util.concurrent.atomic.AtomicInteger();
+      private static final StringBuilder SB = new StringBuilder(1 << 16);
+      private static java.io.Writer out;
+
+      static synchronized void game(long s, int lights, int carried, int merged, int blocks, int chunks, int busy, int ox, int oy) {
+         SB.append("g ").append(System.currentTimeMillis()).append(' ').append(s).append(' ').append(lights).append(' ').append(carried).append(' ')
+            .append(merged).append(' ').append(blocks).append(' ').append(chunks).append(' ').append(busy).append(' ').append(ox).append(' ').append(oy)
+            .append(' ').append(capped.getAndSet(0)).append(' ').append(cappedNoTorch.getAndSet(0)).append('\n');
+         flush(false);
+      }
+
+      static synchronized void render(long s, int n) {
+         SB.append("r ").append(System.currentTimeMillis()).append(' ').append(s).append(' ').append(n).append('\n');
+         flush(false);
+      }
+
+      private static void flush(boolean force) {
+         if (!force && SB.length() < 60000) {
+            return;
+         }
+         try {
+            if (out == null) {
+               out = new java.io.BufferedWriter(new java.io.FileWriter(new java.io.File(zombie.ZomboidFileSystem.instance.getCacheDir(), "pzopt-pplframes.out")));
+               out.write("# g epoch_ms seq lights carried merged blocks chunks frames_in_flight ox oy capped capped_no_torch | r epoch_ms seq times_drawn\n");
+            }
+            out.write(SB.toString());
+            out.flush();
+         } catch (java.io.IOException e) {
+            Log.warn("ppl frame log: " + e);
+         }
+         SB.setLength(0);
+      }
+   }
    static final float TORCH_H = 0.55F, CAR_H = 0.6F; // a lamp's assumed height above its holder / its square, levels (torchSource: a carried light's lens instead)
    private static final float[] candD = new float[4096];
    private static final IsoLightSource[] candL = new IsoLightSource[4096];
@@ -643,6 +704,7 @@ public final class PixelLight {
             }
          }
          if (merged) {
+            mergedTorches++;
             continue;
          }
          int k = count * 4;
@@ -747,6 +809,7 @@ public final class PixelLight {
          + " chunk draws light-free=" + baseDraws + " with lights=" + fullDraws + String.format(" (%.1f lights each)", fullDraws > 0 ? (double)drawLights / fullDraws : 0.0) + " lights culled (saturated / hidden / cone)=" + culled + " point lights merged=" + mergedPoints
          + " squares simple=" + packSimple + " hidden=" + packHidden + " slow=" + packSlow
          + String.format(" pack=%.1fus/frame", frames > 0 ? packNs / 1e3 / frames : 0.0)
+         + " eased=" + Gl.eased + " easeUploads=" + Gl.easeUploads
          + (failed ? " FAILED" : "") + (Gl.passNs > 0 ? String.format(" gpu pass=%.1fus upload=%.1fus", Gl.passNs / 1e3, Gl.uploadNs / 1e3) : "");
    }
 
@@ -919,6 +982,9 @@ public final class PixelLight {
       f.bx[blk] = f.bx[from];
       f.by[blk] = f.by[from];
       f.bl[blk] = z & (LEVELS - 1);
+      f.bcx[blk] = f.bcx[from];
+      f.bcy[blk] = f.bcy[from];
+      f.bz[blk] = z;
       x.copied++;
    }
 
@@ -968,6 +1034,7 @@ public final class PixelLight {
             }
             int v0 = 0, v1 = 0, v2 = 0, v3 = 0, t0 = 0, t1 = 0, t2 = 0, t3 = 0;
             int info = 0, conn = 0, tvis = 255, visible = 0;
+            float fade = -1.0F; // pplTorchFade: the torch's visibility between 0 and 1 here (-1: all or nothing, tvis)
             if (sq != null && sq.lighting[playerIndex] instanceof LightingJNI.JNILighting jl) {
                visible = (jl.pzoptVis() & 7) != 0 ? 1 : 0; // pplSeenEdge: seen (explored), in sight, or in line of sight; 0: never seen (blacked out)
                if (above) {
@@ -999,8 +1066,26 @@ public final class PixelLight {
                      }
                   }
                   float tmax = Math.max(tr, Math.max(tg, tb)), imax = Math.max(li.r, Math.max(li.g, li.b));
+                  if (FrameLog.ON && jl.resultLightCount() >= 6) { // devPplFrameLog: the native's light list is full (6): a torch can drop off it
+                     FrameLog.capped.incrementAndGet();
+                     if (tmax <= 0.0F && torchNear(px, sq.x + 0.5F, sq.y + 0.5F, z)) {
+                        FrameLog.cappedNoTorch.incrementAndGet();
+                     }
+                  }
                   boolean canSee = (jl.pzoptVis() & 2) != 0;
-                  if (tmax > 0.02F && (imax < 0.9F * tmax || Config.PPL_TORCH_CAN_SEE && !canSee) || tmax <= 0.02F && !canSee && torchNear(px, sq.x + 0.5F, sq.y + 0.5F, z)) {
+                  // pplTorchFade: where the player can see the square and nothing hides the torch, the native's light ramps up
+                  // over a few frames as the square comes into view or into the beam (its fade); the torch is cross-faded in
+                  // over that ramp (light / torch 0.5 -> 0.9) instead of switching on at 0.9: base = light - vis x torch, the
+                  // per-pixel torch x vis, the same at both ends. The switch flashed whole floor tiles while the player turned
+                  // with a lantern (torchSource draws it; 2026-10-03)
+                  if (Config.PPL_TORCH_FADE && tmax > 0.02F && canSee && imax < 0.9F * tmax && imax > 0.5F * tmax) {
+                     float u = (imax / tmax - 0.5F) / 0.4F;
+                     fade = u * u * (3.0F - 2.0F * u);
+                     tr *= fade;
+                     tg *= fade;
+                     tb *= fade;
+                     tvis = fade >= 0.5F ? 255 : 0;
+                  } else if (tmax > 0.02F && (imax < 0.9F * tmax || Config.PPL_TORCH_CAN_SEE && !canSee) || tmax <= 0.02F && !canSee && torchNear(px, sq.x + 0.5F, sq.y + 0.5F, z)) {
                      // the native lists the torch here but did not add it (a wall hides it, or the square is dark for the
                      // player): nothing to take out, and the torch stays off here. A square the player cannot see never took
                      // it: a room lit by its own lamp is brighter than the torch, so the brightness test alone let the torch
@@ -1058,7 +1143,8 @@ public final class PixelLight {
                if ((conn & 4) != 0 && ChunkAo.edgeW(sq)) wallEdge |= 1;
                if ((conn & 8) != 0 && ChunkAo.edgeN(sq)) wallEdge |= 2;
             }
-            int simple = conn != 255 || wallEdge != 0 ? (tvis == 255 ? 192 : 64) : tvis == 255 ? 255 : 0;
+            // pplTorchFade: a square cross-fading the torch is not simple, its visibility between 64 (hidden) and 192 (visible)
+            int simple = fade >= 0.0F ? 64 + Math.round(fade * 128.0F) : conn != 255 || wallEdge != 0 ? (tvis == 255 ? 192 : 64) : tvis == 255 ? 255 : 0;
             if (sq != null && !above) { // (no square: no pixels; above the top: the level below's)
                allSat &= (info & 0xFF) >= 252 && (info >> 8 & 0xFF) >= 252 && (info >> 16 & 0xFF) >= 252;
                if (px.torchFilter ? allHidden && tvis != 0 : true) { // pplTorchNearChunk: once a square decided it, the rest are not asked (the test has no side effects)
@@ -1089,6 +1175,9 @@ public final class PixelLight {
       f.bx[blk] = Math.floorMod(c.wx * 8, f.n);
       f.by[blk] = Math.floorMod(c.wy * 8, f.n);
       f.bl[blk] = z & (LEVELS - 1);
+      f.bcx[blk] = c.wx;
+      f.bcy[blk] = c.wy;
+      f.bz[blk] = z;
       return air;
    }
 
@@ -1534,6 +1623,10 @@ public final class PixelLight {
    /** One frame: the lattice blocks to upload and the camera, rendered in stream order before the composite (or after it: the pass). */
    static final class Frame extends TextureDraw.GenericDrawer {
       volatile boolean free = true;
+      long seq; // devPplFrameLog
+      final int[] bcx = new int[MAX_BLOCKS], bcy = new int[MAX_BLOCKS], bz = new int[MAX_BLOCKS]; // pplEaseMs: each block's chunk and level (a slot reused by another chunk snaps)
+      boolean ease; // pplEaseMs: this frame's light changes ease in (false: a global light event, lightning or a dusk step, snaps)
+      int rendered; // devPplFrameLog: times the render thread drew it (> 1: a replayed state)
       final ByteBuffer data = BufferUtils.createByteBuffer(64 * BLOCK_BYTES).order(ByteOrder.LITTLE_ENDIAN);
       ByteBuffer big; // grown on demand up to MAX_BLOCKS
       int[] bx = new int[MAX_BLOCKS], by = new int[MAX_BLOCKS], bl = new int[MAX_BLOCKS];
@@ -1570,6 +1663,9 @@ public final class PixelLight {
 
       @Override
       public void render() {
+         if (FrameLog.ON) {
+            FrameLog.render(this.seq, ++this.rendered);
+         }
          try {
             GL.render(this);
          } catch (Throwable t) {
@@ -1800,6 +1896,103 @@ public final class PixelLight {
       private final java.util.HashMap<Integer, int[]> chunkUniforms = new java.util.HashMap<>();
       private int diag;
 
+      // ---- pplEaseMs (2026-10-03, the floor tiles flashing while turning): the native hands its light changes over in batches
+      // (a vision pass changes dozens of chunk levels in one frame) and the lattice applied each at once, a lit / dark layout
+      // snapping in one frame; without pixelLight the same changes reach the screen through the budgeted re-bakes, spread.
+      // Here each re-packed light block of a chunk level already shown eases from the shown values to the new ones over
+      // pplEaseMs (rgb, and the torch visibility alpha: 64..192 reads as a fraction on the edge path). A block that now holds
+      // another chunk, the first upload of a block and a frame with a global light event (a flash, a dusk step) snap.
+      private final java.util.HashMap<Long, byte[]> easeShown = new java.util.HashMap<>(); // the info block as on the GPU
+      private final java.util.HashMap<Long, Long> easeOwner = new java.util.HashMap<>(); // its chunk and level
+      private final java.util.HashMap<Long, byte[][]> easing = new java.util.HashMap<>(); // key -> {from, to, {t0 as 8 bytes}}
+      private final ByteBuffer easeBuf = BufferUtils.createByteBuffer(256);
+      private final java.util.ArrayList<Long> easeDone = new java.util.ArrayList<>();
+      static long eased, easeUploads;
+
+      private static long easeKey(int bx, int by, int bl) {
+         return (long)bl << 40 | (long)by << 20 | bx;
+      }
+
+      /** Block i's light section: false = upload it now (snap), true = it eases in (easeStep uploads it). */
+      private boolean easeIn(Frame f, int i, ByteBuffer b) {
+         long key = easeKey(f.bx[i], f.by[i], f.bl[i]);
+         long own = (long)f.bcx[i] << 36 ^ (long)f.bcy[i] << 12 ^ (f.bz[i] + 64);
+         byte[] shown = this.easeShown.get(key);
+         Long o = this.easeOwner.get(key);
+         int base = i * BLOCK_BYTES;
+         if (f.ease && shown != null && o != null && o == own) {
+            int diff = 0;
+            for (int k = 0; k < 256; k++) {
+               diff = Math.max(diff, Math.abs((shown[k] & 0xFF) - (b.get(base + k) & 0xFF)));
+            }
+            if (diff > 6) {
+               byte[][] e = this.easing.get(key);
+               if (e == null) {
+                  e = new byte[][] {new byte[256], new byte[256], new byte[8]};
+                  this.easing.put(key, e);
+               }
+               System.arraycopy(shown, 0, e[0], 0, 256); // from what is on screen now (an ease in progress continues from there)
+               for (int k = 0; k < 256; k++) {
+                  e[1][k] = b.get(base + k);
+               }
+               long now = System.nanoTime();
+               for (int k = 0; k < 8; k++) {
+                  e[2][k] = (byte)(now >>> (k * 8));
+               }
+               eased++;
+               return true;
+            }
+         }
+         if (shown == null) {
+            shown = new byte[256];
+            this.easeShown.put(key, shown);
+         }
+         for (int k = 0; k < 256; k++) {
+            shown[k] = b.get(base + k);
+         }
+         this.easeOwner.put(key, own);
+         this.easing.remove(key);
+         return false;
+      }
+
+      /** Every easing light block one step further (the info texture is bound). */
+      private void easeStep() {
+         if (this.easing.isEmpty()) {
+            return;
+         }
+         long now = System.nanoTime();
+         float dur = Config.PPL_EASE_MS * 1e6F;
+         for (java.util.Map.Entry<Long, byte[][]> en : this.easing.entrySet()) {
+            byte[][] e = en.getValue();
+            long t0 = 0L;
+            for (int k = 0; k < 8; k++) {
+               t0 |= (e[2][k] & 0xFFL) << (k * 8);
+            }
+            float a = Math.min(1.0F, Math.max(0.0F, (now - t0) / dur));
+            float sm = a * a * (3.0F - 2.0F * a);
+            long key = en.getKey();
+            byte[] shown = this.easeShown.get(key);
+            this.easeBuf.clear();
+            for (int k = 0; k < 256; k++) {
+               int v0 = e[0][k] & 0xFF, v1 = e[1][k] & 0xFF;
+               byte v = (byte)Math.round(v0 + (v1 - v0) * sm);
+               shown[k] = v;
+               this.easeBuf.put(v);
+            }
+            this.easeBuf.flip();
+            int bx = (int)(key & 0xFFFFF), by = (int)(key >>> 20 & 0xFFFFF), bl = (int)(key >>> 40);
+            GL12.glTexSubImage3D(GL30.GL_TEXTURE_2D_ARRAY, 0, bx, by, bl, 8, 8, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, this.easeBuf);
+            easeUploads++;
+            if (a >= 1.0F) {
+               this.easeDone.add(key);
+            }
+         }
+         for (int i = 0; i < this.easeDone.size(); i++) {
+            this.easing.remove(this.easeDone.get(i));
+         }
+         this.easeDone.clear();
+      }
+
       void render(Frame f) {
          if (failed) {
             return;
@@ -1822,7 +2015,13 @@ public final class PixelLight {
          for (int t = 0; t < 3 && (costMask & 32) == 0; t++) { // dev: devPplCostAt bit 32 skips the uploads (stale light, cost probe)
             GL11.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, targets[t]);
             for (int i = 0; i < f.blocks; i++) {
+               if (t == 0 && Config.PPL_EASE_MS > 0 && this.easeIn(f, i, b)) {
+                  continue; // pplEaseMs: the light block eases from what is shown (stepped below)
+               }
                GL12.glTexSubImage3D(GL30.GL_TEXTURE_2D_ARRAY, 0, f.bx[i], f.by[i], f.bl[i], 8, 8, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, b.slice(i * BLOCK_BYTES + t * 256, 256));
+            }
+            if (t == 0 && Config.PPL_EASE_MS > 0) {
+               this.easeStep();
             }
          }
          GL11.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, 0);
@@ -2246,6 +2445,9 @@ public final class PixelLight {
       }
 
       private void allocLattice(int n) {
+         this.easeShown.clear(); // pplEaseMs: a new lattice holds nothing shown yet
+         this.easeOwner.clear();
+         this.easing.clear();
          if (this.lattice != 0) {
             GL11.glDeleteTextures(this.lattice);
          }
@@ -2664,7 +2866,9 @@ public final class PixelLight {
       "      vec4 t00 = pplInfoAt(s, lvl), t10 = pplInfoAt(s10, lvl), t01 = pplInfoAt(s01, lvl), t11 = pplInfoAt(s11, lvl);",
       "      B = w00 * t00 + w10 * t10 + w01 * t01 + w11 * t11;",
       // the torch's visibility between the centres, from the same texels' alphas (>= 0.5: visible)
-      "      V = dot(vec4(w00, w10, w01, w11), step(vec4(0.5), vec4(t00.a, t10.a, t01.a, t11.a)));",
+      // (64 / 255 hidden .. 192 / 255 visible on the edge path, 0 / 255 on simple squares; pplTorchFade's cross-fading squares
+      // in between: the same ramp reads all four)
+      "      V = dot(vec4(w00, w10, w01, w11), clamp((vec4(t00.a, t10.a, t01.a, t11.a) * 255.0 - 64.0) / 128.0, 0.0, 1.0));",
       "   }",
       "   vec3 L = B.rgb;",
       "   vec2 c00 = sq + 0.5, c11 = c00 + vec2(dir);",

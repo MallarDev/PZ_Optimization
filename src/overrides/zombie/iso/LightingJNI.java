@@ -1919,6 +1919,9 @@ public final class LightingJNI {
                            pzopt.PuddleCache.lightsChanged(this.square.chunk, this.square.z); // pzopt: puddleVbo re-uploads this level's puddle batch (the lower four vertex lights are the puddle colours)
                         }
                         FBORenderLevels renderLevels = pzoptDefer != null ? null : this.square.chunk.getRenderLevels(this.playerIndex); // pzopt: entityUpdateParallel, a worker never creates the levels object
+                        if (pzopt.VisBlink.ON && pzoptWasVis != this.vis) { // pzopt: devVisBlinkTrace, a square's visibility bits changing and changing back
+                           pzopt.VisBlink.change(this.square, pzoptWasVis, this.vis); // pzopt
+                        } // pzopt
                         if (pzopt.PixelLight.ACTIVE) { // pzopt: pixelLight, the chunk texture is unlit: a light change updates the lattice, a visibility change re-bakes
                            pzopt.PixelLight.lightChanged(this.square); // pzopt
                            if (pzoptWasVis != this.vis && !DebugOptions.instance.fboRenderChunk.nolighting.getValue()) { // pzopt

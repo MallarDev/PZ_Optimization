@@ -5895,3 +5895,8 @@ makes. Design and costs: `docs/plan-occluded-zombie-outlines.md`.
 
 Ahead of `pzopt.PixelLight.beforeComposite`: `pzopt.TorchSource.renderFrame()` (with `torchSource` on): the frame's lens
 re-solve for every per-pixel consumer and the dev markers, whichever consumer is on (without pixelLight nothing else asked).
+
+### zombie.iso.LightingJNI (JNILighting.updateFBORenderChunk), 2026-10-03
+
+Dev rig `devVisBlinkTrace`: when a refresh changes the square's visibility bits, `pzopt.VisBlink.change(square, was, now)`
+(off: one static final test). The tile-flicker investigation of `docs/findings-torch-source-2026-10-03.md`.

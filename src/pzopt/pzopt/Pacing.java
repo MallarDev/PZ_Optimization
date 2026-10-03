@@ -116,6 +116,7 @@ public final class Pacing {
    public static void stepStart(long nowNs, long intervalNs) {
       GtAb.frame(); // devGtAlternate: this frame's A/B phase
       TorchSource.frameStart(); // devTorchSourceCycle: this frame's variant
+      VisBlink.frame(); // devVisBlinkTrace: the last frame's visibility blinks
       stepStartNs = nowNs;
       capIntervalNs = intervalNs;
    }

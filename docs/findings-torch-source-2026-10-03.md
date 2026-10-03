@@ -134,3 +134,30 @@ Defaults: `torchSource` off (an Enhancements key like the rest of the tab; live)
 Every run of this session froze ("Game Paused") a second into the route: on a Steam launch MangoHud is not loaded, run.sh
 fell back to pressing Shift+F2 (MangoHud's toggle_logging key) and F2 is the game's own default Pause key
 (`keyBinding.lua`). run.sh now skips the key when MangoHud is not mapped in the game process. Runs use `--launcher direct`.
+
+## Floor tiles flashing while turning (maintainer, 2026-10-03, after the 3d88827 release)
+
+Report: floor tiles flashing while the character turned (the Workshop-card runs: hand torch + lantern, night, pixelLight).
+Debugged with Jev over numbers (`region-flicker-judge.py`, `flicker-cause.py`, `tile-pop.py --judge`, `mask-jumps.py
+--judge`):
+
+- Full-rate captures (167-530 fps, 1:1 crops and 15 % whole screen) catch a large one-step change of the lit / dark layout
+  a few times a minute: two consecutive frames where 2-18 % of the picture switches brightness at once (the fog-of-war
+  shape and the light round the player snapping).
+- `mask-jumps.py`: 2.7 (torchSource on) and 6.4 (off) per 1000 frame pairs with pixelLight; 0.3 with the game's own
+  lighting (pixelLight off, every other optimization on). So it is pixelLight's, with or without the new option (more
+  visible with it: the lantern now lights the ground where the layout snaps).
+- `devPplFrameLog` (pixelLight's per-frame state): every jump falls on a frame that re-uploads 6-40 chunk-level light blocks
+  at once (frames average 0.8, 80 % none). Jev: jumps follow big re-uploads, yes 0.72; cause `batch_reupload` 0.79. The
+  native hands its vision / light changes over in batches; the lattice applies each at once, where without pixelLight the
+  budgeted re-bakes spread them over frames.
+- Ruled out: native visibility bits blinking (`devVisBlinkTrace`: blinks only during the settle after the teleport), the
+  native's 6-entry light list dropping the torch (never full here), the switch at 0.9 of the torch value (`pplTorchFade`:
+  6.5 -> 6.0 pops/s, no change), the per-square vision gate (`pplTorchCanSee=false`: no change), frame replays (none).
+- Candidate fix, shipped off: `pplEaseMs` (a re-uploaded light block of a chunk level already shown eases from the shown
+  values to the new ones on the render thread; the torch visibility alpha 64..192 reads as a fraction on the edge path;
+  global light events, a block's first upload and a slot reused by another chunk snap). Not verified in game yet
+  (runs `tf-ease-0` / `tf-ease-120` captured, not analysed); try `pplEaseMs=120`.
+
+Rigs added: `devVisBlinkTrace` (pzopt.VisBlink), `devPplFrameLog` (`pzopt-pplframes.out`), `harness/flicker-cause.py`,
+`harness/tile-pop.py`, `harness/mask-jumps.py` (`--judge`: Jev).
