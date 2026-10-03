@@ -1139,17 +1139,19 @@ public final class GodRays {
          return 0;
       }
       java.util.ArrayList<IsoGameCharacter.TorchInfo> torches = LightingJNI.pzoptTorches();
+      TorchSource.refresh(torches); // torchSource: this frame's lens
       for (int i = 0; i < torches.size() && n < cand.length; i++) {
          IsoGameCharacter.TorchInfo t = torches.get(i);
-         if (t.id == 0 || Math.abs(t.x - cx) > view + t.dist || Math.abs(t.y - cy) > view + t.dist) {
+         float tx = TorchSource.x(t), ty = TorchSource.y(t); // torchSource: the drawn item's lens (else the native's position)
+         if (t.id == 0 || Math.abs(tx - cx) > view + t.dist || Math.abs(ty - cy) > view + t.dist) {
             continue;
          }
          float len = (float)Math.hypot(t.angleX, t.angleY);
          boolean vehicle = t.id >= 4096;
-         float z = t.z + (vehicle ? 0.22F : 0.45F);
-         cand[n] = cand(n, t.x, t.y, z, Math.max(1F, Math.min(10F, t.dist)), len > 1e-4F ? t.angleX / len : 0F, len > 1e-4F ? t.angleY / len : 0F,
+         float z = t.z + (vehicle ? 0.22F : TorchSource.height(t, 0.45F));
+         cand[n] = cand(n, tx, ty, z, Math.max(1F, Math.min(10F, t.dist)), len > 1e-4F ? t.angleX / len : 0F, len > 1e-4F ? t.angleY / len : 0F,
             t.cone ? Math.max(0.2F, t.dot) : -2F, t.r * t.strength, t.g * t.strength, t.b * t.strength, vehicle ? 2F : 1F);
-         candD[n] = (t.x - cx) * (t.x - cx) + (t.y - cy) * (t.y - cy);
+         candD[n] = (tx - cx) * (tx - cx) + (ty - cy) * (ty - cy);
          n++;
       }
       IsoCell cell = IsoWorld.instance.currentCell;

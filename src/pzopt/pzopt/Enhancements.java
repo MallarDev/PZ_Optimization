@@ -59,6 +59,9 @@ final class Enhancements {
          case "pplTorchFeetGlow" -> {
             // read every frame by the chunk composite's uniforms
          }
+         case "torchSource", "torchSourceAim", "torchSourceHold", "torchSourceFresh", "torchSourceWallClamp", "torchSourceVehicles", "torchSourcePitch" -> {
+            // read every frame by TorchInfo.set and the light gatherers (pzopt.TorchSource)
+         }
          case "colorGrading", "colorGradingPct", "colorGradingNightPct" -> Grade.reconfigure();
          case "sunShadowStrengthPct", "sunShadowSoftnessPct", "sunShadowCharacters", "sunShadowVehicles", "sunShadowTorches",
                "sunShadowMeshes", "sunShadowAnimals", "sunShadowStockFadePct", "sunShadowRate",

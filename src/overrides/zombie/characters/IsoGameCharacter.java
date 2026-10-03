@@ -17278,6 +17278,15 @@ public abstract class IsoGameCharacter
       public boolean cone;
       public float dot;
       public int focusing;
+      public boolean pzoptSrc; // pzopt: torchSource, pzoptL* hold the lens of the drawn item (pzopt.TorchSource)
+      public float pzoptLx, pzoptLy, pzoptLz; // pzopt: torchSource, the lens (world squares, levels) for the per-pixel consumers
+      public int pzoptFrame; // pzopt: torchSource, the frame the lens was solved for
+      public IsoGameCharacter pzoptHolder; // pzopt: torchSource, the holder and the item of the last set(IsoPlayer, InventoryItem)
+      public InventoryItem pzoptItem; // pzopt
+      public VehiclePart pzoptPart; // pzopt: torchSource, the vehicle light of the last set(VehiclePart) (re-placed at render time)
+      public float[] pzoptOut; // pzopt: torchSource, the render-time solve of pzoptFrame (lens, item axis), reused by the frame's native update
+      public boolean pzoptHoldValid; // pzopt: torchSource, the native's held position (torchSourceHold)
+      public float pzoptNx, pzoptNy, pzoptHx, pzoptHy, pzoptHz, pzoptHax, pzoptHay; // pzopt
 
       public static IsoGameCharacter.TorchInfo alloc() {
          return (IsoGameCharacter.TorchInfo)TorchInfoPool.alloc();
@@ -17302,6 +17311,7 @@ public abstract class IsoGameCharacter
          this.cone = item.isTorchCone();
          this.dot = item.getTorchDot();
          this.focusing = 0;
+         pzopt.TorchSource.onSet(this, p, item); // pzopt: torchSource, the light at the drawn item's lens
          return this;
       }
 
@@ -17330,6 +17340,10 @@ public abstract class IsoGameCharacter
          this.cone = true;
          this.dot = light.dot;
          this.focusing = (int)part.getLightFocusing();
+         this.pzoptSrc = false; // pzopt: torchSource, a pooled TorchInfo of a carried light reused for a vehicle light
+         this.pzoptPart = part; // pzopt
+         this.pzoptHolder = null; // pzopt
+         this.pzoptItem = null; // pzopt
          return this;
       }
    }

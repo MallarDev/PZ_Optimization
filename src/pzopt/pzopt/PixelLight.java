@@ -153,6 +153,10 @@ public final class PixelLight {
    private static long[] slotAirFrame; // per slot: the frame its borrowed levels were last refreshed (pplAirFill carries a light change up at most every AIR_REFRESH_FRAMES)
    private static final int AIR_REFRESH_FRAMES = 120;
    private static final ArrayList<Frame> RING = new ArrayList<>();
+   static long blocksPacked() { // torchSource's cycle rig: lattice blocks packed so far
+      return blocksUploaded;
+   }
+
    private static long frames, blocksUploaded, blocksCopied, framesFull, packNs, packSimple, packHidden, packSlow;
    private static int traceSq, traceSeen; // dev (devPplTrace): this frame's packed squares, the seen ones
    private static long traceLum; // and the sum of their packed light
@@ -600,6 +604,7 @@ public final class PixelLight {
    }
 
    static final int MAX_LIGHTS = 16;
+   static final float TORCH_H = 0.55F, CAR_H = 0.6F; // a lamp's assumed height above its holder / its square, levels (torchSource: a carried light's lens instead)
    private static final float[] candD = new float[4096];
    private static final IsoLightSource[] candL = new IsoLightSource[4096];
 
@@ -613,9 +618,11 @@ public final class PixelLight {
       float view = (f.screenW + 2.0F * f.screenH) * f.zoom / (64.0F * f.ts) + 4.0F; // squares from the centre to a screen corner, generously
       int count = 0;
       ArrayList<IsoGameCharacter.TorchInfo> torches = LightingJNI.pzoptTorches();
+      TorchSource.refresh(torches); // torchSource: this frame's lens
       for (int i = 0; i < torches.size() && count < MAX_LIGHTS; i++) {
          IsoGameCharacter.TorchInfo t = torches.get(i);
-         if (t.id == 0 || Math.abs(t.x - cx) > view + t.dist || Math.abs(t.y - cy) > view + t.dist) {
+         float tx = TorchSource.x(t), ty = TorchSource.y(t); // torchSource: the drawn item's lens (else the native's position)
+         if (t.id == 0 || Math.abs(tx - cx) > view + t.dist || Math.abs(ty - cy) > view + t.dist) {
             continue;
          }
          float len = (float)Math.sqrt(t.angleX * t.angleX + t.angleY * t.angleY);
@@ -625,7 +632,7 @@ public final class PixelLight {
          boolean merged = false; // the game sends every active light item of a player at the same spot (torch + another): the native takes the brightest
          for (int j = 0; j < count && !merged; j++) {
             int q = j * 4;
-            if (Math.abs(f.la[q] - (t.x - f.ox)) < 0.01F && Math.abs(f.la[q + 1] - (t.y - f.oy)) < 0.01F && Math.abs(f.lb[q] - t.angleX / len) < 0.01F
+            if (Math.abs(f.la[q] - (tx - f.ox)) < 0.01F && Math.abs(f.la[q + 1] - (ty - f.oy)) < 0.01F && Math.abs(f.lb[q] - t.angleX / len) < 0.01F
                && Math.abs(f.lb[q + 1] - t.angleY / len) < 0.01F && f.lc[q + 3] == (t.id >= 4096 || t.focusing > 0 ? 2.0F : 1.0F)) {
                merged = true;
                if (t.strength * Math.max(1.0F, t.dist) > f.lb[q + 3] * f.la[q + 3]) { // the stronger one (reach x strength)
@@ -639,10 +646,10 @@ public final class PixelLight {
             continue;
          }
          int k = count * 4;
-         f.la[k] = t.x - f.ox;
-         f.la[k + 1] = t.y - f.oy;
+         f.la[k] = tx - f.ox;
+         f.la[k + 1] = ty - f.oy;
          f.la[k + 2] = t.z;
-         f.la[k + 3] = Math.max(1.0F, t.dist);
+         f.la[k + 3] = TorchSource.reach(t, Math.max(1.0F, t.dist)); // torchSourcePitch: a beam tilted down ends sooner
          f.lb[k] = t.angleX / len;
          f.lb[k + 1] = t.angleY / len;
          f.lb[k + 2] = t.cone ? t.dot : -2.0F;
@@ -651,6 +658,13 @@ public final class PixelLight {
          f.lc[k + 1] = t.g;
          f.lc[k + 2] = t.b;
          f.lc[k + 3] = t.id >= 4096 || t.focusing > 0 ? 2.0F : 1.0F; // 1: a handheld torch (replaces the native's); 2: a vehicle light (sharpens the native's)
+         f.lh[count] = f.lc[k + 3] == 1.0F ? TorchSource.height(t, TORCH_H) : CAR_H; // the lamp's height above la.z (torchSource: the lens's)
+         boolean body = Config.TORCH_SOURCE_SELF_SHADOW && TorchSource.body() && t.pzoptSrc && t.pzoptHolder != null && f.lc[k + 3] == 1.0F
+            && TorchSource.bodyInCone(t, tx, ty, Config.TORCH_SOURCE_BODY_PCT / 100.0F); // a beam pointing away from its carrier: no test at all
+         f.lbody[k] = body ? t.pzoptHolder.getX() - f.ox : 0.0F; // the carrier, at the position the frame draws it
+         f.lbody[k + 1] = body ? t.pzoptHolder.getY() - f.oy : 0.0F;
+         f.lbody[k + 2] = body ? Config.TORCH_SOURCE_BODY_PCT / 100.0F : 0.0F;
+         f.lbody[k + 3] = body ? 1.0F : 0.0F;
          count++;
       }
       IsoCell cell = IsoWorld.instance.currentCell;
@@ -696,6 +710,8 @@ public final class PixelLight {
          f.lc[k + 1] = Math.min(1.0F, Math.max(0.0F, l.g * 2.0F));
          f.lc[k + 2] = Math.min(1.0F, Math.max(0.0F, l.b * 2.0F));
          f.lc[k + 3] = 0.0F; // a point light: the brightest of it and the rest, per channel
+         f.lh[count] = CAR_H;
+         java.util.Arrays.fill(f.lbody, k, k + 4, 0.0F);
          count++;
       }
       java.util.Arrays.fill(candL, 0, candL.length, null);
@@ -1531,6 +1547,8 @@ public final class PixelLight {
       final float[] chunkRect = new float[1024 * 4];
       final int[] chunkFlags = new int[1024];
       final float[] la = new float[MAX_LIGHTS * 4], lb = new float[MAX_LIGHTS * 4], lc = new float[MAX_LIGHTS * 4];
+      final float[] lh = new float[MAX_LIGHTS]; // each light's height above la.z, levels (the shader reads it from pplLc.w's fraction)
+      final float[] lbody = new float[MAX_LIGHTS * 4]; // torchSourceSelfShadow: the carrier's body (x, y relative to the origin square, radius, 1) or zeros
 
       ByteBuffer buf() {
          return this.big != null ? this.big : this.data;
@@ -1745,6 +1763,8 @@ public final class PixelLight {
       }
 
       private final float[] la = new float[MAX_LIGHTS * 4], lb = new float[MAX_LIGHTS * 4], lc = new float[MAX_LIGHTS * 4];
+      private final float[] lh = new float[MAX_LIGHTS];
+      private final float[] lbody = new float[MAX_LIGHTS * 4];
       private final java.util.HashMap<Integer, int[]> selState = new java.util.HashMap<>(); // program -> {pplSel location, value sent}
 
       /** Per chunk draw on the full program: its light list (a uniform, sent only when it changes). */
@@ -1853,6 +1873,8 @@ public final class PixelLight {
          System.arraycopy(f.la, 0, this.la, 0, f.lights * 4);
          System.arraycopy(f.lb, 0, this.lb, 0, f.lights * 4);
          System.arraycopy(f.lc, 0, this.lc, 0, f.lights * 4);
+         System.arraycopy(f.lh, 0, this.lh, 0, f.lights);
+         System.arraycopy(f.lbody, 0, this.lbody, 0, f.lights * 4);
          serial++;
          wantOn = true;
          if (f.composite) {
@@ -1905,7 +1927,8 @@ public final class PixelLight {
                GL20.glGetUniformLocation(program, "pplLb"), GL20.glGetUniformLocation(program, "pplLn"), GL20.glGetUniformLocation(program, "pplOpt"),
                GL20.glGetUniformLocation(program, "pplLc"), GL20.glGetUniformLocation(program, "pplOpt2"), GL20.glGetUniformLocation(program, "pplSmP"),
                GL20.glGetUniformLocation(program, "pplSmV"), GL20.glGetUniformLocation(program, "pplSmO"), GL20.glGetUniformLocation(program, "pplWet"),
-               GL20.glGetUniformLocation(program, "pplShadowMask"), GL20.glGetUniformLocation(program, "pplSmC"), GL20.glGetUniformLocation(program, "pplNoFeet")};
+               GL20.glGetUniformLocation(program, "pplShadowMask"), GL20.glGetUniformLocation(program, "pplSmC"), GL20.glGetUniformLocation(program, "pplNoFeet"),
+               GL20.glGetUniformLocation(program, "pplLbody")};
             this.chunkUniforms.put(program, loc);
             if (loc[15] >= 0) {
                // the game's ShaderProgram renumbers every sampler2D to units 0, 1, 2... after the link (layout(binding) lost;
@@ -1936,7 +1959,7 @@ public final class PixelLight {
          GL20.glUniform4f(loc[2], this.map[0], this.map[1], this.map[2], this.map[3]);
          GL20.glUniform4f(loc[3], this.map[4], this.map[5], this.n, Config.DEV_PPL_VIEW);
          GL20.glUniform4i(loc[4], Math.floorMod(this.ox, this.n), Math.floorMod(this.oy, this.n), this.n - 1, LEVELS - 1);
-         this.lightUniforms(loc[5], loc[6], loc[7], loc[9]);
+         this.lightUniforms(loc[5], loc[6], loc[7], loc[9], loc[18]);
          GL20.glUniform4f(loc[14], this.wet * Config.PPL_SPEC_PCT / 100.0F, 48.0F, 0.0F, 0.0F);
          GL20.glUniform1f(loc[17], Config.PPL_TORCH_FEET_GLOW ? 0.0F : 1.0F);
          boolean mask = this.maskValid && !shadowFailed && this.shadowLight >= 0 && Config.PPL_SHADOWS;
@@ -1971,7 +1994,7 @@ public final class PixelLight {
          return false;
       }
 
-      private void lightUniforms(int la, int lb, int ln, int lc) {
+      private void lightUniforms(int la, int lb, int ln, int lc, int lbody) {
          if (ln < 0) {
             return;
          }
@@ -1984,8 +2007,17 @@ public final class PixelLight {
             this.lbuf.put(this.lb, 0, this.lights * 4).flip();
             GL20.glUniform4fv(lb, this.lbuf);
             this.lbuf.clear();
-            this.lbuf.put(this.lc, 0, this.lights * 4).flip();
+            this.lbuf.put(this.lc, 0, this.lights * 4);
+            for (int i = 0; i < this.lights; i++) { // the kind's fraction carries the light's height: kind + height / 4
+               this.lbuf.put(i * 4 + 3, this.lc[i * 4 + 3] + Math.max(0.0F, Math.min(1.99F, this.lh[i])) * 0.25F);
+            }
+            this.lbuf.flip();
             GL20.glUniform4fv(lc, this.lbuf);
+            if (lbody >= 0) {
+               this.lbuf.clear();
+               this.lbuf.put(this.lbody, 0, this.lights * 4).flip();
+               GL20.glUniform4fv(lbody, this.lbuf);
+            }
          }
       }
 
@@ -2079,7 +2111,7 @@ public final class PixelLight {
          GL20.glUniform4f(this.su[2], this.map[4], this.map[5], this.n, 0.0F);
          GL20.glUniform4f(this.su[3], this.viewportF[0], this.viewportF[1], 2.0F, 0.0F);
          int k = this.shadowLight * 4;
-         GL20.glUniform4f(this.su[4], this.la[k], this.la[k + 1], this.la[k + 2], this.la[k + 3]);
+         GL20.glUniform4f(this.su[4], this.la[k], this.la[k + 1], this.la[k + 2] + this.lh[this.shadowLight], this.la[k + 3]); // z: the lamp's own height
          GL20.glUniform4f(this.su[5], this.lb[k], this.lb[k + 1], this.lb[k + 2], this.lb[k + 3]);
          GL20.glUniform4f(this.su[6], 1.0F, 0.0F, 1.0F, Config.PPL_SHADOW_SQUARES);
          GL20.glUniform1f(this.su[7], Config.PPL_SHADOW_MAX_STEPS);
@@ -2173,7 +2205,7 @@ public final class PixelLight {
          GL20.glUniform4f(this.u[2], this.map[0], this.map[1], this.map[2], this.map[3]);
          GL20.glUniform4f(this.u[3], this.map[4], this.map[5], this.n, view);
          GL20.glUniform4i(this.u[4], Math.floorMod(this.ox, this.n), Math.floorMod(this.oy, this.n), this.n - 1, LEVELS - 1);
-         this.lightUniforms(this.u[5], this.u[6], this.u[7], this.u[9]);
+         this.lightUniforms(this.u[5], this.u[6], this.u[7], this.u[9], -1);
          GL20.glUniform4f(this.u[10], Config.PPL_SMOOTH ? 1.0F : 0.0F, -1.0F, this.hasTorch() ? 1.0F : 0.0F, 0.0F);
          GL20.glUniform1f(this.u[11], Config.PPL_TORCH_FEET_GLOW ? 0.0F : 1.0F);
          GL20.glUniform4f(this.u[8], Config.PPL_NORMALS ? 1.0F : 0.0F, Config.PPL_WRAP_PCT / 100.0F, Config.PPL_SHADOWS ? 1.0F : 0.0F, Config.PPL_SHADOW_SQUARES);
@@ -2415,6 +2447,30 @@ public final class PixelLight {
       "const float PPL_LEVEL = 2.4494897;", // squares per level of height
       "uniform vec4 pplLa[16];", // dynamic lights: x, y (relative to the origin square), z, reach
       "uniform vec4 pplLb[16];", // direction x, y, cone cos (-2: a point light), strength
+      "#ifdef PPL_SELF_SHADOW",
+      "uniform vec4 pplLbody[16];", // torchSourceSelfShadow: a carried light's carrier, x, y, radius, 1 (0: none)
+      // the carrier's body between a carried lamp and the point (a lantern at the side leaves the other side in its shadow):
+      // a soft disc of the body's radius on the ground plane (a lamp ~0.08 squares across); only for points the ray reaches
+      // past the body's near side
+      "float pplBody(vec2 p, vec2 l, vec4 h) {",
+      "   vec2 d = p - l;",
+      "   float L = length(d);",
+      "   float t = dot(h.xy - l, d) / max(L, 1e-4);", // the body's distance along the ray
+      "   if (t <= 0.0) return 1.0;",
+      // the lamp is never inside the body: a lantern held 0.2 from the body's middle (inside the 0.22 disc) shaded the whole
+      // half-plane towards the body; the disc shrinks to 70 % of the lamp's distance
+      "   float r = min(h.z, 0.7 * length(h.xy - l));",
+      "   float off = length(h.xy - l - d * (t / L));", // the body's distance off the ray
+      // the ray enters the body's disc at t - sqrt(r^2 - off^2): a point before that is lit (the ground under and just behind
+      // the body is not: a lit ellipse showed there when only points past the far side counted)
+      "   if (L <= t - sqrt(max(r * r - off * off, 0.0))) return 1.0;",
+      // the penumbra where the ray passes the body: the lamp (~0.08 across) seen from the point, scaled to the body's plane
+      // (similar triangles: lamp x (L - t) / L, never wider than the lamp; dividing by t instead blew it up to squares for
+      // a body right beside its lamp, the gun light at the hip half-shaded its whole cone)
+      "   float pen = 0.08 * max(L - t, 0.0) / max(L, 1e-3);",
+      "   return smoothstep(r - pen, r + pen + 0.04, off);",
+      "}",
+      "#endif",
       "uniform int pplLn;",
       "uniform int pplSel = -1;", // the lights that reach the chunk texture being drawn (bits; set per draw in the composite: tiled light lists)
       "uniform ivec2 pplLv = ivec2(-64, 64);", // the levels the chunk texture being drawn holds (min, top; set per draw in the composite)
@@ -2641,7 +2697,7 @@ public final class PixelLight {
       "#ifdef PPL_LAZY_NORMAL",
       "         if (pplNeedN) { n = pplLazyNormal(P); pplNeedN = false; }", // the chunk composite's texel normal: fetched for pixels a light reaches only
       "#endif",
-      "         vec3 lpos = vec3(a.xy, (a.z + (c.w > 0.5 ? 0.55 : 0.6)) * PPL_LEVEL);",
+      "         vec3 lpos = vec3(a.xy, (a.z + fract(c.w) * 4.0) * PPL_LEVEL);", // the lamp's height: pplLc.w = kind + height / 4 (0.55 a torch, 0.6 the rest; torchSource: the lens's)
       "         float f = pplOpt.x > 0.5 ? pplFacing(P, n, lpos) : 1.0;",
       "         float glint = 0.0;",
       "         if (wet) {",
@@ -2669,6 +2725,9 @@ public final class PixelLight {
       "#endif",
       "#ifndef PPL_NO_MASK",
       "            if (tv > 0.01 && float(i) == pplOpt2.y) tv *= pplMask(P);",
+      "#endif",
+      "#ifdef PPL_SELF_SHADOW",
+      "            if (tv > 0.01 && pplLbody[i].w > 0.5) tv *= pplBody(P.xy, a.xy, pplLbody[i]);",
       "#endif",
       "            torch = max(torch, c.rgb * tv);",
       "            pplSpec += c.rgb * tv * V * glint;",
@@ -2734,7 +2793,7 @@ public final class PixelLight {
       "   if (d < 1.0) {",
       "      vec3 P = pplPos(f, d);",
       "      if (pplTorch(P.xy, pplSa, pplSb, 1.0) > 0.01) {",
-      "         vec3 L = vec3(pplSa.xy, pplSa.z + 0.55);",
+      "         vec3 L = pplSa.xyz;",
       "         vec3 dd = L - P;",
       "         float len = length(dd.xy);",
       "         float span = min(len - 0.35, pplOpt.w);",
@@ -2992,7 +3051,7 @@ public final class PixelLight {
 
    /** The game's chunkShader.frag (DIFFUSE x vertex colour, depth = chunkDepth + the texture's depth) with the light multiplied in. */
    private static final String TINT = (Config.DEV_PPL_TINT ? "#define PPL_TINT\n" : "") + (Config.PPL_TEXEL_POS ? "#define PPL_TEXEL\n#define PPL_NSPAN " + Config.PPL_NORMAL_SPAN + "\n" : "")
-      + (Config.PPL_TEXEL_HEIGHT ? "#define PPL_TEXEL_Z\n" + (Config.PPL_FLOOR_SNAP ? "#define PPL_FLOOR_SNAP\n" : "") : "") + (Config.PPL_SEEN_EDGE ? "#define PPL_SEEN_EDGE\n" : "") + (Config.PPL_WALL_EDGE ? "#define PPL_WALL_EDGE\n" : "") + Relief.defines(); // the defines every chunk program gets
+      + (Config.PPL_TEXEL_HEIGHT ? "#define PPL_TEXEL_Z\n" + (Config.PPL_FLOOR_SNAP ? "#define PPL_FLOOR_SNAP\n" : "") : "") + (Config.PPL_SEEN_EDGE ? "#define PPL_SEEN_EDGE\n" : "") + (Config.PPL_WALL_EDGE ? "#define PPL_WALL_EDGE\n" : "") + (Config.TORCH_SOURCE_SELF_SHADOW ? "#define PPL_SELF_SHADOW\n" : "") + Relief.defines(); // the defines every chunk program gets
    private static final String CHUNK_FRAG = "#version 420\n" + (Config.DEV_PPL_VIEW != 0 ? "#define PPL_DEV\n" : "") + TINT + CHUNK_FRAG_BODY; // dev views compiled in only when asked: they keep values alive to the end (registers)
    /** The same without the dynamic lights (chunk textures no light reaches): 32 registers, full occupancy on the 890M (64 with). */
    private static final String CHUNK_BASE_FRAG = "#version 420\n#define PPL_BASE\n" + CHUNK_FRAG_BODY;

@@ -1850,6 +1850,7 @@ public final class FBORenderCell {
       pzopt.ReliefAux.flush(playerIndex); // pzopt: relief, the relief codes of this frame's textures on screen, the baked sun relief's light steps
       pzopt.BloodWet.collect(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: wet blood, this frame's fresh splats (their squares join the reflection map below)
       pzopt.Ssr.beforeComposite(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: reflections, the water square map and the scatter's frame, ahead of the chunk composite
+      pzopt.TorchSource.renderFrame(); // pzopt: torchSource, this frame's lens for every per-pixel consumer (and the dev markers) whichever of them is on
       long pzoptPpl = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
       pzopt.PixelLight.beforeComposite(playerIndex, this.perPlayerData[playerIndex].onScreenChunks); // pzopt: pixelLight, the lattice uploads and the camera, ahead of the chunk composite that lights each pixel
       pzopt.GtAb.end(pzopt.GtAb.S_PPL, pzoptPpl); // pzopt

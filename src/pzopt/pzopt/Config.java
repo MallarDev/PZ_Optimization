@@ -650,6 +650,14 @@ public final class Config {
    public static final boolean LOS_LIGHT_PREFETCH = bool("losLightPrefetch", false); // the lazy per-square lighting refresh of the squares the player's line-of-sight pass reads, done ahead on the frame workers (one task per chunk level, room / meta hooks deferred; pzopt.LosPrefetch)
    public static final boolean DEV_SCHED_CHECK = bool("devSchedCheck", false); // dev: schedulerClassifyParallel, every worker classification compared with the game thread's own (mismatches in gt_offload=)
    public static final int DEV_GT_ALTERNATE = integer("devGtAlternate", 0); // dev: ms; the keys in devGtAlternateKeys switch off and on every period (a within-run A/B: harness/gtab.py)
+   public static final String DEV_TORCH_SOURCE_CYCLE = string("devTorchSourceCycle", ""); // dev: torchSource variants taking turns in one run (off,on,hold0,item,stale,noclamp), a per-variant report line (pzopt.TorchSource)
+   public static final int DEV_TORCH_SOURCE_PERIOD = integer("devTorchSourcePeriod", 2000); // dev: ms per devTorchSourceCycle variant
+   public static final boolean DEV_TORCH_SOURCE_VIEW = bool("devTorchSourceView", false);
+   public static final int DEV_TORCH_SOURCE_PUSH = integer("devTorchSourcePush", 0); // dev: the native's lens pushed this many hundredths of a square along the look (the wall clamp rig)
+   public static final boolean DEV_TORCH_SOURCE_CHECK = bool("devTorchSourceCheck", false); // dev: every fast lens solve checked against the reference path (the game's own helpers); counts in the torch source stats line
+   public static final boolean TORCH_SOURCE_SELF_SHADOW = bool("torchSourceSelfShadow", false); // torchSource + pixelLight: the carrier's body shades their own carried light (a lantern at the side leaves the other side dark); compiled into the chunk composite at start-up
+   public static final int TORCH_SOURCE_BODY_PCT = integer("torchSourceBodyPct", 22); // torchSourceSelfShadow: the body's radius, hundredths of a square
+   public static final boolean TORCH_SOURCE_FAST = bool("torchSourceFast", true); // torchSource: the item chain's fixed part cached per model instance, one sin / cos for the world mapping (false: the game's helpers every frame) // dev: torchSource draws the lens (yellow), the beam (orange) and the native's position (cyan)
    public static final String DEV_GT_ALTERNATE_KEYS = string("devGtAlternateKeys", ""); // dev: comma list of the offload keys the alternation switches (or "all")
    public static final int CHAR_DRAW_THREADS = Math.max(1, integer("charDrawThreads", 14)); // threads of the characters draw pre-pass pool (pzopt.CharDraw; clamped to cores - 2): the ~480 zombies' draw data must finish inside the chunk bakes, eight threads left the game thread waiting 0.2 ms a frame, twelve 0.13
    public static final boolean DEV_SIM_CHECKSUM = bool("devSimChecksum", false); // dev: one line per frame in Zomboid/pzopt-sim.out hashing every zombie's position, target, action state and animation state after postupdate (pzopt.SimChecksum, harness/simdiff.py)
@@ -1427,6 +1435,13 @@ public final class Config {
    public static volatile boolean COLOR_GRADING; // time-of-day / weather LUT
    public static volatile int COLOR_GRADING_PCT; // strength of the grade
    public static volatile int COLOR_GRADING_NIGHT_PCT; // strength of the night-vision (Purkinje) shift within it
+   public static volatile boolean TORCH_SOURCE; // torchSource: a carried light shines from the drawn item's lens, not the holder's feet (pzopt.TorchSource)
+   public static volatile String TORCH_SOURCE_AIM; // torchSource: the beam's direction, look (stock: where the player looks) or item (the item's own axis)
+   public static volatile int TORCH_SOURCE_HOLD; // torchSource: hundredths of a square the lens may sway before the native's position follows while the holder stands still
+   public static volatile boolean TORCH_SOURCE_FRESH; // torchSource: the per-pixel consumers re-solve the lens from the pose the frame draws (not the previous frame's)
+   public static volatile boolean TORCH_SOURCE_WALL_CLAMP;
+   public static volatile boolean TORCH_SOURCE_VEHICLES;
+   public static volatile boolean TORCH_SOURCE_PITCH; // torchSource + torchSourceAim=item: pixelLight's beam reach follows the item's tilt (a torch pointed down lights the ground nearer) // torchSource: headlights / tail lights drawn per pixel from where the car is shown this frame (vehicleSmooth), not the last physics step // torchSource: the native's position stays on the holder's side of its square's walls, closed doors and windows
    public static volatile boolean PPL_TORCH_FEET_GLOW; // pixelLight: a handheld torch also lights a small disc round the holder's feet (off: the beam alone; the Workshop report of 2026-09-28 wanted the circle gone)
    // Candidate A (2026-09-26, pzopt.SpriteFilter): how the chunk composite samples the baked world.
    public static volatile String SPRITE_FILTER; // stock | sharp (texel-aware: anti-aliased point sampling zoomed in, supersampled mips zoomed out) | nearest (point sampling at every magnified zoom)
@@ -1611,6 +1626,13 @@ public final class Config {
       COLOR_GRADING_PCT = integer("colorGradingPct", 100);
       COLOR_GRADING_NIGHT_PCT = integer("colorGradingNightPct", 100);
       PPL_TORCH_FEET_GLOW = bool("pplTorchFeetGlow", true);
+      TORCH_SOURCE = bool("torchSource", false);
+      TORCH_SOURCE_AIM = string("torchSourceAim", "look").trim().toLowerCase(java.util.Locale.ROOT);
+      TORCH_SOURCE_HOLD = Math.max(0, integer("torchSourceHold", 15));
+      TORCH_SOURCE_FRESH = bool("torchSourceFresh", true);
+      TORCH_SOURCE_WALL_CLAMP = bool("torchSourceWallClamp", true);
+      TORCH_SOURCE_VEHICLES = bool("torchSourceVehicles", true);
+      TORCH_SOURCE_PITCH = bool("torchSourcePitch", true);
       SPRITE_FILTER = string("spriteFilter", "stock").trim().toLowerCase(java.util.Locale.ROOT);
       SPRITE_FILTER_MIN = string("spriteFilterMin", "rgssa2").trim().toLowerCase(java.util.Locale.ROOT);
       SPRITE_FILTER_SHARPNESS_PCT = integer("spriteFilterSharpnessPct", 100);
@@ -1711,7 +1733,8 @@ public final class Config {
          // the switch of each feature on the Enhancements tab; the rest of each section only tunes it
          {"enhancementsEnabled", "upscaler", "off", "dynRes", "false", "spriteFilter", "stock", "hdr", "false", "hdrAuto", "false",
             "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "bloodWet", "false", "darknessFloorPct", "0",
-            "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false", "relief", "false", "carGlass", "false"},
+            "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false", "relief", "false", "carGlass", "false",
+            "torchSource", "false"},
          // everything that makes the overlay measure or show (Overlay.configure; harness runs still measure)
          {"profilerEnabled", "overlaySampling", "false", "overlay", "false", "overlayLog", "false"},
       };

@@ -5845,3 +5845,27 @@ glass was drawn there too (wasted) and the occupant was placed from the sun came
   the shader drops that connection and the diagonal for points above the floor on the wall's side. Floors unchanged.
   Rig: `--source-save Sandbox/2026-10-02_10-30-09 --shot-at 2` + `harness/wall-column.py` (Jev).
 
+
+## Light from the torch itself (`torchSource`, 2026-10-03; `pzopt.TorchSource`; docs/findings-torch-source-2026-10-03.md)
+
+### zombie.characters.IsoGameCharacter (inner class TorchInfo)
+
+- New public fields, all `pzopt`-prefixed: `pzoptSrc` / `pzoptLx` / `pzoptLy` / `pzoptLz` (the carried light's lens for the
+  per-pixel consumers), `pzoptFrame`, `pzoptHolder` / `pzoptItem` / `pzoptPart` (what the last `set` was called for),
+  `pzoptOut` (the render-time solve, reused by the same frame's native update), `pzoptHoldValid` / `pzoptNx` / `pzoptNy` /
+  `pzoptHx` / `pzoptHy` / `pzoptHz` / `pzoptHax` / `pzoptHay` (the native's held position and what it was held for).
+- `set(IsoPlayer, InventoryItem)`: after the stock body, `pzopt.TorchSource.onSet(this, p, item)`. With `torchSource` off it
+  only records the holder and clears `pzoptSrc` (stock values untouched). On: `x` / `y` become the lens of the drawn item (the
+  hand prop / attachment / weapon light part placed as `AnimatedModel.transformToParent` places it, mapped to the world as
+  `Model.vectorToWorldCoords` maps bones; the mesh box's support point along the beam), kept on the holder's side of its
+  square's walls, closed doors and windows (`torchSourceWallClamp`) and held while the holder stands still and the lens
+  sways less than `torchSourceHold` hundredths of a square; `angleX` / `angleY` follow the item's axis with
+  `torchSourceAim=item`. `z` stays the holder's (the native's level). No model drawn (invisible holder, a mesh still
+  loading): stock values.
+- `set(VehiclePart)`: clears `pzoptSrc`, records the part (re-placed at render time where vehicleSmooth draws the car,
+  `torchSourceVehicles`; render-time readers only, the native keeps the step's values).
+
+### zombie.iso.fboRenderChunk.FBORenderCell
+
+Ahead of `pzopt.PixelLight.beforeComposite`: `pzopt.TorchSource.renderFrame()` (with `torchSource` on): the frame's lens
+re-solve for every per-pixel consumer and the dev markers, whichever consumer is on (without pixelLight nothing else asked).

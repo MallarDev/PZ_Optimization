@@ -250,16 +250,48 @@ public final class Scene {
       }
       if ("on".equals(torch)) {
          try {
-            torchItem = p.getInventory().AddItem("Base.HandTorch");
-            if (torchItem == null) {
-               Log.warn("harness: could not create Base.HandTorch");
-            } else {
-               p.setPrimaryHandItem(torchItem);
-               torchItem.setActivated(true);
-               Log.info("harness: torch on (Base.HandTorch, strength " + torchItem.getLightStrength() + ", distance " + torchItem.getLightDistance()
-                     + ", cone " + torchItem.isTorchCone() + ", emitting " + torchItem.isEmittingLight() + "); player torch strength "
+            // torch_item=<full type> (default Base.HandTorch), torch_slot=primary|secondary|<attached location, e.g. "Webbing
+            // Right Walkie">, torch_part=<weapon part full type> (a weapon light: torch_item=Base.Pistol torch_part=Base.GunLight)
+            // (2026-10-03, the torchSource rig: every kind of carried light)
+            String[] types = HarnessFlags.get("torch_item", "Base.HandTorch").split("[;/]");
+            String[] slots = HarnessFlags.get("torch_slot", "primary").split("[;/]");
+            String[] parts = HarnessFlags.get("torch_part", "").split("[;/]", -1);
+            for (int ti = 0; ti < types.length; ti++) {
+               String type = types[ti].trim();
+               String slot = ti < slots.length ? slots[ti].trim().replace('_', ' ') : "primary"; // Webbing_Right_Walkie = "Webbing Right Walkie"
+               String part = ti < parts.length ? parts[ti].trim() : "";
+               InventoryItem it = p.getInventory().AddItem(type);
+               if (it == null) {
+                  Log.warn("harness: could not create " + type);
+                  continue;
+               }
+               if (ti == 0) {
+                  torchItem = it;
+               }
+               if (!part.isEmpty() && it instanceof zombie.inventory.types.HandWeapon w) {
+                  InventoryItem pi = zombie.inventory.InventoryItemFactory.CreateItem(part);
+                  if (pi instanceof zombie.inventory.types.WeaponPart wp) {
+                     w.attachWeaponPart(p, wp);
+                  } else {
+                     Log.warn("harness: torch_part " + part + " is not a weapon part");
+                  }
+               }
+               if (slot.equalsIgnoreCase("primary")) {
+                  p.setPrimaryHandItem(it);
+               } else if (slot.equalsIgnoreCase("secondary")) {
+                  p.setSecondaryHandItem(it);
+               } else if (slot.equalsIgnoreCase("both")) {
+                  p.setPrimaryHandItem(it);
+                  p.setSecondaryHandItem(it);
+               } else {
+                  p.setAttachedItem(slot, it);
+               }
+               it.setActivated(true);
+               Log.info("harness: torch on (" + type + " in " + slot + (part.isEmpty() ? "" : " with " + part) + ", strength " + it.getLightStrength() + ", distance " + it.getLightDistance()
+                     + ", cone " + it.isTorchCone() + ", emitting " + it.isEmittingLight() + "); player torch strength "
                      + p.getTorchStrength() + " distance " + p.getLightDistance() + " cone " + p.isTorchCone());
             }
+            p.resetEquippedHandsModels();
          } catch (Exception e) {
             Log.warn("harness: torch on failed: " + e);
          }

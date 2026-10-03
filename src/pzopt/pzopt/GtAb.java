@@ -24,9 +24,10 @@ public final class GtAb {
    public static final int VIS_POLY = 1024; // visPolyAsync
    public static final int AO_CONTEXT = 2048; // aoContextParallel
    public static final int TL_ORDER = 4096; // translucentOrderCache
+   public static final int TORCH_SOURCE = 8192; // torchSource (an Enhancements key: the cost of the lens solve and its visuals)
 
    private static final String[] NAMES = {"renderPrepParallel", "pplPackParallel", "schedulerClassifyParallel", "animalLosFast",
-      "weatherParticlesParallel", "entityUpdateParallel", "bakePrepParallel", "pplTorchNearChunk", "zombieStatsFold", "losLightPrefetch", "visPolyAsync", "aoContextParallel", "translucentOrderCache"};
+      "weatherParticlesParallel", "entityUpdateParallel", "bakePrepParallel", "pplTorchNearChunk", "zombieStatsFold", "losLightPrefetch", "visPolyAsync", "aoContextParallel", "translucentOrderCache", "torchSource"};
 
    private static final int MASK = parse(Config.DEV_GT_ALTERNATE_KEYS);
    private static long t0;
