@@ -5,9 +5,19 @@ public read: anyone can play a linked video), objects at the path the file has u
 path: run folder names are unique). Every run video uploaded is linked in the Grafana DBs (local and remote, table
 run_videos: the Runs table's "video" column and the Run dashboard's video panel).
 
-    harness/cold-store.py runs <runs dir>...        whole run folders (gcloud storage rsync, one per run), except the raw
+    harness/cold-store.py runs [--delete] [--min-age-h H] [--keep GLOB]... <runs dir>...
+                                                    whole run folders (gcloud storage rsync, one per run), except the raw
                                                     dev dumps (*.f16, *.f32, *.bin, capture/frames.rgba|gray): they only
-                                                    fed metrics and videos that exist elsewhere
+                                                    fed metrics and videos that exist elsewhere; then each folder's
+                                                    index.html and its run_data link; --delete removes a local folder
+                                                    (raw dumps included) once the bucket holds every other file of it at
+                                                    its size, except folders newer than H hours or matching a --keep glob
+    harness/cold-store.py index [<run name>...]     (re)writes index.html for every run folder in the bucket (or the named
+                                                    ones) and links them all in the Grafana DBs (table run_data: the Runs
+                                                    table's "data" column and the Run dashboard's "Run data" panel)
+    harness/cold-store.py export                    runs the Grafana DB holds whose folder is gone (removed worktrees, never
+                                                    uploaded): their frames / overlay / sysmon samples from the local DB as
+                                                    gzip-encoded CSV at the folder's place in the bucket, indexed and linked
     harness/cold-store.py videos [--delete] [--min-age-h H] <dir>...
                                                     the video files under the dirs (*.mp4, *.mkv, *.webm, *.mov); --delete
                                                     removes each local copy once the bucket holds it at the same size
@@ -20,7 +30,11 @@ finished run folders to ~/.cache/pzopt-cold-store/done-runs.txt (a rerun skips t
 """
 import argparse
 import concurrent.futures as cf
+import fnmatch
+import html
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
@@ -86,7 +100,7 @@ def psql(sql, remote):
         env.update(PGHOST=cfg.get("PZ_REMOTE_PGHOST", "127.0.0.1"), PGPORT=cfg.get("PZ_REMOTE_PGPORT", "15433"),
                    PGUSER=cfg.get("PZ_REMOTE_PGUSER", "pzopt"), PGPASSWORD=cfg.get("PZ_REMOTE_PGPASSWORD", ""),
                    PGDATABASE=cfg.get("PZ_REMOTE_PGDATABASE", "pzopt"), PGSSLMODE="disable")
-    r = subprocess.run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-c", sql], env=env, capture_output=True, text=True)
+    r = subprocess.run(["psql", "-X", "-q", "-1", "-v", "ON_ERROR_STOP=1", "-f", "-"], input=sql, env=env, capture_output=True, text=True)
     if r.returncode != 0:
         log(f"  db ({'remote' if remote else 'local'}): {r.stderr.strip()[:300]}")
     return r.returncode == 0
@@ -102,6 +116,139 @@ def record(rows):
            "object = EXCLUDED.object, bytes = EXCLUDED.bytes, uploaded = now();")
     for remote in (False, True):
         psql(sql, remote)
+
+
+RUN_OBJ = re.compile(rf"^({re.escape(PREFIX)}/harness/(?:archive/[^/]+/)?runs/([^/]+))/(.+)$")
+DASHBOARD = "https://pzo.diegov.dev/d/pzopt-run/run?var-run="
+# the frame-time sources, first in each index page and linked on their own in the Run dashboard
+FRAME_FILES = [("pzopt-frames.out", "every game frame (Stats)"), ("frames.csv", "every game frame, exported from the Grafana DB"),
+               ("pzopt-overlay.out", "every presented frame, GPU ms, thread loads"),
+               ("overlay.csv", "every presented frame, GPU ms, thread loads, exported from the Grafana DB"),
+               ("mangohud.csv", "MangoHud frame log"), ("pzopt-pacing.out", "frame pacing"), ("present.txt", "display flip times"),
+               ("sysmon.csv", "CPU / GPU utilization and power")]
+
+
+def run_folders(sizes):
+    """bucket listing (object -> size) -> {run: (folder object, {path in the folder: size})}"""
+    runs = {}
+    for o, s in sizes.items():
+        m = RUN_OBJ.match(o)
+        if m and m.group(3) != "index.html":
+            runs.setdefault(m.group(2), (m.group(1), {}))[1][m.group(3)] = s
+    return runs
+
+
+def size_text(b):
+    for unit in ("B", "KB", "MB", "GB"):
+        if b < 1000 or unit == "GB":
+            return f"{b:.0f} {unit}" if unit == "B" else f"{b:.1f} {unit}"
+        b /= 1000
+
+
+def index_page(run, files):
+    q = lambda p: html.escape(urllib.parse.quote(p))  # noqa: E731
+    frames = "".join(f'<li><a href="{q(n)}">{n}</a> ({size_text(files[n])}): {d}</li>' for n, d in FRAME_FILES if n in files)
+    rows = "".join(f'<tr><td><a href="{q(p)}">{html.escape(p)}</a></td><td>{size_text(s)}</td></tr>' for p, s in sorted(files.items()))
+    return f"""<!doctype html><meta charset="utf-8"><title>{html.escape(run)}</title>
+<style>body{{font:14px system-ui,sans-serif;margin:2em;background:#111;color:#ddd}}a{{color:#8ab8ff}}td{{padding:1px 1.5em 1px 0}}</style>
+<h1>{html.escape(run)}</h1>
+<p>A PZ Optimization harness run (github.com/xD3I/PZ_Optimization). Its dashboard: <a href="{DASHBOARD}{q(run)}">PZ run</a>.
+The raw frame dumps of dev captures (capture/frames.gray|rgba, *.f16, *.f32, *.bin) are not kept.</p>
+<h2>Frame data</h2><ul>{frames or "<li>none in this run</li>"}</ul>
+<h2>All files ({len(files)}, {size_text(sum(files.values()))})</h2><table>{rows}</table>
+"""
+
+
+def record_data(rows):
+    """rows: (run, index object, frames object or None, files, bytes)"""
+    sql = ["CREATE TABLE IF NOT EXISTS run_data (run text PRIMARY KEY, url text, frames_url text, files int, bytes bigint, "
+           "uploaded timestamptz DEFAULT now());"]
+    esc = lambda s: "NULL" if s is None else "'" + s.replace("'", "''") + "'"  # noqa: E731
+    for i in range(0, len(rows), 500):
+        vals = ",".join(f"({esc(r)},{esc(url_of(o))},{esc(url_of(f) if f else None)},{n},{b})" for r, o, f, n, b in rows[i:i + 500])
+        sql.append(f"INSERT INTO run_data (run, url, frames_url, files, bytes) VALUES {vals} ON CONFLICT (run) DO UPDATE SET "
+                   "url = EXCLUDED.url, frames_url = EXCLUDED.frames_url, files = EXCLUDED.files, bytes = EXCLUDED.bytes, uploaded = now();")
+    for remote in (False, True):
+        psql("".join(sql), remote)
+
+
+def do_index(only=None, have=None):
+    """index.html for every run folder in the bucket (or the runs named in `only`), uploaded when it changed; all linked."""
+    have = listing(f"{PREFIX}/harness") if have is None else have
+    runs = run_folders(have)
+    if only is not None:
+        runs = {r: v for r, v in runs.items() if r in only}
+    mirror, up = STATE / "index", STATE / "index-up"
+    shutil.rmtree(up, ignore_errors=True)
+    changed, rows = 0, []
+    for run, (folder, files) in runs.items():
+        page = index_page(run, files)
+        obj = f"{folder}/index.html"
+        old = mirror / obj
+        if not (old.exists() and old.read_text() == page and have.get(obj) == len(page.encode())):
+            for d in (mirror, up):
+                (d / obj).parent.mkdir(parents=True, exist_ok=True)
+                (d / obj).write_text(page)
+            changed += 1
+        frames = next((f"{folder}/{n}" for n, _ in FRAME_FILES if n in files), None)
+        rows.append((run, obj, frames, len(files), sum(files.values())))
+    if changed:
+        r = subprocess.run([GCLOUD, "storage", "cp", "-r", "--cache-control=no-cache", "--content-type=text/html; charset=utf-8",
+                            str(up / PREFIX.split("/")[0]), f"gs://{BUCKET}/"], capture_output=True, text=True)
+        if r.returncode != 0:
+            log(f"  index upload FAILED: {r.stderr.strip()[-300:]}")
+            for run, (folder, _) in runs.items():  # forget the pages, so the next index rewrites them
+                (mirror / f"{folder}/index.html").unlink(missing_ok=True)
+            return have
+    shutil.rmtree(up, ignore_errors=True)
+    record_data(rows)
+    log(f"index: {len(runs)} run folders in the bucket, {changed} index pages uploaded, {len(rows)} runs linked")
+    return have
+
+
+EXPORTS = [("frames.csv", "SELECT rel_s, t, ms, in_route FROM frames WHERE run = {r} ORDER BY t"),
+           ("overlay.csv", "SELECT rel_s, t, fps, ms, gpu_ms, cpu_load, gpu_load, game_load, render_load FROM overlay WHERE run = {r} ORDER BY t"),
+           ("sysmon.csv", "SELECT * FROM sysmon WHERE run = {r} ORDER BY t")]
+
+
+def do_export():
+    """Runs the Grafana DB holds whose folder is neither in the bucket nor on disk (removed worktrees): their frame,
+    overlay and sysmon samples from the local DB as CSV (gzip-encoded) at the folder's place in the bucket, then indexed."""
+    have = listing(f"{PREFIX}/harness")
+    in_bucket = set(run_folders(have))
+    env = dict(os.environ, PGHOST="127.0.0.1", PGPORT="5433", PGUSER="pzopt", PGPASSWORD="pzopt", PGDATABASE="pzopt")
+    out = subprocess.run(["psql", "-X", "-At", "-F", "\t", "-c", "SELECT run, path FROM runs"], env=env, capture_output=True, text=True).stdout
+    gone = [(r, p) for r, p in (l.split("\t", 1) for l in out.splitlines() if "\t" in l)
+            if r not in in_bucket and not Path(p).is_dir() and "/harness/" in p]
+    log(f"export: {len(gone)} runs in the Grafana DB with no folder in the bucket or on disk")
+    if not gone:
+        return
+    stage = STATE / "export"
+    shutil.rmtree(stage, ignore_errors=True)
+    script = []
+    for run, path in gone:
+        d = stage / PREFIX / ("harness/" + path.split("/harness/", 1)[1])
+        d.mkdir(parents=True, exist_ok=True)
+        r = "'" + run.replace("'", "''") + "'"
+        for name, q in EXPORTS:
+            script.append(f"\\copy ({q.format(r=r)}) TO '{d / name}' CSV HEADER")
+        (d / "README.txt").write_text(f"{run}: the run folder was deleted with its worktree before it reached cold storage; these "
+                                      "are its samples as the Grafana DB holds them (harness/grafana/schema.sql: frames, overlay, sysmon).\n")
+    r = subprocess.run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", "-"], input="\n".join(script), env=env, capture_output=True, text=True)
+    if r.returncode != 0:
+        log(f"  export FAILED: {r.stderr.strip()[-300:]}")
+        return
+    for f in stage.rglob("*.csv"):  # a table without rows for the run
+        if f.stat().st_size < 120 and len(f.read_text().splitlines()) <= 1:
+            f.unlink()
+    log(f"export: {sum(f.stat().st_size for f in stage.rglob('*') if f.is_file()) / 1e9:.2f} GB of CSV, uploading")
+    r = subprocess.run([GCLOUD, "storage", "cp", "-r", "--gzip-local-all", str(stage / PREFIX.split("/")[0]),
+                        f"gs://{BUCKET}/"], capture_output=True, text=True)
+    if r.returncode != 0:
+        log(f"  export upload FAILED: {r.stderr.strip()[-300:]}")
+        return
+    shutil.rmtree(stage, ignore_errors=True)
+    do_index({run for run, _ in gone})
 
 
 def primary_videos(files):
@@ -120,15 +267,19 @@ def is_run_dir(d):
 
 # ---- modes ----
 
-def do_runs(dirs):
+def do_runs(dirs, delete=False, min_age_h=0.0, keep=()):
     STATE.mkdir(parents=True, exist_ok=True)
     done = set((STATE / "done-runs.txt").read_text().split()) if (STATE / "done-runs.txt").exists() else set()
+    now, synced = time.time(), []
     for root in dirs:
         root = Path(root).resolve()
         runs = [root] if (root / "console.txt").exists() else sorted(p for p in root.iterdir() if p.is_dir())  # (one run folder, or a runs dir)
         log(f"runs: {root} ({len(runs)} folders, {sum(1 for r in runs if str(r) in done)} done before)")
         for i, run in enumerate(runs):
-            if str(run) in done:
+            if delete and (now - run.stat().st_mtime < min_age_h * 3600 or any(fnmatch.fnmatch(run.name, k) for k in keep)):
+                continue
+            synced.append(run)
+            if str(run) in done and not delete:  # (--delete syncs again: a folder may have changed since)
                 continue
             dst = f"gs://{BUCKET}/{object_of(run)}"
             r = subprocess.run([GCLOUD, "storage", "rsync", "-r", "-x", RAW, str(run), dst], capture_output=True, text=True)
@@ -139,12 +290,33 @@ def do_runs(dirs):
             if vids:
                 v = run / "recording.mp4" if (run / "recording.mp4").is_file() else max(vids, key=lambda f: f.stat().st_size)
                 record([(run.name, object_of(v), v.stat().st_size)])
-            with open(STATE / "done-runs.txt", "a") as f:
-                f.write(f"{run}\n")
-            done.add(str(run))
+            if str(run) not in done:
+                with open(STATE / "done-runs.txt", "a") as f:
+                    f.write(f"{run}\n")
+                done.add(str(run))
             if i % 20 == 0:
                 log(f"  {i + 1}/{len(runs)} {run.name}")
         log(f"runs: {root} finished")
+    if not synced:
+        return
+    have = do_index({r.name for r in synced})
+    if not delete:
+        return
+    raw = re.compile(RAW)
+    freed = removed = 0
+    for run in synced:
+        files = [f for f in run.rglob("*") if f.is_file() and not f.is_symlink()]
+        missing = [f for f in files if not raw.match(f.relative_to(run).as_posix()) and have.get(object_of(f)) != f.stat().st_size]
+        if missing:
+            log(f"  kept {run.name}: {len(missing)} files not in the bucket at their size (e.g. {missing[0].relative_to(run)})")
+            continue
+        if subprocess.run(["git", "-C", str(run), "ls-files", "."], capture_output=True, text=True).stdout.strip():
+            log(f"  kept {run.name}: git-tracked files")
+            continue
+        freed += sum(f.stat().st_size for f in files)
+        shutil.rmtree(run)
+        removed += 1
+    log(f"runs: {removed} of {len(synced)} folders removed locally, {freed / 1e9:.1f} GB (apparent) freed")
 
 
 def git_tracked(path):
@@ -201,7 +373,13 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="mode", required=True)
     a = sub.add_parser("runs")
+    a.add_argument("--delete", action="store_true")
+    a.add_argument("--min-age-h", type=float, default=0.0)
+    a.add_argument("--keep", action="append", default=[])
     a.add_argument("dirs", nargs="+")
+    i = sub.add_parser("index")
+    i.add_argument("runs", nargs="*")
+    sub.add_parser("export")
     b = sub.add_parser("videos")
     b.add_argument("--delete", action="store_true")
     b.add_argument("--min-age-h", type=float, default=0.0)
@@ -211,7 +389,11 @@ def main():
     c.add_argument("object")
     args = ap.parse_args()
     if args.mode == "runs":
-        do_runs(args.dirs)
+        do_runs(args.dirs, args.delete, args.min_age_h, args.keep)
+    elif args.mode == "index":
+        do_index(set(args.runs) or None)
+    elif args.mode == "export":
+        do_export()
     elif args.mode == "videos":
         do_videos(args.dirs, args.delete, args.min_age_h)
     else:

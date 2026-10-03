@@ -691,7 +691,14 @@ path). `harness/cold-store.py runs <runs dir>...` uploads whole run folders exce
 `*.bin`, `capture/frames.rgba|gray`); `harness/cold-store.py videos --delete [--min-age-h H] <dir>...` moves video files
 (uploads, checks the bucket's size, deletes the local copy; git-tracked files are never deleted). Every run video is
 linked in both Grafana DBs (table `run_videos`, its own table so a re-import keeps it): the Runs table's `video` column
-and the Run dashboard's Recording panel. The links (`storage.googleapis.com`) play for everyone; every read is billed
+and the Run dashboard's Recording panel. Run folders too (2026-10-03): `runs` ends by writing each folder's `index.html`
+(every file, the frame logs first; public, `no-cache`) and its row in `run_data` (url = the index, frames_url = its frame
+log): the Runs table's `data` column and the Run dashboard's "Run data" panel; `runs --delete [--min-age-h H] [--keep
+GLOB]` then removes each local folder whose non-raw files the bucket holds at their size (the raw dumps go with it);
+`index [run...]` re-indexes and re-links what the bucket holds; `export` puts the frames / overlay / sysmon samples of runs
+whose folder is gone (worktrees removed before an upload) from the local DB into the bucket as gzip-encoded CSV. New runs
+are not uploaded by the follower: run `runs` (and `--delete` for the main checkout) when the disk fills. Long uploads need
+`TMPDIR=~/.cache/pzopt-cold-store/tmp` (gcloud hit the /tmp quota). The links (`storage.googleapis.com`) play for everyone; every read is billed
 (Coldline retrieval + egress), so never put anything but PZ run data in this bucket. Log: `~/.cache/pzopt-cold-store/log.txt`. The desktop's uplink is ~6 MB/s
 (parallel uploads do not help): ~6 minutes a GB. Standard class since 2026-09-27 (public reads: no retrieval fee).
 Hard cap: the bucket carries the label `app=pzopt-videos`; the budget "pzopt videos hard cap" (EUR 10 a month on that

@@ -781,14 +781,154 @@
    }
   },
   {
-   "type": "row",
-   "title": "Frame time (x = route time, 00:00:00 = route start)",
-   "collapsed": false,
-   "panels": [],
+   "type": "table",
+   "title": "Run data",
+   "description": "The run's folder in the cold-storage bucket gs://diegov-videos-coldline (public): 'open the run folder' lists every file with the frame logs first (pzopt-frames.out, pzopt-overlay.out, mangohud.csv, pacing, flips, sysmon), 'frames' is its frame log. Raw dev capture dumps are not kept. harness/cold-store.py uploads and links them; no row: not uploaded yet.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "table",
+     "rawSql": "SELECT 'open the run folder' AS folder, url, CASE WHEN frames_url IS NOT NULL THEN substring(frames_url from '[^/]+$') END AS frames,\n  frames_url, files, pg_size_pretty(bytes) AS size, uploaded FROM run_data WHERE run = ${run:sqlstring}",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "cellOptions": {
+       "type": "auto"
+      },
+      "filterable": false,
+      "inspect": true,
+      "wrapHeaderText": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "folder"
+      },
+      "properties": [
+       {
+        "id": "links",
+        "value": [
+         {
+          "title": "The run's files (cold storage)",
+          "url": "${__data.fields.url}"
+         }
+        ]
+       },
+       {
+        "id": "custom.width",
+        "value": 200
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "url"
+      },
+      "properties": [
+       {
+        "id": "custom.hidden",
+        "value": true
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "frames"
+      },
+      "properties": [
+       {
+        "id": "links",
+        "value": [
+         {
+          "title": "The run's frame log (cold storage)",
+          "url": "${__data.fields.frames_url}"
+         }
+        ]
+       },
+       {
+        "id": "custom.width",
+        "value": 200
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "frames_url"
+      },
+      "properties": [
+       {
+        "id": "custom.hidden",
+        "value": true
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "uploaded"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dateTimeAsIso"
+       },
+       {
+        "id": "custom.width",
+        "value": 180
+       }
+      ]
+     }
+    ]
+   },
+   "transformations": [],
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "fields": ""
+    },
+    "sortBy": []
+   },
    "id": 9,
    "gridPos": {
     "x": 0,
     "y": 21,
+    "w": 24,
+    "h": 3
+   }
+  },
+  {
+   "type": "row",
+   "title": "Frame time (x = route time, 00:00:00 = route start)",
+   "collapsed": false,
+   "panels": [],
+   "id": 10,
+   "gridPos": {
+    "x": 0,
+    "y": 24,
     "w": 24,
     "h": 1
    }
@@ -933,10 +1073,10 @@
      "sort": "desc"
     }
    },
-   "id": 10,
+   "id": 11,
    "gridPos": {
     "x": 0,
-    "y": 22,
+    "y": 25,
     "w": 24,
     "h": 10
    }
@@ -1022,10 +1162,10 @@
      "sort": "desc"
     }
    },
-   "id": 11,
+   "id": 12,
    "gridPos": {
     "x": 0,
-    "y": 32,
+    "y": 35,
     "w": 12,
     "h": 8
    }
@@ -1103,10 +1243,10 @@
      "sort": "desc"
     }
    },
-   "id": 12,
+   "id": 13,
    "gridPos": {
     "x": 12,
-    "y": 32,
+    "y": 35,
     "w": 12,
     "h": 8
    }
@@ -1148,10 +1288,10 @@
      "showLegend": false
     }
    },
-   "id": 13,
+   "id": 14,
    "gridPos": {
     "x": 0,
-    "y": 40,
+    "y": 43,
     "w": 12,
     "h": 8
    }
@@ -1255,10 +1395,10 @@
     },
     "sortBy": []
    },
-   "id": 14,
+   "id": 15,
    "gridPos": {
     "x": 12,
-    "y": 40,
+    "y": 43,
     "w": 12,
     "h": 8
    }
@@ -1268,10 +1408,10 @@
    "title": "Utilization",
    "collapsed": false,
    "panels": [],
-   "id": 15,
+   "id": 16,
    "gridPos": {
     "x": 0,
-    "y": 48,
+    "y": 51,
     "w": 24,
     "h": 1
    }
@@ -1335,10 +1475,10 @@
      "sort": "desc"
     }
    },
-   "id": 16,
+   "id": 17,
    "gridPos": {
     "x": 0,
-    "y": 49,
+    "y": 52,
     "w": 12,
     "h": 8
    }
@@ -1402,10 +1542,10 @@
      "sort": "desc"
     }
    },
-   "id": 17,
+   "id": 18,
    "gridPos": {
     "x": 12,
-    "y": 49,
+    "y": 52,
     "w": 12,
     "h": 8
    }
@@ -1500,10 +1640,10 @@
      "sort": "desc"
     }
    },
-   "id": 18,
+   "id": 19,
    "gridPos": {
     "x": 0,
-    "y": 57,
+    "y": 60,
     "w": 12,
     "h": 8
    }
@@ -1582,10 +1722,10 @@
      "sort": "desc"
     }
    },
-   "id": 19,
+   "id": 20,
    "gridPos": {
     "x": 12,
-    "y": 57,
+    "y": 60,
     "w": 12,
     "h": 8
    }
@@ -1706,10 +1846,10 @@
     },
     "sortBy": []
    },
-   "id": 20,
+   "id": 21,
    "gridPos": {
     "x": 0,
-    "y": 65,
+    "y": 68,
     "w": 24,
     "h": 9
    }
@@ -1719,10 +1859,10 @@
    "title": "Power",
    "collapsed": false,
    "panels": [],
-   "id": 21,
+   "id": 22,
    "gridPos": {
     "x": 0,
-    "y": 74,
+    "y": 77,
     "w": 24,
     "h": 1
    }
@@ -1788,10 +1928,10 @@
      "valueSize": 20
     }
    },
-   "id": 22,
+   "id": 23,
    "gridPos": {
     "x": 0,
-    "y": 75,
+    "y": 78,
     "w": 24,
     "h": 4
    }
@@ -1854,10 +1994,10 @@
      "sort": "desc"
     }
    },
-   "id": 23,
+   "id": 24,
    "gridPos": {
     "x": 0,
-    "y": 79,
+    "y": 82,
     "w": 12,
     "h": 8
    }
@@ -1920,10 +2060,10 @@
      "sort": "desc"
     }
    },
-   "id": 24,
+   "id": 25,
    "gridPos": {
     "x": 12,
-    "y": 79,
+    "y": 82,
     "w": 12,
     "h": 8
    }
@@ -1998,10 +2138,10 @@
      "sort": "desc"
     }
    },
-   "id": 25,
+   "id": 26,
    "gridPos": {
     "x": 0,
-    "y": 87,
+    "y": 90,
     "w": 24,
     "h": 8
    }
@@ -2011,10 +2151,10 @@
    "title": "Game thread (pzopt-gamethread.out, share of stack samples)",
    "collapsed": false,
    "panels": [],
-   "id": 26,
+   "id": 27,
    "gridPos": {
     "x": 0,
-    "y": 95,
+    "y": 98,
     "w": 24,
     "h": 1
    }
@@ -2078,10 +2218,10 @@
      "sort": "desc"
     }
    },
-   "id": 27,
+   "id": 28,
    "gridPos": {
     "x": 0,
-    "y": 96,
+    "y": 99,
     "w": 24,
     "h": 9
    }
@@ -2144,10 +2284,10 @@
      "sort": "desc"
     }
    },
-   "id": 28,
+   "id": 29,
    "gridPos": {
     "x": 0,
-    "y": 105,
+    "y": 108,
     "w": 24,
     "h": 9
    }
@@ -2246,10 +2386,10 @@
     },
     "sortBy": []
    },
-   "id": 29,
+   "id": 30,
    "gridPos": {
     "x": 0,
-    "y": 114,
+    "y": 117,
     "w": 8,
     "h": 12
    }
@@ -2348,10 +2488,10 @@
     },
     "sortBy": []
    },
-   "id": 30,
+   "id": 31,
    "gridPos": {
     "x": 8,
-    "y": 114,
+    "y": 117,
     "w": 8,
     "h": 12
    }
@@ -2450,10 +2590,10 @@
     },
     "sortBy": []
    },
-   "id": 31,
+   "id": 32,
    "gridPos": {
     "x": 16,
-    "y": 114,
+    "y": 117,
     "w": 8,
     "h": 12
    }
@@ -2463,10 +2603,10 @@
    "title": "Chunks, GC, flips",
    "collapsed": false,
    "panels": [],
-   "id": 32,
+   "id": 33,
    "gridPos": {
     "x": 0,
-    "y": 126,
+    "y": 129,
     "w": 24,
     "h": 1
    }
@@ -2532,10 +2672,10 @@
      "sort": "desc"
     }
    },
-   "id": 33,
+   "id": 34,
    "gridPos": {
     "x": 0,
-    "y": 127,
+    "y": 130,
     "w": 12,
     "h": 8
    }
@@ -2621,10 +2761,10 @@
      "sort": "desc"
     }
    },
-   "id": 34,
+   "id": 35,
    "gridPos": {
     "x": 12,
-    "y": 127,
+    "y": 130,
     "w": 12,
     "h": 8
    }
@@ -2686,10 +2826,10 @@
      "sort": "desc"
     }
    },
-   "id": 35,
+   "id": 36,
    "gridPos": {
     "x": 0,
-    "y": 135,
+    "y": 138,
     "w": 12,
     "h": 8
    }
@@ -2755,10 +2895,10 @@
      "sort": "desc"
     }
    },
-   "id": 36,
+   "id": 37,
    "gridPos": {
     "x": 12,
-    "y": 135,
+    "y": 138,
     "w": 12,
     "h": 8
    }
@@ -2768,10 +2908,10 @@
    "title": "Drive (path pilot, pzopt-drive.out)",
    "collapsed": false,
    "panels": [],
-   "id": 37,
+   "id": 38,
    "gridPos": {
     "x": 0,
-    "y": 143,
+    "y": 146,
     "w": 24,
     "h": 1
    }
@@ -2833,10 +2973,10 @@
      "sort": "desc"
     }
    },
-   "id": 38,
+   "id": 39,
    "gridPos": {
     "x": 0,
-    "y": 144,
+    "y": 147,
     "w": 12,
     "h": 8
    }
@@ -2898,10 +3038,10 @@
      "sort": "desc"
     }
    },
-   "id": 39,
+   "id": 40,
    "gridPos": {
     "x": 12,
-    "y": 144,
+    "y": 147,
     "w": 12,
     "h": 8
    }
@@ -2911,10 +3051,10 @@
    "title": "Profiler: flame graph (pick the source and threads above; drag across any time panel to narrow the window)",
    "collapsed": false,
    "panels": [],
-   "id": 40,
+   "id": 41,
    "gridPos": {
     "x": 0,
-    "y": 152,
+    "y": 155,
     "w": 24,
     "h": 1
    }
@@ -2948,10 +3088,10 @@
     "overrides": []
    },
    "options": {},
-   "id": 41,
+   "id": 42,
    "gridPos": {
     "x": 0,
-    "y": 153,
+    "y": 156,
     "w": 24,
     "h": 22
    }
@@ -3013,10 +3153,10 @@
      "sort": "desc"
     }
    },
-   "id": 42,
+   "id": 43,
    "gridPos": {
     "x": 0,
-    "y": 175,
+    "y": 178,
     "w": 24,
     "h": 8
    }
@@ -3026,10 +3166,10 @@
    "title": "Scheduler (schedmon.txt: --schedmon), memory pressure, frame pacing",
    "collapsed": false,
    "panels": [],
-   "id": 43,
+   "id": 44,
    "gridPos": {
     "x": 0,
-    "y": 183,
+    "y": 186,
     "w": 24,
     "h": 1
    }
@@ -3091,10 +3231,10 @@
      "sort": "desc"
     }
    },
-   "id": 44,
+   "id": 45,
    "gridPos": {
     "x": 0,
-    "y": 184,
+    "y": 187,
     "w": 12,
     "h": 9
    }
@@ -3156,10 +3296,10 @@
      "sort": "desc"
     }
    },
-   "id": 45,
+   "id": 46,
    "gridPos": {
     "x": 12,
-    "y": 184,
+    "y": 187,
     "w": 12,
     "h": 9
    }
@@ -3234,10 +3374,10 @@
      "sort": "desc"
     }
    },
-   "id": 46,
+   "id": 47,
    "gridPos": {
     "x": 0,
-    "y": 193,
+    "y": 196,
     "w": 12,
     "h": 8
    }
@@ -3299,10 +3439,10 @@
      "sort": "desc"
     }
    },
-   "id": 47,
+   "id": 48,
    "gridPos": {
     "x": 12,
-    "y": 193,
+    "y": 196,
     "w": 12,
     "h": 8
    }
@@ -3368,10 +3508,10 @@
      "sort": "desc"
     }
    },
-   "id": 48,
+   "id": 49,
    "gridPos": {
     "x": 0,
-    "y": 201,
+    "y": 204,
     "w": 24,
     "h": 9
    }
@@ -3381,10 +3521,10 @@
    "title": "Inputs sent to the game (pzopt-input.out: every key / mouse / pad change the game thread saw)",
    "collapsed": false,
    "panels": [],
-   "id": 49,
+   "id": 50,
    "gridPos": {
     "x": 0,
-    "y": 210,
+    "y": 213,
     "w": 24,
     "h": 1
    }
@@ -3462,10 +3602,10 @@
      "mode": "single"
     }
    },
-   "id": 50,
+   "id": 51,
    "gridPos": {
     "x": 0,
-    "y": 211,
+    "y": 214,
     "w": 24,
     "h": 10
    }
@@ -3544,10 +3684,10 @@
      "sort": "desc"
     }
    },
-   "id": 51,
+   "id": 52,
    "gridPos": {
     "x": 0,
-    "y": 221,
+    "y": 224,
     "w": 12,
     "h": 8
    }
@@ -3609,10 +3749,10 @@
      "sort": "desc"
     }
    },
-   "id": 52,
+   "id": 53,
    "gridPos": {
     "x": 12,
-    "y": 221,
+    "y": 224,
     "w": 12,
     "h": 8
    }
@@ -3666,10 +3806,10 @@
     },
     "sortBy": []
    },
-   "id": 53,
+   "id": 54,
    "gridPos": {
     "x": 0,
-    "y": 229,
+    "y": 232,
     "w": 12,
     "h": 12
    }
@@ -3748,10 +3888,10 @@
     },
     "sortBy": []
    },
-   "id": 54,
+   "id": 55,
    "gridPos": {
     "x": 12,
-    "y": 229,
+    "y": 232,
     "w": 12,
     "h": 12
    }
@@ -3761,10 +3901,10 @@
    "title": "Console (pzopt-loadtrace.out: every console line with its epoch)",
    "collapsed": false,
    "panels": [],
-   "id": 55,
+   "id": 56,
    "gridPos": {
     "x": 0,
-    "y": 241,
+    "y": 244,
     "w": 24,
     "h": 1
    }
@@ -3801,10 +3941,10 @@
     "showLabels": false,
     "showCommonLabels": false
    },
-   "id": 56,
+   "id": 57,
    "gridPos": {
     "x": 0,
-    "y": 242,
+    "y": 245,
     "w": 24,
     "h": 14
    }
@@ -3814,10 +3954,10 @@
    "title": "Counters",
    "collapsed": false,
    "panels": [],
-   "id": 57,
+   "id": 58,
    "gridPos": {
     "x": 0,
-    "y": 256,
+    "y": 259,
     "w": 24,
     "h": 1
    }
@@ -3884,10 +4024,10 @@
     },
     "sortBy": []
    },
-   "id": 58,
+   "id": 59,
    "gridPos": {
     "x": 0,
-    "y": 257,
+    "y": 260,
     "w": 24,
     "h": 12
    }

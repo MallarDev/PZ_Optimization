@@ -36,6 +36,9 @@ ALTER TABLE runs ADD COLUMN IF NOT EXISTS cpu_w double precision, ADD COLUMN IF 
 -- run videos in the cold-storage bucket (2026-09-27, harness/cold-store.py): its own table, so a re-import of the run
 -- (which deletes and rewrites the runs row) keeps the link
 CREATE TABLE IF NOT EXISTS run_videos (run text PRIMARY KEY, url text, object text, bytes bigint, uploaded timestamptz DEFAULT now());
+-- run folders in the same bucket (2026-10-03, harness/cold-store.py runs / index): url = the folder's index.html (every
+-- file, frame data first), frames_url = its pzopt-frames.out (else the first frame log it has)
+CREATE TABLE IF NOT EXISTS run_data (run text PRIMARY KEY, url text, frames_url text, files int, bytes bigint, uploaded timestamptz DEFAULT now());
 
 -- pzopt-frames.out: every game frame (Stats), the harness's own frame source on both stock and optimized
 CREATE TABLE IF NOT EXISTS frames (run text, t timestamptz, rel_s double precision, rt timestamptz, ms real, in_route boolean);

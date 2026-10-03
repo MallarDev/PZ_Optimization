@@ -522,20 +522,24 @@ def runs_dashboard():
                      decimals=1, color_mode="none", value_size=20), 18, 4)
     L.add(table_panel(
         "Runs", f"""
-SELECT started, run, CASE WHEN v.url IS NOT NULL THEN 'video' END AS video, v.url AS video_url, fps_mean AS fps, fps_1pct_low AS "1% low", p50_ms AS p50, p99_ms AS p99, p99_9_ms AS "p99.9", max_ms AS max,
+SELECT started, run, CASE WHEN v.url IS NOT NULL THEN 'video' END AS video, v.url AS video_url,
+  CASE WHEN rd.url IS NOT NULL THEN 'data' END AS data, rd.url AS data_url, fps_mean AS fps, fps_1pct_low AS "1% low", p50_ms AS p50, p99_ms AS p99, p99_9_ms AS "p99.9", max_ms AS max,
   over_33ms AS ">33ms", jitter_ms AS jitter, cpu_pct AS "CPU %", busiest_core_pct AS "busiest core %", gpu_pct AS "GPU %",
   game_thread_pct AS "game thread %", total_w AS "W", j_per_frame AS "J/frame", {BOUND} AS bound, verdict, round(verdict_confidence::numeric, 2) AS conf, valid,
   variant, machine, mode, preset, chunk_p99_ms AS "chunk p99", gc_events AS gc, zoom, resolution, label,
   lag(run) OVER (PARTITION BY label ORDER BY started) AS previous
-FROM runs LEFT JOIN run_videos v USING (run) WHERE {where} ORDER BY started DESC""",
+FROM runs LEFT JOIN run_videos v USING (run) LEFT JOIN run_data rd USING (run) WHERE {where} ORDER BY started DESC""",
         desc="Frame times in ms over the route window (pzopt-frames.out); CPU / GPU from sysmon, game thread from pzopt-threads.out. "
-             "Click a run for its dashboard, 'previous' to compare with the last run of the same label, 'video' for its recording "
-             "(the cold-storage bucket gs://diegov-videos-coldline; harness/cold-store.py uploads and links them).",
+             "Click a run for its dashboard, 'previous' to compare with the last run of the same label, 'video' for its recording, "
+             "'data' for its run folder: frame logs and every other file (the cold-storage bucket gs://diegov-videos-coldline; "
+             "harness/cold-store.py uploads and links them).",
         overrides=[
             ov("run", link=[("Run dashboard", "/d/pzopt-run/run?var-run=${__value.raw}")], width=300),
             ov("previous", link=[("Compare with this run", "/d/pzopt-compare/compare?var-runs=${__data.fields.previous}&var-runs=${__data.fields.run}&var-base=${__data.fields.previous}")], width=260),
             ov("video", link=[("The run's recording (cold storage)", "${__data.fields.video_url}")], width=70),
             ov("video_url", hidden=True),
+            ov("data", link=[("The run's files and frame data (cold storage)", "${__data.fields.data_url}")], width=60),
+            ov("data_url", hidden=True),
             ov("started", unit="dateTimeAsIso", width=160),
             ov("fps", thresholds=FPS_STEPS, color_cell=True, decimals=1),
             ov("1% low", decimals=1),
@@ -610,6 +614,16 @@ SELECT 'open the recording' AS video, url, pg_size_pretty(bytes) AS size, upload
              "uploads run videos and links them here; no row: the run has no video.",
         overrides=[ov("video", link=[("The run's recording (cold storage)", "${__data.fields.url}")], width=200), ov("url", hidden=True),
                    ov("uploaded", unit="dateTimeAsIso", width=180)]), 24, 3)
+    L.add(table_panel("Run data", f"""
+SELECT 'open the run folder' AS folder, url, CASE WHEN frames_url IS NOT NULL THEN substring(frames_url from '[^/]+$') END AS frames,
+  frames_url, files, pg_size_pretty(bytes) AS size, uploaded FROM run_data WHERE run = {RUN}""",
+        desc="The run's folder in the cold-storage bucket gs://diegov-videos-coldline (public): 'open the run folder' lists every "
+             "file with the frame logs first (pzopt-frames.out, pzopt-overlay.out, mangohud.csv, pacing, flips, sysmon), 'frames' "
+             "is its frame log. Raw dev capture dumps are not kept. harness/cold-store.py uploads and links them; no row: not "
+             "uploaded yet.",
+        overrides=[ov("folder", link=[("The run's files (cold storage)", "${__data.fields.url}")], width=200), ov("url", hidden=True),
+                   ov("frames", link=[("The run's frame log (cold storage)", "${__data.fields.frames_url}")], width=200),
+                   ov("frames_url", hidden=True), ov("uploaded", unit="dateTimeAsIso", width=180)]), 24, 3)
 
     L.row("Frame time (x = route time, 00:00:00 = route start)")
     L.add(ts_panel("Every frame", [
