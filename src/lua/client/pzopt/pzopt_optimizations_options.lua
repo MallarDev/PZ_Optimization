@@ -1073,6 +1073,18 @@ local ENHANCEMENT_SECTIONS = {
         },
     },
     {
+        title = "Light from the torch itself (flashlights, lanterns and weapon lights shine from the item you carry)", clip = "torch",
+        entries = {
+            { key = "torchSource", label = "Light from the torch itself",
+              tip = "A flashlight, lantern, lighter or weapon light shines from the item in your hand, on your webbing or under your gun barrel, at its height, instead of from the middle of your feet: the beam starts at the lens and moves with your arm, a lantern held at your side lights that side, and with Per-pixel lighting the beam, its shadows, the glow in fog and the shadows other people cast from it all start there too. The game's own square-by-square lighting starts from the same spot (never through a wall) and holds still while you stand still. Costs a few microseconds a frame. Applies at once." },
+            { key = "torchSourceAim", label = "Light from the torch itself: beam direction",
+              choices = { "look", "item" }, note = { look = "default: where you look", item = "where the item points (follows your hand)" },
+              tip = "Where the beam points. Where you look (the game's own) keeps the beam steady on your aim; where the item points makes it follow the flashlight in your hand as you walk and turn, and a flashlight tilted down lights the ground nearer (with Per-pixel lighting)." },
+            { key = "torchSourceSelfShadow", label = "Light from the torch itself: your body casts a shadow",
+              tip = "With Per-pixel lighting: your own body shades the light you carry, so a lantern in one hand leaves the other side of you in a soft shadow, and a light at your hip does not light what is behind you. A torch held out in front is never tested. Applies on the next launch." },
+        },
+    },
+    {
         title = "Relief (parallax textures: bricks, stones, planks and shingles catch the light)", clip = "torch",
         entries = {
             { key = "relief", label = "Relief (parallax textures)",
@@ -1095,7 +1107,7 @@ local ENHANCEMENT_SECTIONS = {
 local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true, carOccupant = true, carOccupantOcclusion = true, carOccupantLightPct = true,
     -- per-pixel lighting: read once at start-up (the chunk composite shader is patched when the game loads it)
     pixelLight = true, pplAnalytic = true, pplPointLights = true, pplNormals = true, pplWrapPct = true, pplSmooth = true,
-    pplWetSpecular = true, pplSpecPct = true, pplShadows = true,
+    pplWetSpecular = true, pplSpecPct = true, pplShadows = true, torchSourceSelfShadow = true,
     -- reflections: the water, puddle and chunk composite shaders are patched when the game loads them (only then);
     -- strength and puddles apply at once
     reflections = true,
@@ -1423,7 +1435,7 @@ local KEY_CLIP = {
     fogPass = "fog", fogScalePct = "fog", fogMaskFrames = "fog",
     fsrSharpnessPct = "fsrzoom", dlssWaterCurrent = "dlss", dlssWaterHistoryPct = "dlss", dlssPreset = "dlss", dlssOutputPct = "dlss", dlssOutputFilter = "dlsszoom", dlssSharpen = "dlsszoom",
     hdrSunPct = "hdrday", hdrGlintPct = "hdrday",
-    pixelLight = "torch", pplAnalytic = "torch", pplNormals = "torch", pplWrapPct = "torch", pplShadows = "torch", pplTorchFeetGlow = "torch", pplSmooth = "torch", pplPointLights = "torch", pplWetSpecular = "storm", pplSpecPct = "storm",
+    pixelLight = "torch", pplAnalytic = "torch", pplNormals = "torch", pplWrapPct = "torch", pplShadows = "torch", pplTorchFeetGlow = "torch", torchSource = "torch", torchSourceAim = "torch", torchSourceSelfShadow = "torch", pplSmooth = "torch", pplPointLights = "torch", pplWetSpecular = "storm", pplSpecPct = "storm",
     lightingStrongDelta = "torch", lightingStrongBudget = "horde", lightingStrongFrameMs = "horde", lightingFlush = "torch", lightingBudget = "torch",
     audioLimiter = "horde", audioLimiterCeilingDb = "horde", audioLimiterStereoFold = "horde", soundTickHz = "horde", emitterIdleSkip = "horde", worldSoundCleanupFast = "horde", hearingHoist = "horde",
     lightSwitchCheckFrames = "horde", soundZoneCache = "horde", worldSoundFast = "horde", gridStackInterval = "horde",
@@ -1644,6 +1656,9 @@ local EFFECTS = {
     pplPointLights = { gpu = 1 },
     pplShadows = { gpu = 2 },
     pplTorchFeetGlow = {},
+    torchSource = {},
+    torchSourceAim = {},
+    torchSourceSelfShadow = {},
     aoScalePct = { gpu = 1, vram = 1 },
     vrr = { gpu = -1, cpu = -1 },
     vrrCap = { gpu = -1, cpu = -1 },

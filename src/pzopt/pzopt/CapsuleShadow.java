@@ -647,13 +647,15 @@ public final class CapsuleShadow {
       if (torches == null || torches.isEmpty()) {
          return 0;
       }
+      TorchSource.refresh(torches); // torchSource: this frame's lens
       float cx = IsoCamera.frameState.camCharacterX, cy = IsoCamera.frameState.camCharacterY;
       float view = (f.screenW + 2.0F * f.screenH) * f.zoom / (64.0F * f.ts) + 4.0F;
       int n = 0;
       float[] score = LIGHT_SCORE;
       for (int i = 0; i < torches.size(); i++) { // the MAX_LIGHTS strongest (strength x reach): a car's tail lights listed first took the torch's slot
          IsoGameCharacter.TorchInfo t = torches.get(i);
-         if (t.id == 0 || t.strength <= 0.05F || Math.abs(t.x - cx) > view + t.dist || Math.abs(t.y - cy) > view + t.dist) {
+         float tx = TorchSource.x(t), ty = TorchSource.y(t); // torchSource: the drawn item's lens (else the native's position)
+         if (t.id == 0 || t.strength <= 0.05F || Math.abs(tx - cx) > view + t.dist || Math.abs(ty - cy) > view + t.dist) {
             continue;
          }
          float len = (float)Math.sqrt(t.angleX * t.angleX + t.angleY * t.angleY);
@@ -664,7 +666,7 @@ public final class CapsuleShadow {
          float sc = t.strength * Math.max(1.0F, t.dist);
          boolean dup = false;
          for (int j = 0; j < n; j++) { // the game sends every lit item of a player at the same spot: one shadow, the strongest
-            if (Math.abs(f.lA[j * 4] - (t.x - f.ox)) < 0.05F && Math.abs(f.lA[j * 4 + 1] - (t.y - f.oy)) < 0.05F) {
+            if (Math.abs(f.lA[j * 4] - (tx - f.ox)) < 0.05F && Math.abs(f.lA[j * 4 + 1] - (ty - f.oy)) < 0.05F) {
                dup = score[j] >= sc;
                if (!dup) { // drop the weaker one, the new one goes in by its score
                   for (int m = j; m < n - 1; m++) {
@@ -697,9 +699,9 @@ public final class CapsuleShadow {
          n = Math.min(n + 1, MAX_LIGHTS);
          score[at] = sc;
          int k = at * 4;
-         f.lA[k] = t.x - f.ox;
-         f.lA[k + 1] = t.y - f.oy;
-         f.lA[k + 2] = t.z * METRIC_Z + (car ? 0.75F : 1.35F); // the lamp's height: a headlight, a torch in the hand
+         f.lA[k] = tx - f.ox;
+         f.lA[k + 1] = ty - f.oy;
+         f.lA[k + 2] = t.z * METRIC_Z + (car ? 0.75F : t.pzoptSrc ? TorchSource.height(t, 0F) * METRIC_Z : 1.35F); // the lamp's height: a headlight, a torch in the hand (torchSource: the lens's)
          f.lA[k + 3] = Math.max(1.0F, t.dist);
          f.lB[k] = t.angleX / len;
          f.lB[k + 1] = t.angleY / len;

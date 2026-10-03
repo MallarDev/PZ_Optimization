@@ -5853,18 +5853,45 @@ zombie into its own targets and patched every world material shader to record an
 the world framebuffer's stencil (bits 0x7F; 0x80 stays the game's player-mask bit) during the draws the game already
 makes. Design and costs: `docs/plan-occluded-zombie-outlines.md`.
 
-- **TextureDraw:** field `pzoptOutline` (0 none, 1 outline, 2 outline with the plant slack), set in `drawModel` from
+- **TextureDraw:** field `pzoptOutline` (0 none, 1 outline, 2 outline with the plant slack, 3 seen but nothing in
+  front can hide it), set in `drawModel` from
   `OccludedOutline.eligible` (the player's current sight, on the game thread). The DrawModel command brackets
   `drawer.render` with `OccludedOutline.beginModel` / `endModel`: a character's draw gets its stencil codes, a
   vehicle's draw clears the "visible" bit where it lands.
-- **Model.DrawSolid:** `OccludedOutline.beforeMesh()` before `mesh.Draw` (the stencil code where the mesh passes the
-  depth test) and `afterMesh(mesh, effect)` after it (the same mesh again with the depth test inverted, colour and
-  depth writes off: the hidden part). DrawChar's `GLStateRenderThread.restore()` after each mesh puts the state back.
+- **Model.DrawSolid:** `this.mesh.Draw(effect)` runs only when `OccludedOutline.drawMesh(mesh, effect)` returns false
+  (no character codes set). Otherwise drawMesh does the stock draw's own steps (`VertexBufferObject.BeginInstancedDraw`,
+  `PushDrawCall`, `FinishInstancedDraw`) with the stencil code written where the mesh passes the depth test, and in
+  between the elements once more with the depth test inverted, colour and depth writes off (the hidden part).
+  DrawChar's `GLStateRenderThread.restore()` after each mesh puts the state back.
 - **IsoZombie:** `renderTextureInsteadOfModel` passes the eligibility with its atlas draw
-  (`BodyTexture.pzoptRenderWithOutline`); fields `pzoptOutlineSquare` / `pzoptOutlineFrame` / `pzoptOutlinePlants`
-  cache the plant test per square.
+  (`BodyTexture.pzoptRenderWithOutline`); fields `pzoptOutlineSquare` / `pzoptOutlineNs` / `pzoptOutlineClass`
+  cache the occluder test (`OccludedOutline.classify`) per square.
 - **DeadBodyAtlas:** `BodyTexture.pzoptRenderWithOutline` queues the stock depth drawer with the eligibility;
   `BodyTextureDepthDrawer.pzoptOutline` (cleared in `init`) makes `render` call `OccludedOutline.atlas` before the
   quad flushes (its stencil code; the quad is kept for the hidden-part pass).
 - **FBORenderCell.performRenderTiles:** `OccludedOutline.begin` after the chunk composite, `OccludedOutline.finish`
   before the fog (the atlas zombies' hidden quads and the contour pass).
+
+## Light from the torch itself (`torchSource`, 2026-10-03; `pzopt.TorchSource`; docs/findings-torch-source-2026-10-03.md)
+
+### zombie.characters.IsoGameCharacter (inner class TorchInfo)
+
+- New public fields, all `pzopt`-prefixed: `pzoptSrc` / `pzoptLx` / `pzoptLy` / `pzoptLz` (the carried light's lens for the
+  per-pixel consumers), `pzoptFrame`, `pzoptHolder` / `pzoptItem` / `pzoptPart` (what the last `set` was called for),
+  `pzoptOut` (the render-time solve, reused by the same frame's native update), `pzoptHoldValid` / `pzoptNx` / `pzoptNy` /
+  `pzoptHx` / `pzoptHy` / `pzoptHz` / `pzoptHax` / `pzoptHay` (the native's held position and what it was held for).
+- `set(IsoPlayer, InventoryItem)`: after the stock body, `pzopt.TorchSource.onSet(this, p, item)`. With `torchSource` off it
+  only records the holder and clears `pzoptSrc` (stock values untouched). On: `x` / `y` become the lens of the drawn item (the
+  hand prop / attachment / weapon light part placed as `AnimatedModel.transformToParent` places it, mapped to the world as
+  `Model.vectorToWorldCoords` maps bones; the mesh box's support point along the beam), kept on the holder's side of its
+  square's walls, closed doors and windows (`torchSourceWallClamp`) and held while the holder stands still and the lens
+  sways less than `torchSourceHold` hundredths of a square; `angleX` / `angleY` follow the item's axis with
+  `torchSourceAim=item`. `z` stays the holder's (the native's level). No model drawn (invisible holder, a mesh still
+  loading): stock values.
+- `set(VehiclePart)`: clears `pzoptSrc`, records the part (re-placed at render time where vehicleSmooth draws the car,
+  `torchSourceVehicles`; render-time readers only, the native keeps the step's values).
+
+### zombie.iso.fboRenderChunk.FBORenderCell
+
+Ahead of `pzopt.PixelLight.beforeComposite`: `pzopt.TorchSource.renderFrame()` (with `torchSource` on): the frame's lens
+re-solve for every per-pixel consumer and the dev markers, whichever consumer is on (without pixelLight nothing else asked).

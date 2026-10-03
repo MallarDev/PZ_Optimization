@@ -766,6 +766,10 @@ PYC
         done
         if (( ! started )) && (( native_wayland )); then
           say "mangohud: control socket failed and the toggle_logging key cannot reach a native Wayland window; use --lead for the fixed schedule" >&2
+        elif (( ! started )) && ! grep -qi mangohud "/proc/$game_pid/maps" 2>/dev/null; then
+          # F2 is also the game's own Pause key (keyBinding.lua): without MangoHud in the process the key only paused the
+          # world a second into the route and the run never ended (2026-10-03, runs ts-vis1 / ts-kinds1 / outl-pr-off)
+          say "mangohud: not loaded in the game; no toggle_logging key (F2 would pause the game)" >&2
         elif (( ! started )) && command -v xdotool >/dev/null; then
           xdotool keydown Shift_L keydown F2; sleep 0.3; xdotool keyup F2 keyup Shift_L
           say "mangohud: falling back to the toggle_logging key at +$(( $(date +%s) - launch_epoch )) s" >&2
