@@ -259,6 +259,7 @@ public final class Harness {
       Log.info("harness: quit requested");
       Overlay.flushLog();
       Pacing.flushLog();
+      DynRes.flushLog();
       GpuSections.flushLog();
       GameThreadProfile.flushLog();
       Core.getInstance().quit();
@@ -962,7 +963,8 @@ public final class Harness {
                 + "\nsway=" + Sway.stats()
                 + (ChunkAo.enabled() ? "\nao_latency=" + ChunkAo.latency() : "") // pzopt: chunk AO first-AO latency
                 + "\ncore_placement=" + CorePlacement.describe()
-                + "\ngpu_pstate=" + GpuPstate.describe() + "\n"); // pzopt: the per-frame batch and bake counters at route end
+                + "\ngpu_pstate=" + GpuPstate.describe()
+                + "\ndyn_res=" + DynRes.describe() + "\n"); // pzopt: the per-frame batch and bake counters at route end
       } catch (IOException e) {
          Log.warn("harness: could not write summary: " + e);
       }

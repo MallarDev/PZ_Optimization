@@ -28,10 +28,14 @@ public final class RenderScale {
    }
 
    /** The upscaler chosen, lower case; "off" when none. The Enhancements tab changes it while the game runs ({@link #reconfigure}). */
-   private static volatile String MODE = Overrides.enabled() ? Config.UPSCALER : "off";
+   private static volatile String MODE = computeMode();
    /** Render scale per axis, 1.0 when off. */
    private static volatile float SCALE = computeScale();
    private static volatile boolean ACTIVE = computeActive();
+   /** dynRes: the scale changes per frame (pzopt.DynRes); each thread then reads its own frame's scale. */
+   private static volatile boolean DYNAMIC = ACTIVE && Overrides.enabled() && Config.DYN_RES;
+   private static volatile float gameScale = SCALE; // dynRes: the scale of the frame the game thread builds
+   private static float renderScale = SCALE; // dynRes: the scale of the frame the render thread replays (latched from the frame's marker)
 
    private static volatile boolean disabled; // a failure at run time (missing extension, shim, shader) switches the pass off until the settings change
    private static volatile String fallbackMode; // a temporal upscaler that cannot run (no RTX, no shim, no Vulkan) continues as fsr1 at the same scale
@@ -40,12 +44,31 @@ public final class RenderScale {
       logMode();
    }
 
+   private static String computeMode() {
+      if (!Overrides.enabled()) {
+         return "off";
+      }
+      if (Config.DYN_RES && "off".equals(Config.UPSCALER)) {
+         return switch (Config.DYN_RES_UPSCALER) { // dynRes needs a resolve; upscaler=off picks dynResUpscaler's
+            case "bicubic" -> "bicubic";
+            case "taau" -> "taau";
+            default -> "fsr1";
+         };
+      }
+      return Config.UPSCALER;
+   }
+
    private static boolean computeActive() {
-      return !"off".equals(MODE) && SCALE < 1.0F || "dlss".equals(MODE) || "xess".equals(MODE);
+      if (Overrides.enabled() && Config.DYN_RES && !"off".equals(MODE)) {
+         return true;
+      }
+      return !"off".equals(MODE) && SCALE < 1.0F || "dlss".equals(MODE) || "xess".equals(MODE) || "taau".equals(MODE);
    }
 
    private static void logMode() {
-      if (ACTIVE) {
+      if (ACTIVE && Overrides.enabled() && Config.DYN_RES) {
+         Log.info("upscaler: " + MODE + " with dynamic resolution " + Config.DYN_RES_MIN_PCT + ".." + Config.DYN_RES_MAX_PCT + " % (" + Config.DYN_RES_CONTROLLER + ", target " + Config.DYN_RES_TARGET_PCT + " % of the frame interval)");
+      } else if (ACTIVE) {
          Log.info("upscaler: " + MODE + " at " + Math.round(SCALE * 100.0F) + " % (" + Config.UPSCALER_QUALITY + (Config.UPSCALER_SCALE_PCT > 0 ? ", upscalerScalePct=" + Config.UPSCALER_SCALE_PCT : "") + ")");
       } else if (!"off".equals(MODE)) {
          Log.info("upscaler: " + MODE + " requested but the render scale is 100 %: off");
@@ -63,9 +86,12 @@ public final class RenderScale {
     * frame's list). The frame in flight may still use the old scale for its last draws.
     */
    static void reconfigure() {
-      MODE = Overrides.enabled() ? Config.UPSCALER : "off";
+      MODE = computeMode();
       SCALE = computeScale();
       ACTIVE = computeActive();
+      DYNAMIC = ACTIVE && Overrides.enabled() && Config.DYN_RES;
+      gameScale = SCALE;
+      DynRes.reset();
       disabled = false;
       fallbackMode = null;
       logMode();
@@ -87,6 +113,9 @@ public final class RenderScale {
    private static long frames;
 
    private static float computeScale() {
+      if (Overrides.enabled() && Config.DYN_RES) {
+         return Math.min(1.0F, Config.DYN_RES_MAX_PCT / 100.0F); // dynRes: the start (a frame's own scale comes from DynRes, up to dynamicMax)
+      }
       if (!Overrides.enabled() || "off".equals(Config.UPSCALER)) {
          return 1.0F;
       }
@@ -109,7 +138,68 @@ public final class RenderScale {
    }
 
    public static float scale() {
-      return active() ? SCALE : 1.0F;
+      if (!active()) {
+         return 1.0F;
+      }
+      if (DYNAMIC) {
+         return onRenderThread() ? renderScale : gameScale;
+      }
+      return SCALE;
+   }
+
+   /**
+    * The horizontal factor of this frame's world image. With {@code dynResAxes=x} the scale only narrows the image:
+    * the frame's pixel fraction s^2 is spent on the width alone (s^2 x 1) and the height stays native; otherwise s.
+    */
+   public static float scaleX() {
+      float s = scale();
+      return horizontalOnly() ? s * s : s;
+   }
+
+   /** The vertical factor of this frame's world image (1 with {@code dynResAxes=x}). */
+   public static float scaleY() {
+      return horizontalOnly() ? 1.0F : scale();
+   }
+
+   /** dynResAxes=x under dynRes, with an upscaler that takes any aspect (not DLSS: its sub-rectangle keeps the aspect). */
+   static boolean horizontalOnly() {
+      return DYNAMIC && Config.DYN_RES_AXES_X && !"dlss".equals(MODE) && !"xess".equals(MODE) && active();
+   }
+
+   /** dynRes is on and the scaled pass runs (the scale is per frame). */
+   public static boolean dynamic() {
+      return DYNAMIC && active();
+   }
+
+   /** dynRes, game thread: the scale of the frame now being built. */
+   static void setGameScale(float s) {
+      gameScale = s;
+   }
+
+   /** dynRes, render thread: the frame being replayed was built at this scale (its marker at the head of the draw list). */
+   static void latchRenderScale(float s) {
+      renderScale = s;
+   }
+
+   /**
+    * dynResSharpenRamp: RCAS's strength as a factor of the configured one, 0 at native size rising to 1 at 85 %, so
+    * the image does not jump in sharpness when the scale crosses into or out of the native bypass. 1 without dynRes.
+    */
+   public static float sharpenRamp() {
+      if (!DYNAMIC || !Config.DYN_RES_SHARPEN_RAMP) {
+         return 1.0F;
+      }
+      return Math.max(0.0F, Math.min(1.0F, (1.0F - scale()) / 0.15F));
+   }
+
+   /** The scale bakes plan their mip levels and AO sampling for: dynRes, the lowest scale it may use (the most minified). */
+   public static float bakeScale() {
+      return DYNAMIC && active() ? Config.DYN_RES_MIN_PCT / 100.0F : scale();
+   }
+
+   /** dynRes: this frame renders at the maximum scale and native resolution, the resolve can be skipped (dynResNativeBypass). */
+   public static boolean nativeFrame() {
+      return DYNAMIC && (Config.DYN_RES_NATIVE_BYPASS && scale() >= 0.9999F || scale() > 1.0001F); // supersampled: the stock composite shrinks it
    }
 
    public static String mode() {
@@ -143,7 +233,7 @@ public final class RenderScale {
    }
 
    static int px(int screenPixels) {
-      return Math.max(1, Math.round(screenPixels * scale()));
+      return Math.max(1, Math.round(screenPixels * scaleX()));
    }
 
    /**
@@ -151,12 +241,22 @@ public final class RenderScale {
     * cameraInfo on the game thread): scaled whenever the pass is active, since every world frame renders scaled.
     */
    public static float scaledPx(float screenPixels) {
-      return active() ? screenPixels * scale() : screenPixels;
+      return active() ? screenPixels * scaleX() : screenPixels;
+   }
+
+   /** scaledPx for a vertical size or origin. */
+   public static float scaledPxY(float screenPixels) {
+      return active() ? screenPixels * scaleY() : screenPixels;
    }
 
    /** Same for a value computed on the render thread inside the world pass (water / puddle WViewport, particles). */
    public static float viewPx(float screenPixels) {
-      return scaledView() ? screenPixels * scale() : screenPixels;
+      return scaledView() ? screenPixels * scaleX() : screenPixels;
+   }
+
+   /** viewPx for a vertical size. */
+   public static float viewPxY(float screenPixels) {
+      return scaledView() ? screenPixels * scaleY() : screenPixels;
    }
 
    /** The view-cone blur's displaySize (VisibilityPolygon2): scaled like its screenSize / displayOrigin inside the scaled world pass. */
@@ -164,8 +264,12 @@ public final class RenderScale {
       return Config.DEV_UPSCALER_STOCK_VIS_BLUR ? screenPixels : viewPx(screenPixels);
    }
 
+   public static float visBlurPxY(float screenPixels) {
+      return Config.DEV_UPSCALER_STOCK_VIS_BLUR ? screenPixels : viewPxY(screenPixels);
+   }
+
    static int pxFloor(int screenPixels) {
-      return (int)(screenPixels * scale());
+      return (int)(screenPixels * scaleX());
    }
 
    // --- render thread -------------------------------------------------------------------------------------------
@@ -201,7 +305,9 @@ public final class RenderScale {
    public static void afterStartFrame(int player) {
       if (appliedGeneration != generation) { // the upscaler settings changed: release what the old ones built
          appliedGeneration = generation;
+         renderScale = SCALE;
          Dlss.reconfigure();
+         Taau.invalidate();
          jitterX = 0.0F;
          jitterY = 0.0F;
       }
@@ -228,8 +334,8 @@ public final class RenderScale {
    public static void afterModelDraw() {
       if (worldPass && (frameJitterX != 0.0F || frameJitterY != 0.0F) && active() && TextureFBO.lastID == worldFboId) {
          int p = worldPassPlayer;
-         float s = scale();
-         GL41.glViewportIndexedf(0, (int)(fullLeft(p) * s) + frameJitterX, (int)(fullTop(p) * s) + frameJitterY, Math.max(1, Math.round(fullWidth(p) * s)), Math.max(1, Math.round(fullHeight(p) * s)));
+         float sx = scaleX(), sy = scaleY();
+         GL41.glViewportIndexedf(0, (int)(fullLeft(p) * sx) + frameJitterX, (int)(fullTop(p) * sy) + frameJitterY, Math.max(1, Math.round(fullWidth(p) * sx)), Math.max(1, Math.round(fullHeight(p) * sy)));
       }
    }
 
@@ -241,9 +347,9 @@ public final class RenderScale {
    /** Sets the scaled viewport (with the current jitter) and scissor of a player's world rectangle. */
    public static void applyWorldViewport(int player) {
       int x = fullLeft(player), y = fullTop(player), w = fullWidth(player), h = fullHeight(player);
-      float s = scale();
-      int sx = (int)(x * s), sy = (int)(y * s);
-      int sw = Math.max(1, Math.round(w * s)), sh = Math.max(1, Math.round(h * s));
+      float fx = scaleX(), fy = scaleY();
+      int sx = (int)(x * fx), sy = (int)(y * fy);
+      int sw = Math.max(1, Math.round(w * fx)), sh = Math.max(1, Math.round(h * fy));
       viewport(sx, sy, sw, sh);
       GL11.glScissor(sx, sy, sw, sh);
    }
@@ -263,8 +369,8 @@ public final class RenderScale {
     */
    public static void requestedViewport(int x, int y, int w, int h) {
       if (inWorldPass() && isScreenRect(x, y, w, h)) {
-         float s = scale();
-         viewport((int)(x * s), (int)(y * s), Math.max(1, Math.round(w * s)), Math.max(1, Math.round(h * s)));
+         float fx = scaleX(), fy = scaleY();
+         viewport((int)(x * fx), (int)(y * fy), Math.max(1, Math.round(w * fx)), Math.max(1, Math.round(h * fy)));
       } else {
          GL11.glViewport(x, y, w, h);
       }
@@ -299,10 +405,43 @@ public final class RenderScale {
       return IsoPlayer.numPlayers > 2 ? Core.height / 2 : Core.height;
    }
 
+   /** The rectangle a player's world image takes at scale {@code s}. */
+   static int[] scaledRectAt(int p, float s) {
+      return new int[]{(int)(fullLeft(p) * s), (int)(fullTop(p) * s), Math.max(1, Math.round(fullWidth(p) * s)), Math.max(1, Math.round(fullHeight(p) * s))};
+   }
+
+   /** The largest scale of the session (dynRes: dynResMaxPct within what the mode and the offscreen texture allow; else the fixed scale). */
+   static float maxScale() {
+      return DYNAMIC ? dynamicMax() : SCALE;
+   }
+
+   /**
+    * dynRes: the highest scale. Above 1 (supersampling) only with fsr1 / bicubic, whose native-size path is the stock
+    * composite (its bicubic then shrinks the larger image), and only as far as the offscreen texture (the next power of two
+    * above the screen) reaches; DLSS and taau stop at the screen size.
+    */
+   static float dynamicMax() {
+      float max = Config.DYN_RES_MAX_PCT / 100.0F;
+      if (max <= 1.0F) {
+         return max;
+      }
+      String m = mode();
+      if (!"fsr1".equals(m) && !"bicubic".equals(m)) {
+         return 1.0F;
+      }
+      TextureFBO fbo = Core.getInstance().getOffscreenBuffer();
+      if (fbo == null || fbo.getTexture() == null || Core.width <= 0 || Core.height <= 0) {
+         return 1.0F;
+      }
+      zombie.core.textures.Texture t = (zombie.core.textures.Texture)fbo.getTexture();
+      float cap = Math.min((float)t.getWidthHW() / Core.width, (float)t.getHeightHW() / Core.height);
+      return Math.max(1.0F, Math.min(max, cap));
+   }
+
    /** The scaled rectangle (x, y, w, h) of a player's world image inside the offscreen texture. */
    public static int[] scaledRect(int p) {
-      float s = scale();
-      return new int[]{(int)(fullLeft(p) * s), (int)(fullTop(p) * s), Math.max(1, Math.round(fullWidth(p) * s)), Math.max(1, Math.round(fullHeight(p) * s))};
+      float sx = scaleX(), sy = scaleY();
+      return new int[]{(int)(fullLeft(p) * sx), (int)(fullTop(p) * sy), Math.max(1, Math.round(fullWidth(p) * sx)), Math.max(1, Math.round(fullHeight(p) * sy))};
    }
 
    // IsoCamera override: the render thread inside a scaled world pass sees the scaled rectangle.
@@ -311,19 +450,19 @@ public final class RenderScale {
    }
 
    public static int screenLeft(int p) {
-      return (int)(fullLeft(p) * scale());
+      return (int)(fullLeft(p) * scaleX());
    }
 
    public static int screenTop(int p) {
-      return (int)(fullTop(p) * scale());
+      return (int)(fullTop(p) * scaleY());
    }
 
    public static int screenWidth(int p) {
-      return Math.max(1, Math.round(fullWidth(p) * scale()));
+      return Math.max(1, Math.round(fullWidth(p) * scaleX()));
    }
 
    public static int screenHeight(int p) {
-      return Math.max(1, Math.round(fullHeight(p) * scale()));
+      return Math.max(1, Math.round(fullHeight(p) * scaleY()));
    }
 
    // --- jitter (temporal upscalers) -----------------------------------------------------------------------------
@@ -370,7 +509,7 @@ public final class RenderScale {
 
    /** One line for the console: mode and scale, or off. */
    public static String settingsLine() {
-      return String.format(Locale.ROOT, "upscaler=%s scale=%.3f quality=%s", mode(), scale(), Config.UPSCALER_QUALITY);
+      return String.format(Locale.ROOT, "upscaler=%s scale=%.3f quality=%s dynRes=%s", mode(), scale(), Config.UPSCALER_QUALITY, DynRes.describe());
    }
 
    static long frames() {

@@ -167,6 +167,7 @@ struct State {
    NVSDK_NGX_Handle* feature = nullptr;
    Image images[4 * MAX_SETS]; // per set: 0 colour, 1 depth, 2 motion vectors, 3 output
    uint32_t inW = 0, inH = 0, outW = 0, outH = 0;
+   uint32_t subW = 0, subH = 0; // dynamic resolution: the render size inside the input images (0 = all of them)
    bool ngxInit = false;
    bool created = false;
    bool firstFrame = true;
@@ -728,6 +729,7 @@ static int pzngx_create_impl(int inW, int inH, int outW, int outH, int q, int fl
    S.error.clear();
    if (S.created) releaseFeature();
    S.inW = inW; S.inH = inH; S.outW = outW; S.outH = outH;
+   S.subW = 0; S.subH = 0;
    S.sets = (flags & (1 << 16)) ? 2 : 1;
    int rc = 0;
    for (int k = 0; k < S.sets; k++) {
@@ -794,6 +796,19 @@ static int pzngx_create_impl(int inW, int inH, int outW, int outH, int q, int fl
    S.firstFrame = true;
    S.evaluations = 0;
    return 0;
+}
+
+/**
+ * Dynamic resolution: the following evaluations read a w x h sub-rectangle at the origin of the input images (created at
+ * the largest render size); DLSS keeps its history across the change. 0 on success, -1 when it does not fit.
+ */
+PZNGX_API int pzngx_subrect(int w, int h) {
+   return worker.run([=] {
+      if (!S.created || w <= 0 || h <= 0 || (uint32_t)w > S.inW || (uint32_t)h > S.inH) return -1;
+      S.subW = (uint32_t)w;
+      S.subH = (uint32_t)h;
+      return 0;
+   });
 }
 
 PZNGX_API int pzngx_create(int inW, int inH, int outW, int outH, int q, int flags) {
@@ -864,7 +879,7 @@ static int pzngx_evaluate_impl(float jitterX, float jitterY, float mvScaleX, flo
    ep.pInMotionVectors = &im[2].resource;
    ep.InJitterOffsetX = jitterX;
    ep.InJitterOffsetY = jitterY;
-   ep.InRenderSubrectDimensions = {S.inW, S.inH};
+   ep.InRenderSubrectDimensions = {S.subW > 0 ? S.subW : S.inW, S.subH > 0 ? S.subH : S.inH}; // dynamic resolution: the frame's render size inside the images
    ep.InReset = reset || S.firstFrame ? 1 : 0;
    ep.InMVScaleX = mvScaleX;
    ep.InMVScaleY = mvScaleY;

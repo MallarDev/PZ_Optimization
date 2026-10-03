@@ -1451,7 +1451,7 @@ public final class Sway {
          }
          // the texture's mip level as the stock implicit fetch picks it: texels per render pixel = texels per logical px x zoom /
          // the upscaler's render scale (the quad is drawn 1:1 in logical px, scaled by the zoom)
-         float texelsPerPx = (a.highRes ? 2F : 1F) * (f != null ? f.zoom : 1F) / Math.max(0.05F, RenderScale.scale());
+         float texelsPerPx = (a.highRes ? 2F : 1F) * (f != null ? f.zoom : 1F) / Math.max(0.05F, RenderScale.scaleX());
          GL20.glUniform4f(l[0], 1F, a.uvX, a.uvY, texelsPerPx > 1F ? (float)(Math.log(texelsPerPx) / Math.log(2.0)) : 0F);
          GL20.glUniform4f(l[2], a.muA, a.muB, a.mvA, a.mvB);
          GL20.glUniform4f(l[6], (float)a.h / a.w, lastProbe1, lastProbe2, lastProbe3);

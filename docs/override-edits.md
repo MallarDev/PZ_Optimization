@@ -5789,3 +5789,27 @@ up to four times and was drawn per frame in three passes (120 km/h drive 500 -> 
   placed on the frame's `IsoCell.StencilArea`s.
 - `pzopt.StencilProbe`: `devStencilProbe`'s reads.
 - `pzopt.XxlTreeFade`: `devXxlVehicleFade` (dev) turns 42.21's XXL fade while driving off.
+
+## Dynamic resolution (`dynRes`, 2026-10-03; `pzopt.DynRes`, `pzopt.Taau`, `docs/findings-dynamic-resolution-2026-10-03.md`)
+
+All off by default (`dynRes=false`, `upscaler=off`); with them off every line below is a no-op or the stock call.
+
+### zombie.GameWindow
+`renderInternal`: right after `SpriteRenderer.NewFrame`, `DynRes.beginFrame()` picks the frame's render scale (the
+controller's wish under its rate limits and hysteresis) and files it under the frame's `SpriteRenderState`.
+
+### zombie.core.opengl.RenderThread
+`lockStepRenderStep`: `DynRes.gpuBegin/gpuEnd` around `SpriteRenderer.postRender` (beside the GpuPstate pair): the
+render thread latches the acquired frame's scale and brackets the replay with two GL_TIMESTAMP queries (read a few
+frames later, no stall). `Ready`: `DynRes.pushed` after `pushFrameDown` records the game thread's own time for the frame
+(step start to hand-off) for `dynResCpuAware`.
+
+### zombie.core.textures.MultiTextureFBO2
+`render`: `DynRes.queueDevLoad()` before the upscaler's resolve: the `devDynResLoad` rig's synthetic per-pixel GPU work
+in the world image (nothing without the dev key).
+
+### zombie.iso.WaterShader, zombie.iso.PuddlesShader, zombie.core.skinnedmodel.ModelManager, zombie.vispoly.VisibilityPolygon2, zombie.iso.weather.fog.ImprovedFog, zombie.iso.sprite.IsoCursor
+The vertical sizes / origins the upscaler scales (`WViewport.w`, the particles' viewport height, the view-cone blur's
+`displaySize.y`, fog `screenInfo.y` / camera top, the aiming cursor's background height) take `RenderScale`'s vertical
+factor (`viewPxY`, `scaledPxY`, `visBlurPxY`, `cursorBackgroundScaleY`), which differs from the horizontal one only
+with `dynResAxes=x` (horizontal-only scaling).

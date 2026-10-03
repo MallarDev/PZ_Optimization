@@ -97,7 +97,7 @@ public final class WaterShader extends Shader {
          IsoCamera.getOffscreenLeft(playerIndex),
          IsoCamera.getOffscreenTop(playerIndex),
          pzopt.RenderScale.viewPx(camera.offscreenWidth / camera.zoom), // pzopt: upscaler, the viewport the fragments are in
-         pzopt.RenderScale.viewPx(camera.offscreenHeight / camera.zoom)
+         pzopt.RenderScale.viewPxY(camera.offscreenHeight / camera.zoom) // pzopt: dynResAxes, the vertical factor
       );
       GL20.glUniform1f(this.waterReflectionParam, texd.v1);
       GL20.glUniform2f(this.waterParamWind, texd.u0, texd.u1);

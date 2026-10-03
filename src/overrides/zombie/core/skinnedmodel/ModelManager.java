@@ -419,7 +419,7 @@ public final class ModelManager {
          0,
          0,
          (int)pzopt.RenderScale.viewPx(SpriteRenderer.instance.getRenderingPlayerCamera(userId).offscreenWidth),
-         (int)pzopt.RenderScale.viewPx(SpriteRenderer.instance.getRenderingPlayerCamera(userId).offscreenHeight)
+         (int)pzopt.RenderScale.viewPxY(SpriteRenderer.instance.getRenderingPlayerCamera(userId).offscreenHeight) // pzopt: dynResAxes, the vertical factor
       );
       GL11.glMatrixMode(5888);
       GL11.glPushMatrix();
@@ -453,7 +453,7 @@ public final class ModelManager {
          0,
          0,
          (int)pzopt.RenderScale.viewPx(SpriteRenderer.instance.getRenderingPlayerCamera(userId).offscreenWidth),
-         (int)pzopt.RenderScale.viewPx(SpriteRenderer.instance.getRenderingPlayerCamera(userId).offscreenHeight)
+         (int)pzopt.RenderScale.viewPxY(SpriteRenderer.instance.getRenderingPlayerCamera(userId).offscreenHeight) // pzopt: dynResAxes, the vertical factor
       );
       if (!PZGLUtil.checkGLError(true)) {
          DebugType.General.println("DEBUG: EXCEPTION RenderParticles");

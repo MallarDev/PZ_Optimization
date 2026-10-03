@@ -1427,7 +1427,7 @@ public final class VisibilityPolygon2 {
                GL11.glViewport(screenLeft, screenTop, screenWidth, screenHeight);
                // pzopt: remembered places (pzopt.Darkness): the out-of-sight look instead of the stock black blend, same quad and depth test
                if (!pzopt.Darkness.memoryPass(blurTex, blurDepthTex, pzoptScreen != null, screenWidth, screenHeight, screenLeft, screenTop, // pzopt
-                     pzopt.RenderScale.visBlurPx(offscreenWidth), pzopt.RenderScale.visBlurPx(offscreenHeight), this.playerIndex)) { // pzopt
+                     pzopt.RenderScale.visBlurPx(offscreenWidth), pzopt.RenderScale.visBlurPxY(offscreenHeight), this.playerIndex)) { // pzopt
                pzoptBlur.Start(); // pzopt: visBlurReduce
                ShaderProgram blurProgram = pzoptBlur.getProgram(); // pzopt: visBlurReduce
                if (pzoptScreen != null) { // pzopt: visBlurReduce
@@ -1437,7 +1437,7 @@ public final class VisibilityPolygon2 {
                blurProgram.setValue("screenSize", VisibilityPolygon2.L_render.vector2);
                VisibilityPolygon2.L_render.vector2.set(screenLeft, screenTop);
                blurProgram.setValue("displayOrigin", VisibilityPolygon2.L_render.vector2);
-               VisibilityPolygon2.L_render.vector2.set(pzopt.RenderScale.visBlurPx(offscreenWidth), pzopt.RenderScale.visBlurPx(offscreenHeight)); // pzopt: upscaler, displaySize maps the scaled gl_FragCoord to the depth / vision texture like screenSize and displayOrigin (else the shadow's depth comes from a shrunken copy: a second view cone)
+               VisibilityPolygon2.L_render.vector2.set(pzopt.RenderScale.visBlurPx(offscreenWidth), pzopt.RenderScale.visBlurPxY(offscreenHeight)); // pzopt: upscaler, displaySize maps the scaled gl_FragCoord to the depth / vision texture like screenSize and displayOrigin (else the shadow's depth comes from a shrunken copy: a second view cone)
                blurProgram.setValue("displaySize", VisibilityPolygon2.L_render.vector2);
                VisibilityPolygon2.L_render.vector2.set(blurTex.getWidth(), blurTex.getHeight());
                blurProgram.setValue("texSize", VisibilityPolygon2.L_render.vector2);

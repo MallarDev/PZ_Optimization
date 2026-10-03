@@ -566,6 +566,7 @@ public final class GameWindow {
 
    protected static void renderInternal() {
       SpriteRenderer.instance.NewFrame();
+      pzopt.DynRes.beginFrame(); // pzopt: dynRes, this frame's render scale (a marker at the head of its draw list for the render thread)
       if (!PerformanceSettings.lightingThread && LightingJNI.init && !LightingJNI.WaitingForMain()) {
          LightingJNI.DoLightingUpdateNew(System.nanoTime(), Core.dirtyGlobalLightsCount > 0);
          if (Core.dirtyGlobalLightsCount > 0) {

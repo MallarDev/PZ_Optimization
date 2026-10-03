@@ -250,7 +250,7 @@ public final class SpriteFilter {
          queue(NONE, 0, "");
          return;
       }
-      float texelsPerPixel = Core.getInstance().getZoom(playerIndex) / RenderScale.scale();
+      float texelsPerPixel = Core.getInstance().getZoom(playerIndex) / RenderScale.scaleX(); // dynResAxes=x: the narrowed axis decides
       int regime = texelsPerPixel < 0.999F ? MAGNIFY : texelsPerPixel > 1.001F ? MINIFY : NONE;
       if (regime == MAGNIFY && !Config.SPRITE_FILTER_INTEGER_AA) {
          // 2x, 4x (zoom 0.5, 0.25): every texel is already an even block of whole pixels, point sampling is exact
@@ -292,7 +292,7 @@ public final class SpriteFilter {
       if (!"sharp".equals(Config.SPRITE_FILTER) || !Config.SPRITE_FILTER_MIP_TRIM || !Overrides.enabled() || !supported()) {
          return stock;
       }
-      double l2 = Math.log(Math.max(1.0F, Core.getInstance().getMaxZoom()) / RenderScale.scale()) / Math.log(2.0);
+      double l2 = Math.log(Math.max(1.0F, Core.getInstance().getMaxZoom()) / RenderScale.bakeScale()) / Math.log(2.0); // dynRes: the lowest scale
       int n;
       switch (minCode(Config.SPRITE_FILTER_MIN)) {
          case 4: case 2: case 5: case 6: case 7: n = (int)Math.max(0, Math.floor(l2 - Config.SPRITE_FILTER_LOD_BIAS_PCT / 100.0 + 1e-3)); break;
@@ -320,7 +320,7 @@ public final class SpriteFilter {
       // stock phase does skip it (timing)
       boolean sharpNow = cycleName != null && !fromShotModes ? "sharp".equals(mode()) : "sharp".equals(Config.SPRITE_FILTER);
       bakeTex = tex != null && fSharpMips && sharpNow
-            && Core.getInstance().getZoom(zombie.iso.IsoCamera.frameState.playerIndex) / RenderScale.scale() >= 1.95F
+            && Core.getInstance().getZoom(zombie.iso.IsoCamera.frameState.playerIndex) / RenderScale.bakeScale() >= 1.95F
             && Config.BAKE_MIP_LEVELS > 0 && supported() && zombie.debug.DebugOptions.instance.fboRenderChunk.mipMaps.getValue() ? tex : null;
    }
 

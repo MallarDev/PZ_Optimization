@@ -740,7 +740,7 @@ public final class Overlay {
       fpsText = String.format(java.util.Locale.ROOT, "%3.0f fps", fps);
       fpsColor = fpsColor(fps, cap);
       String[] all = {
-            String.format(java.util.Locale.ROOT, "   %5.2f ms   cap %s%s", mean, cap > 0 ? cap + " fps" : "none", Vrr.overlayText()),
+            String.format(java.util.Locale.ROOT, "   %5.2f ms   cap %s%s%s", mean, cap > 0 ? cap + " fps" : "none", Vrr.overlayText(), DynRes.overlayText()), // pzopt dynRes: the render scale
             String.format(java.util.Locale.ROOT, "p50 %.2f   p99 %.2f   p99.9 %.2f   max %.1f ms   (%d frames / %d s)", p50, p99, p999, max, count, (int)(WINDOW_NS / 1_000_000_000L)),
             String.format(java.util.Locale.ROOT, "1%%-low %.0f fps   jitter %.2f ms   spikes >2x median %d", p99 > 0 ? 1000f / p99 : 0f, count > 1 ? jitter / (count - 1) : 0f, spikes),
             String.format(java.util.Locale.ROOT, "GPU %s   game thread %.0f %%   render thread %.0f %%   process %.0f %% of %d cores   machine %.0f %%   heap %.1f/%.1f GB",
@@ -977,7 +977,7 @@ public final class Overlay {
          return power;
       }
       String[] t = {
-            "   88.88 ms   cap 8888 fps",
+            "   88.88 ms   cap 8888 fps   res 888 %",
             "p50 88.88   p99 88.88   p99.9 888.88   max 8888.8 ms   (88888 frames / 8 s)",
             "1%-low 8888 fps   jitter 88.88 ms   spikes >2x median 8888",
             "GPU 888 %   game thread 888 %   render thread 888 %   process 888 % of 88 cores   machine 888 %   heap 88.8/88.8 GB",

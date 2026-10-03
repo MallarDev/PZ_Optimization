@@ -117,7 +117,7 @@ public final class IsoCursor {
          this.setWidth(this.getWidth() - (dx1 + dx2));
          this.setHeight(this.getHeight() - (dy1 + dy2));
          float worldWidth = this.textureWorld.getWidthHW() / pzopt.Upscaler.cursorBackgroundScale(this.textureWorld); // pzopt: upscaler, screen pixels to the background texture's pixels
-         float worldHeight = this.textureWorld.getHeightHW() / pzopt.Upscaler.cursorBackgroundScale(this.textureWorld); // pzopt: upscaler
+         float worldHeight = this.textureWorld.getHeightHW() / pzopt.Upscaler.cursorBackgroundScaleY(this.textureWorld); // pzopt: upscaler (dynResAxes: the vertical factor)
          float screenY = IsoCamera.getScreenTop(0) + IsoCamera.getScreenHeight(0) - (this.screenY + this.getHeight());
          textureDraw.tex1 = this.textureWorld;
          textureDraw.tex1U0 = this.screenX / worldWidth;

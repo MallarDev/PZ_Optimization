@@ -84,7 +84,7 @@ public final class PuddlesShader extends Shader {
          IsoCamera.getOffscreenLeft(userId),
          IsoCamera.getOffscreenTop(userId),
          pzopt.RenderScale.viewPx(camera.offscreenWidth / camera.zoom), // pzopt: upscaler, the viewport the fragments are in
-         pzopt.RenderScale.viewPx(camera.offscreenHeight / camera.zoom)
+         pzopt.RenderScale.viewPxY(camera.offscreenHeight / camera.zoom) // pzopt: dynResAxes, the vertical factor
       );
       GL20.glUniform1f(this.waterReflectionParam, sb.getTextureShift());
       GL20.glUniformMatrix4fv(this.puddlesParams, true, w.getPuddlesParams(z));

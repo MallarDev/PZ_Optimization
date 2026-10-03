@@ -63,6 +63,7 @@ final class Dlss {
    private static boolean ready;
    private static boolean featureGone; // the Enhancements tab changed the settings: the feature was released, build it at the next frame
    private static MethodHandle init, error, optimal, create, imageFd, imageBytes, semaphoreFd, evaluate, evaluateSet, destroy, gpuUs, times;
+   private static MethodHandle subrect; // pzngx_subrect (dynRes): the frame's render size inside the images, null with an older shim
    // devDlssGaps: GL timestamps at the hand-over and after the wait, matched with the evaluation's Vulkan start / end
    private static final int GAP_RING = 16;
    private static int[] gapSignalQ, gapResumeQ;
@@ -71,7 +72,8 @@ final class Dlss {
    private static MemorySegment gapStart, gapEnd;
    private static long statFrames, prepNs, evalNs, waitNs, afterNs; // render-thread time per phase since the last stats line
    private static long lastWaitEndNs;
-   private static int inW, inH, outW, outH;
+   private static int inW, inH, outW, outH; // inW / inH: the render size of the frame being resolved
+   private static int allocW, allocH; // the size of the input images (dynRes: the largest render size; inW / inH move below it)
    // one image set, or two with dlssPipeline (GL composites the previous frame's output while this frame's
    // evaluation runs); the scalar names below are the set being written this frame (select / store)
    private static int sets = 1;
@@ -221,6 +223,7 @@ final class Dlss {
          evaluateSet = lookup.find("pzngx_evaluate_set").map(a -> linker.downcallHandle(a,
             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_INT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_INT))).orElse(null);
          destroy = linker.downcallHandle(lookup.find("pzngx_destroy").orElseThrow(), FunctionDescriptor.ofVoid());
+         subrect = lookup.find("pzngx_subrect").map(a -> linker.downcallHandle(a, FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT))).orElse(null);
          times = lookup.find("pzngx_times").map(a -> linker.downcallHandle(a, FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS))).orElse(null);
          gpuUs = lookup.find("pzngx_gpu_us").map(a -> linker.downcallHandle(a, FunctionDescriptor.of(ValueLayout.JAVA_DOUBLE))).orElse(null);
 
@@ -298,9 +301,9 @@ final class Dlss {
    }
 
    private static boolean createFeature() throws Throwable {
-      int[] r = RenderScale.scaledRect(0);
-      inW = r[2];
-      inH = r[3];
+      int[] r = RenderScale.dynamic() && subrect != null ? RenderScale.scaledRectAt(0, RenderScale.maxScale()) : RenderScale.scaledRect(0); // dynRes: images at the largest render size
+      inW = allocW = r[2];
+      inH = allocH = r[3];
       outW = outputSize(RenderScale.fullWidth(0));
       outH = outputSize(RenderScale.fullHeight(0));
       MemorySegment ow = ARENA.allocate(4), oh = ARENA.allocate(4), sh = ARENA.allocate(4);
@@ -411,7 +414,15 @@ final class Dlss {
          return;
       }
       int[] r = RenderScale.scaledRect(0);
-      if (r[2] != inW || r[3] != inH || outputSize(RenderScale.fullWidth(0)) != outW || outputSize(RenderScale.fullHeight(0)) != outH) {
+      boolean outputSame = outputSize(RenderScale.fullWidth(0)) == outW && outputSize(RenderScale.fullHeight(0)) == outH;
+      if (outputSame && subrect != null && RenderScale.dynamic() && r[2] <= allocW && r[3] <= allocH && (r[2] != inW || r[3] != inH)) {
+         // dynRes: a new render size inside the images; DLSS takes it as the frame's sub-rectangle and keeps its history
+         if ((int)subrect.invokeExact(r[2], r[3]) == 0) {
+            inW = r[2];
+            inH = r[3];
+         }
+      }
+      if (r[2] != inW || r[3] != inH || !outputSame) {
          // resolution change: rebuild everything
          destroy.invokeExact();
          releaseGl();
@@ -736,7 +747,7 @@ final class Dlss {
       frames++;
 
       // 4. the next frame's jitter (Halton 2,3 over the phase count NVIDIA recommends: 8 x ratio^2)
-      int phases = Math.max(8, Math.round(8.0F * ((float)outH / inH) * ((float)outH / inH)));
+      int phases = Math.max(8, Math.round(8.0F * ((float)outH / allocH) * ((float)outH / allocH))); // dynRes: one sequence for every render size
       haltonIndex = (haltonIndex + 1) % phases;
       float hx = halton(haltonIndex + 1, 2) - 0.5F;
       float hy = halton(haltonIndex + 1, 3) - 0.5F;
@@ -790,7 +801,7 @@ final class Dlss {
       for (int k = 0; k < sets; k++) {
          setWaterMask[k] = GL11.glGenTextures();
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, setWaterMask[k]);
-         GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_R8, inW, inH, 0, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, (ByteBuffer)null);
+         GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_R8, allocW, allocH, 0, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, (ByteBuffer)null);
          texParams();
          setWaterMaskFbo[k] = Upscaler.framebufferOf(setWaterMask[k]);
          setWaterQuery[k] = GL15.glGenQueries();
@@ -954,7 +965,7 @@ final class Dlss {
       if (pct <= 0 || pct >= 100) {
          return screenPixels;
       }
-      int render = Math.round(screenPixels * RenderScale.scale());
+      int render = Math.round(screenPixels * (RenderScale.dynamic() ? RenderScale.maxScale() : RenderScale.scale())); // dynRes: never below the largest render size (the output stays fixed)
       int out = Math.round(screenPixels * pct / 100.0F);
       return out <= render * 1.02F ? render : out; // within 2 % of the render size (67 at quality): exactly that size, no 1.005x resample
    }
@@ -1021,7 +1032,7 @@ final class Dlss {
    }
 
    /** The world framebuffer's depth attachment when it is a texture (FogPass.sceneDepthAsTexture), else 0. */
-   private static int sceneDepthTexture(int worldFbo) {
+   static int sceneDepthTexture(int worldFbo) {
       if (worldFbo == sceneDepthFbo) {
          return sceneDepthTex; // the world framebuffer keeps its attachments; a new one (resize) is queried again
       }

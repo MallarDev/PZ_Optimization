@@ -29,7 +29,7 @@ final class Enhancements {
 
    /** Is this key one of the Enhancements tab's (as opposed to the Profiler tab's overlay keys)? */
    static boolean owns(String key) {
-      return key.startsWith("upscaler") || key.startsWith("dlss") || key.startsWith("fsr") || key.startsWith("hdr")
+      return key.startsWith("upscaler") || key.startsWith("dlss") || key.startsWith("fsr") || key.startsWith("dynRes") || key.startsWith("taau") || key.startsWith("hdr")
          || key.equals("ambientOcclusion") || key.startsWith("ao") || key.startsWith("sunShadow") || key.startsWith("reflection")
          || key.startsWith("darknessFloor") || key.startsWith("memory") || key.startsWith("colorGrading")
          || key.startsWith("moonShadow") || key.startsWith("cloud") || key.equals("pplTorchFeetGlow")
@@ -43,8 +43,13 @@ final class Enhancements {
                "bloodWet", "bloodWetMinutes", "bloodReflectPct", "bloodSheenPct", "bloodGlintPct" -> {
             // read every frame
          }
-         case "upscaler", "upscalerQuality", "upscalerScalePct", "dlssPreset", "dlssOutputPct", "dlssOutputFilter", "dlssSharpen" ->
+         case "upscaler", "upscalerQuality", "upscalerScalePct", "dlssPreset", "dlssOutputPct", "dlssOutputFilter", "dlssSharpen", "dynRes", "dynResUpscaler",
+               "dynResMinPct", "dynResMaxPct", "dynResAxes" ->
             RenderScale.reconfigure();
+         case "dynResTargetPct", "dynResFps", "dynResController", "dynResStepPx", "dynResUpPerMille", "dynResDownPerMille", "dynResDeadbandPct",
+               "dynResNativeBypass", "dynResStarveGate", "dynResSharpenRamp", "dynResBakeFeedforward", "dynResUpDelayFrames", "dynResSigmaPct", "dynResDriftPerMille", "dynResCpuAware", "dynResCpuTargetPct", "dynResProbe", "dynResBakeTerm", "taauMaxFrames", "taauClipPct", "taauSampleSigmaPct", "taauJitter", "taauJitterAdaptive", "taauWarmBypass", "taauWarmEvery" -> {
+            // read every frame (DynRes, Taau)
+         }
          case "ambientOcclusion", "aoScalePct", "aoRadiusPct", "aoStrengthFloorPct", "aoStrengthWallPct", "aoStrengthObjectPct",
                "aoStrengthVegetationPct", "aoStrengthPlantPct", "sunShadows", "sunShadowTreeCards" -> ChunkAo.reconfigure();
          case "darknessFloorPct", "darknessFloorBasements", "memoryTint", "memoryLightPct" -> Darkness.reconfigure();

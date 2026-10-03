@@ -658,7 +658,7 @@ public final class ChunkAo {
     * buffer at the render scale, so a texel covers zoom / renderScale pixels; trilinear filtering reads floor(log2) + 1.
     */
    private static int mipLevelsNeeded(int playerIndex) {
-      float minification = Core.getInstance().getZoom(playerIndex) / Math.max(0.1F, RenderScale.scale());
+      float minification = Core.getInstance().getZoom(playerIndex) / Math.max(0.1F, RenderScale.bakeScale()); // dynRes: the lowest scale
       if (minification <= 1.01F) {
          return 0;
       }

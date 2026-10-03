@@ -265,10 +265,12 @@ public class RenderThread {
          try {
             pzopt.Overlay.gpuBegin(); // pzopt: GL timer query around the sprite replay (GPU busy time of the frame)
             pzopt.GpuPstate.gpuBegin(); // pzopt: gpuPstate, the frame's GPU time (GL timestamps) for the AMD clock governor
+            pzopt.DynRes.gpuBegin(); // pzopt: dynRes, the frame's GPU time (GL timestamps) for the render-scale controller
             pzopt.CursorLatch.beforeReplay(renderState); // pzopt: cursorLatch, the drawn cursor at the newest pointer position
             SpriteRenderer.instance.postRender();
             pzopt.Overlay.gpuEnd(); // pzopt: end of the frame's GPU work; the swap is not timed
             pzopt.GpuPstate.gpuEnd(); // pzopt: gpuPstate
+            pzopt.DynRes.gpuEnd(); // pzopt: dynRes
             pzopt.InputLag.frameQueued(); // pzopt: harness input-lag probe, GPU-completion timestamp query of the frame
             zombie.core.VBO.GLVertexBufferObject.pzoptFrameEnd(); // pzopt: frame fence for the persistent sprite buffers
          } catch (Throwable var8) {
@@ -443,6 +445,7 @@ public class RenderThread {
       pzopt.InputLag.pushed(pzoptReadyNs); // pzopt: harness input-lag probe
       pzopt.DriveJitter.pushed(); // pzopt: devDriveJitter
       pzopt.LowLatency.pushed(pzoptReadyNs); // pzopt: reflexSleep, the frame's hand-off and its wait
+      pzopt.DynRes.pushed(pzoptReadyNs); // pzopt: dynResCpuAware, the game thread's own time for the frame (step start to hand-off)
       if (!isInitialized) {
          invokeOnRenderContext(RenderThread::renderStep);
       }

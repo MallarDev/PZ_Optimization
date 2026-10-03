@@ -291,6 +291,9 @@ public final class BakeScheduler {
          this.deferredFrames++;
       }
       this.maxGranted = Math.max(this.maxGranted, given + arrivals);
+      if (this == players[0]) {
+         DynRes.onBakesPlanned(given + arrivals, this.n - given - arrivals, budget); // dynResBakeFeedforward: this frame's bakes, the backlog for the next
+      }
    }
 
    /** Whether the level holds a grant this frame, without using it (the bake preparation asks first). */

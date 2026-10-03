@@ -66,7 +66,7 @@ public final class Upscaler {
     * logs every disagreement.
     */
    static int savedState(int[] viewport) {
-      if (!Config.UPSCALE_NO_GLGET) {
+      if (!Config.UPSCALE_NO_GLGET && !RenderScale.dynamic() && !"taau".equals(mode())) { // dynRes / taau: never a driver round trip at the resolve
          GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
          return GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
       }
@@ -106,7 +106,13 @@ public final class Upscaler {
    /** The composite draws the upscaled texture (fsr1 / dlss / xess) rather than the offscreen buffer's region. */
    public static boolean drawsOutput() {
       String m = mode();
-      return "fsr1".equals(m) || "dlss".equals(m) || "xess".equals(m);
+      if ("fsr1".equals(m)) {
+         return !RenderScale.nativeFrame(); // dynResNativeBypass: a native-size frame goes to the composite as is
+      }
+      if ("taau".equals(m)) {
+         return !RenderScale.nativeFrame(); // dynResNativeBypass: at the native size the frame goes to the composite as is (no jitter there); the history restarts below it
+      }
+      return "dlss".equals(m) || "xess".equals(m);
    }
 
    /** The texture the composite quad draws when {@link #drawsOutput()}; empty until the first resolve. */
@@ -142,7 +148,15 @@ public final class Upscaler {
       if (background == OUTPUT) {
          return (float)OUTPUT.getWidthHW() / Core.width;
       }
-      return RenderScale.scale();
+      return RenderScale.scaleX();
+   }
+
+   /** The vertical factor of {@link #cursorBackgroundScale} (dynResAxes=x keeps the height). */
+   public static float cursorBackgroundScaleY(Texture background) {
+      if (background == OUTPUT) {
+         return (float)OUTPUT.getHeightHW() / Core.height;
+      }
+      return RenderScale.scaleY();
    }
 
    /** The size the screen shader's TextureSize must report for the composite texture, or null for the stock one. */
@@ -159,6 +173,8 @@ public final class Upscaler {
          Resolver r = RESOLVERS[nextResolver++ & 3];
          r.frame = ObjectMotion.endFrame();
          SpriteRenderer.instance.drawGeneric(r);
+      } else if (RenderScale.active() && "taau".equals(mode()) && Config.TAAU_WARM_BYPASS && Taau.keepDue(DynRes.gameFrameNo())) {
+         SpriteRenderer.instance.drawGeneric(Taau.KEEP); // taauWarmBypass: the native frame goes into the history, so a drop below 100 % starts from it
       }
    }
 
@@ -214,12 +230,24 @@ public final class Upscaler {
                fsr(Dlss.outputTexture(), Dlss.outputRect()); // dlssOutputPct: DLSS wrote a smaller image, EASU + RCAS take it the rest of the way
             } else if (Dlss.outputBelowScreen() && "rcas".equals(Config.DLSS_OUTPUT_FILTER)) {
                int[] r = Dlss.outputRect();
-               rcasAtSize(Dlss.outputTexture(), r[2], r[3]); // RCAS at the DLSS output size, the composite's bicubic does the rest
+               rcasAtSize(Dlss.outputTexture(), r[2], r[3], 1.0F); // RCAS at the DLSS output size, the composite's bicubic does the rest
             } // else the composite quad's bicubic samples the smaller output directly (outputSourceRect)
             return;
          }
       }
       Dlss.detachDirectColor(); // a DLSS that fell back this session must not leave the world drawing into its image
+      if ("taau".equals(m)) {
+         if (IsoPlayer.numPlayers > 1) {
+            RenderScale.fallback("fsr1", "taau: split screen is not supported");
+            m = mode();
+         } else {
+            if (Taau.resolve(objects)) {
+               rcasAtSize(Taau.outputTexture(), Core.width, Core.height, RenderScale.sharpenRamp()); // RCAS on the shown image (none near native under dynRes); the history stays unsharpened
+               resolves++;
+            }
+            return;
+         }
+      }
       if (!"fsr1".equals(m)) {
          return;
       }
@@ -239,8 +267,7 @@ public final class Upscaler {
       }
       GpuSections.markNow(sourceRect == null ? "upscale" : "upscale.fsr", false);
       // save what the sprite renderer cares about
-      GL11.glGetIntegerv(GL11.GL_VIEWPORT, SAVED_VIEWPORT);
-      int previousFbo = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
+      int previousFbo = savedState(SAVED_VIEWPORT); // pzopt dynRes: from the game's records when the scale is dynamic (no driver round trip)
       GL11.glDisable(GL11.GL_BLEND);
       GL11.glDisable(GL11.GL_DEPTH_TEST);
       GL11.glDisable(GL11.GL_SCISSOR_TEST);
@@ -282,7 +309,7 @@ public final class Upscaler {
          GL20.glUseProgram(rcasProgram);
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, texA);
          GL20.glUniform1i(rcasUniforms[0], 0);
-         GL20.glUniform1f(rcasUniforms[1], (float)Math.pow(2.0, -sharpnessStops)); // con0.x
+         GL20.glUniform1f(rcasUniforms[1], (float)Math.pow(2.0, -sharpnessStops) * RenderScale.sharpenRamp()); // con0.x (dynResSharpenRamp: none near native)
          GL20.glUniform4i(rcasUniforms[2], ox, oy, ow, oh); // rect (texels of texA = pixels)
          GL11.glDrawArrays(GL11.GL_TRIANGLE_STRIP, 0, 4);
       }
@@ -313,7 +340,11 @@ public final class Upscaler {
     * screen with dlssOutputPct) into a texture of that size, which the composite's bicubic then stretches: the
     * sharpness of the EASU + RCAS finish without EASU's full-screen pass.
     */
-   private static void rcasAtSize(int sourceTex, int w, int h) {
+   private static void rcasAtSize(int sourceTex, int w, int h, float strength) {
+      if (strength <= 0.0F) {
+         OUTPUT.set(sourceTex, w, h); // no sharpening (taau at native size under dynRes): the composite draws the source as is
+         return;
+      }
       if (!ensureTargets(Core.width, Core.height) || !ensurePrograms()) {
          return;
       }
@@ -352,7 +383,7 @@ public final class Upscaler {
       GL20.glUseProgram(rcasProgram);
       GL11.glBindTexture(GL11.GL_TEXTURE_2D, sourceTex);
       GL20.glUniform1i(rcasUniforms[0], 0);
-      GL20.glUniform1f(rcasUniforms[1], (float)Math.pow(2.0, -2.0F * (1.0F - Config.FSR_SHARPNESS_PCT / 100.0F)));
+      GL20.glUniform1f(rcasUniforms[1], (float)Math.pow(2.0, -2.0F * (1.0F - Config.FSR_SHARPNESS_PCT / 100.0F)) * strength);
       GL20.glUniform4i(rcasUniforms[2], 0, 0, w, h);
       GL11.glDrawArrays(GL11.GL_TRIANGLE_STRIP, 0, 4);
       OUTPUT.set(texR, w, h);
