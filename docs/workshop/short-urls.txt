@@ -47,3 +47,4 @@ https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/imag
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/53-dynamic-resolution.gif https://da.gd/1JGE6g
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/54-people-in-cars.gif https://da.gd/lU4Czc
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/55-occluded-outlines.gif https://da.gd/4GfWq
+https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/56-torch-source.gif https://da.gd/2SZlqG
