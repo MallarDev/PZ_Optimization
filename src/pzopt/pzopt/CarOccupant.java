@@ -462,6 +462,7 @@ public final class CarOccupant {
    private static final Tile[] TILE_OF_SLOT = new Tile[SLOTS];
    private static int fbo, colorTex, depthTex;
    private static Begin capturing;
+   private static int fboMismatch, fboChecks;
    private static int prevFbo;
    private static final OccCamera CAMERA = new OccCamera();
    static final float[] devCentroid = new float[3];
@@ -696,7 +697,18 @@ public final class CarOccupant {
       float sx = 2F / (maxX - minX), sy = 2F / (maxY - minY);
       TILE_M.translation(-1F - minX * sx, -1F - minY * sy, 0F).scale(sx, sy, 1F);
       CAMERA.tile.set(TILE_M);
-      prevFbo = ShadowAtlas.worldFbo();
+      // the framebuffer to put back: the game's own tracked binding (the world's offscreen buffer, the upscaler's scaled one
+      // included, binds through TextureFBO). Not ShadowAtlas's cache: it held another framebuffer now and then, and every
+      // moving object after the pass then drew into it (the whole car blinked out for a frame on each refresh, run
+      // occ-card-impostor). Not a glGet: ~0.7 ms on NVIDIA's threaded driver (run occ-cost-fbofix).
+      prevFbo = Config.DEV_CAR_OCCUPANT_FBO_CACHE ? ShadowAtlas.worldFbo() : zombie.core.textures.TextureFBO.lastID;
+      if (Config.DEV_CAR_OCCUPANT_FBO_CHECK) {
+         int bound = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+         fboChecks++;
+         if (bound != prevFbo && fboMismatch++ < 20) {
+            Log.info("car occupant: dev the bound framebuffer is " + bound + ", the pass would put back " + prevFbo);
+         }
+      }
       GL11.glPushAttrib(GL11.GL_VIEWPORT_BIT | GL11.GL_SCISSOR_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_ENABLE_BIT);
       GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo);
       GL11.glViewport(ox, oy, tw, th);
@@ -897,6 +909,6 @@ public final class CarOccupant {
 
    public static String stats() {
       return "car occupant: mode " + MODE + ", " + tiles + " tiles (" + reused + " frames shifted the last one; drawn for: new " + why[0] + ", turned " + why[1] + ", zoom " + why[2] + ", people " + why[3] + ", the slowest refresh " + why[4] + ", the pose " + why[5] + "), " + captured + " occupant draws, " + skippedNoModel + " seated without a model, render thread "
-            + (tiles > 0 ? String.format(java.util.Locale.ROOT, "%.1f (setup %.1f, init wait %.1f, the models %.1f, end %.1f)", passNs / 1000.0 / tiles, setupNs / 1000.0 / tiles, waitNs / 1000.0 / tiles, renderNs / 1000.0 / tiles, endNs / 1000.0 / tiles) : "-") + " us a tile" + (failed ? ", FAILED" : "");
+            + (tiles > 0 ? String.format(java.util.Locale.ROOT, "%.1f (setup %.1f, init wait %.1f, the models %.1f, end %.1f)", passNs / 1000.0 / tiles, setupNs / 1000.0 / tiles, waitNs / 1000.0 / tiles, renderNs / 1000.0 / tiles, endNs / 1000.0 / tiles) : "-") + " us a tile" + (Config.DEV_CAR_OCCUPANT_FBO_CHECK ? ", framebuffer checks " + fboChecks + " (" + fboMismatch + " wrong)" : "") + (failed ? ", FAILED" : "");
    }
 }

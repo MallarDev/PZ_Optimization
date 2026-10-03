@@ -122,6 +122,23 @@ without that they have no model slot and the cars fall back to the proxy).
 - Not tested: a real dedicated-server game with a second client (needs a second machine); the npc rig takes the remote player's
   model path.
 
+## The car blinking out on refresh frames (found by the maintainer before the release, fixed)
+
+The maintainer saw the car flash in run `occ-card-impostor` (the card footage). The capture showed the whole car (body,
+shadow, occupant) missing for one frame every ~255 ms: the 4 Hz tile refresh. The pass ended by binding back the world
+framebuffer from `ShadowAtlas.worldFbo()`, a cache keyed by `TextureFBO.lastID`; it held framebuffer 132 while the world drew
+into 2 (both under `lastID` 2), so every moving object after the pass went into the wrong target. Fix: put back
+`TextureFBO.lastID` itself (the world's offscreen buffer, the upscaler's scaled one included, binds through `TextureFBO`).
+A glGet was the first fix and also correct, but costs ~0.7 ms on the render thread on NVIDIA's threaded driver (run
+`occ-cost-fbofix`: every-frame tiles 451 -> 1148 us). Checked with `devCarOccupantFboCheck` (glGet + compare): 2,527 of 2,528
+refreshes match with no upscaler and with FSR (DLSS fell back to FSR, no shim installed); the one mismatch is the session's
+first frame (the loading screen). `harness/carglass/car-blink-judge.py` (one-frame pops in the car's box, Jev): the first run
+blinks (0.97), the fixed run is like the control (0.85), verdict confirmed_and_fixed (1.00). Cost after the fix: pass setup
+3.4 us, reused tile 0.4 us GPU, render thread as without the occupant (run `occ-cost-fbofix2`).
+
+Open, not this feature's code: `ShadowAtlas.worldFbo()` is also what `CapsuleShadow` and `ShadowAtlas`'s mid-world flush
+(`sunShadowMeshSameFrame`, default on) put back; if their cache goes stale the same way, what draws after them would blink out.
+
 ## Pitfalls found on the way
 
 - `Transform.getRotation` hands out an unnormalised quaternion (`getUnnormalizedRotation`): the turn test fired every frame until

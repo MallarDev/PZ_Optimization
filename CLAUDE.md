@@ -571,7 +571,9 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   `carOccupantOcclusion` for the physical result). Tiles are reused: redrawn when a bone moves (≤ 60 Hz), at least 4 Hz, at once on a
   6° turn / zoom / seat change; between, the glass reprojects through the old tile's G → NDC rows. Cost parked +1.3 us GPU, driving
   ~+2-5 us (every-frame drawing was +22-33 us). Traps: stock's inVehicle seat transform puts the model at the rear of the car; the sun
-  shadow pass draws cars from the sun (glass now only for `VehicleModelCamera`); `Transform.getRotation` is unnormalised. Rigs
+  shadow pass draws cars from the sun (glass now only for `VehicleModelCamera`); `Transform.getRotation` is unnormalised;
+  a pass that binds its own framebuffer mid-world must put back `TextureFBO.lastID`, not `ShadowAtlas.worldFbo()` (stale: the car
+  blinked out each refresh) and not a glGet (~0.7 ms). Rigs
   `car_rig_seat=true [car_rig_spin=D] [car_rig_p2=split|npc car_rig_p2_car=same|other car_rig_p2_count=N]`, dev views 12-18,
   `devCarOccupantDump`, `harness/carglass/occframes.py` / `occcost.py`. Several people / cars / split screen work (tiles per car and
   view, 4 cars a view, the rest the proxy): split screen driver + passenger 1.2 us, six occupied cars 1.6 us.

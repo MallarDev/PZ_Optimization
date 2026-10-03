@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render docs/workshop/images/54-people-in-cars.gif: the Workshop's "New! People in cars" card in the animated New!
 format (harness/newcard.py). Right half: what changed and its cost (docs/findings-car-occupant-2026-10-03.md). Left half:
-the same 60 km/h drive twice (runs occ-card-off / occ-card-impostor, car glass on, zoom 0.5, 11:00, in-game devCapture at
+the same 60 km/h drive twice (runs occ-card-off / occ-flash-fix2, the released build; car glass on, zoom 0.5, 11:00, in-game devCapture at
 30 fps), the car glass's empty cabin above, this release's driver at the wheel below, cut at the same capture frame.
 
     python3 harness/occupant-card-gif.py            (--still <png>: one frame)
@@ -48,7 +48,7 @@ FOOTER = [
 
 
 def frames(label):
-    run = sorted(glob.glob(f"{RUNS}/occ-card-{label}-*"))[-1]
+    run = sorted(glob.glob(f"{RUNS}/{label}-*"))[-1]
     cap = os.path.join(run, "capture")
     head = open(os.path.join(cap, "index.txt")).read().split()
     w, h = (int(x.split("=")[1]) for x in head[:2])
@@ -65,7 +65,7 @@ def main():
     card = Card("New! People in cars", "2026-10-03", INTRO, ROWS, FOOTER, cols=("EMPTY CAR", "THIS RELEASE"))
     x, y, w, h = card.media
     ph = (h - 8) // 2
-    off, on = frames("off"), frames("impostor")
+    off, on = frames("occ-card-off"), frames("occ-flash-fix2")
     still = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == "--still" else None
     count = 1 if still else round(SECONDS * FPS)
     lab = font(22, "bold")
