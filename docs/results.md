@@ -38,9 +38,12 @@ centre chunk 1554,168, corners 0 / 0 / 0 / 0, no exceptions.
 
 Runs `r4221-*` (desktop, 5120x2160, uncapped, empty tab file, `instrument=true`). Daily drive E:1200 at kmh=193, max zoom:
 tree fixes off (the 42.21 port as released) 326 / 320 fps, p99 9.2-9.3 ms; on (`treeRebakeLazy`, `treeCutawayReach`,
-`treeCutawayScissor`) 428-438 fps, p99 6.3-6.4 ms, bakes 31.5k -> 21.6k; `driveTreeCutaway=false` (42.20's tree rule)
+and the since-removed `treeCutawayScissor`) 428-438 fps, p99 6.3-6.4 ms, bakes 31.5k -> 21.6k; `driveTreeCutaway=false` (42.20's tree rule)
 507 / 514 fps, the 42.20.4 daily level (471-503). Storm spin on foot unchanged (271.6 vs 271.8). Proofs: `devReachCheck`
 0 inside-cutaway samples from trees the reach rule keeps baked (47,720 / 35,502 probes at margin 0 / 256; control 786),
 `devEdgeFastCheck` 0 of 23.9 M. Details: `docs/findings-4221-drive-regression-2026-10-03.md`.
 Mac (M1 Pro, same drive, `mac-r4221-*`): released 10-02 build 118 fps, branch with fixes off 96-119, on 137-152 (p99 ~22 ->
 17 ms), 42.20 rule 175; reach proof 0 violations (31,012 probes, control 444).
+Hotfix (scissor removed, the cutaway draws again at every zoom; `r4221-noscis-*`, `r4221-hf-*`, `r4221-ab-*`): optimized path
+2,219 trees with inside-cutaway samples (control), 0 lost by the reach rule (109,103 probes). Daily drive interleaved: passes
+skipped 490 / 534 fps, drawn 504 / 498 (~2 %, inside the spread); `driveTreeCutaway=true` 405 fps.

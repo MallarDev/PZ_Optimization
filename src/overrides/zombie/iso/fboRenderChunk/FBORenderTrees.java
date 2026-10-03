@@ -188,10 +188,6 @@ public final class FBORenderTrees extends GenericDrawer {
       if (tree.pzoptProbe) pzoptProbeEnd(true); // pzopt: devReachCheck
       if (tree.useStencil) {
          GL11.glStencilFunc(514, 128, 128);
-         if (this.pzoptScissor != null && !bRenderToChunkTexture) { // pzopt: treeCutawayScissor
-            GL11.glEnable(GL11.GL_SCISSOR_TEST); // pzopt
-            GL11.glScissor(this.pzoptScissor[0], this.pzoptScissor[1], this.pzoptScissor[2], this.pzoptScissor[3]); // pzopt
-         } // pzopt
          if (tree.pzoptProbe) pzoptProbeBegin(); // pzopt: devReachCheck, every sample its inside passes draw
          float a = tree.a;
          tree.a = Math.min(tree.a, tree.fadeAlpha);
@@ -201,7 +197,6 @@ public final class FBORenderTrees extends GenericDrawer {
          if ((this.pzoptPassMask & 4) != 0) this.renderTreeTextures(tree, true); // pzopt: devTreePassCycle
          vbor.flush();
          if (tree.pzoptProbe) pzoptProbeEnd(false); // pzopt: devReachCheck
-         if (this.pzoptScissor != null && !bRenderToChunkTexture) GL11.glDisable(GL11.GL_SCISSOR_TEST); // pzopt: treeCutawayScissor
          GL11.glStencilFunc(519, 255, 255);
       }
 
@@ -464,7 +459,6 @@ public final class FBORenderTrees extends GenericDrawer {
       this.playerY = IsoCamera.frameState.camCharacterY;
       this.playerZ = IsoCamera.frameState.camCharacterZ;
       this.pzoptPassMask = pzoptPassMaskNow(); // pzopt: devTreePassCycle, decided on the game thread for this batch
-      this.pzoptScissor = this.pzoptScissorBox(); // pzopt: treeCutawayScissor
       this.pzoptProbeY = -1; // pzopt: devStencilProbe
       if (pzopt.Config.DEV_STENCIL_PROBE && !zombie.iso.IsoWorld.instance.currentCell.getStencilAreas().isEmpty()) { // pzopt
          zombie.iso.IsoCell.StencilArea a = zombie.iso.IsoWorld.instance.currentCell.getStencilAreas().get(0); // pzopt
@@ -475,32 +469,6 @@ public final class FBORenderTrees extends GenericDrawer {
    }
 
    private int pzoptProbeX, pzoptProbeY = -1, pzoptProbeH; // pzopt: devStencilProbe
-
-   private int[] pzoptScissor; // pzopt: treeCutawayScissor, GL x, y, w, h of the cutaway's marked box in the offscreen buffer, or null
-
-   /** pzopt: treeCutawayScissor. The inside passes of a see-through tree draw only where the stencil mask marked. */
-   private int[] pzoptScissorBox() {
-      boolean on = pzopt.Config.DEV_TREE_PASS_CYCLE.length == 0 ? pzopt.Config.TREE_CUTAWAY_SCISSOR : (this.pzoptPassMask & 8) != 0;
-      if (!on || !pzopt.Overrides.enabled() || zombie.characters.IsoPlayer.numPlayers != 1) {
-         return null;
-      }
-      int[] boxes = pzopt.CutawayMask.frameBoxes();
-      if (boxes == null) {
-         return null;
-      }
-      int x1 = Integer.MAX_VALUE, y1 = Integer.MAX_VALUE, x2 = Integer.MIN_VALUE, y2 = Integer.MIN_VALUE;
-      for (int i = 0; i < boxes.length; i += 4) {
-         x1 = Math.min(x1, boxes[i]);
-         y1 = Math.min(y1, boxes[i + 1]);
-         x2 = Math.max(x2, boxes[i + 2]);
-         y2 = Math.max(y2, boxes[i + 3]);
-      }
-      int h = IsoCamera.getOffscreenHeight(IsoCamera.frameState.playerIndex);
-      x1 = Math.max(0, x1);
-      int glY1 = Math.max(0, h - y2);
-      int glY2 = h - y1;
-      return x2 <= x1 || glY2 <= glY1 ? new int[]{0, 0, 0, 0} : new int[]{x1, glY1, x2 - x1, glY2 - glY1};
-   }
 
    private int pzoptPassMask = 7; // pzopt: devTreePassCycle (bit 0 outside the cutaway, 1 inside faded, 2 inside outline)
 

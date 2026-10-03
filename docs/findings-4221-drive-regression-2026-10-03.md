@@ -28,24 +28,26 @@ measured nothing (558 vs 556 with it off). With the 42.20 rule and the fixes bel
 
 GPU sections (`gpuSections=true`, per sampled frame): the rule added 0.37 ms in `translucent` (the per-frame see-through
 trees) and 0.18 ms in the bakes. Per pass (in-run cycle `devTreePassCycle=7,6,5,3,0`): outside 57 us, inside faded 54 us,
-outline 27 us per level-0 instance. Scissoring the inside passes to the mask saved 9 us of 149 (early stencil rejection
-works; the cost is fill).
+outline 27 us per level-0 instance. Early stencil rejection works; the cost is fill.
 
-## The cutaway mask is an ellipse, and it is rarely drawn
+## The cutaway mask is an ellipse (and a scissor of ours that hid it, fixed)
 
 `mask_transparency_player.png` is binary: alpha 1 on an ellipse over 21 % of its square (texels 97..927 x 284..742 with a
 one-texel guard), 0 elsewhere. `isInStencil` tests the tree's base point against the whole square, so most see-through
 trees cannot reach a single marked pixel: their inside passes draw nothing and their outside pass draws them exactly as
 an opaque tree.
 
-Occlusion queries round the inside passes (`devReachCheck`) found more: on the optimized path they never pass a sample,
-and on the stock path (`enabled=false`) only 786 of 63,650 probed see-through trees drew inside the cutaway. A stencil
-read along a 4,096 px row and column through the player (`devStencilProbe`) right after `IsoCell.drawStencilMask` finds
-the tree bit in 22 of 1,122 frames on stock and 12 of 3,459 optimized: in 42.21 the mask draw writes nothing in ~98 % of
-frames (at the draw: depth test off, alpha test on, stencil test on, a shader program bound, so the fixed-function alpha
-test does not apply; the cause is not pinned down). The stock game's see-through trees therefore show in only a few
-frames, ours a little less often. This is a stock 42.21 defect and is left as is (a fix would change the picture against
-stock); reported here.
+Correction (same day). A first reading of the stencil (`devStencilProbe`, a 4,096 px row and column through the player)
+found the cutaway bit in only ~2 % of frames and was taken for a stock defect. It was a probe error: the world framebuffer
+is screen-sized at every zoom (5120x2160 here; the projection divides the offscreen coordinates by the zoom), and the probe
+read offscreen coordinates, outside the buffer at max zoom. A full read of the stencil after `drawStencilMask` shows the
+ellipse in every frame on both paths (972,394 px at zoom 1; 662x365 px, 154,716 px at max zoom), and it is still there when
+the trees draw. The stock game's cutaway works.
+
+What really hid it on our path was `treeCutawayScissor`, released in be50962: it scissored the inside passes to the mask's
+box in offscreen coordinates, so at any zoom but 1 the box missed the ellipse and the see-through trees drew opaque (stock
+control 786 trees with inside samples, ours 0; with the scissor removed ours 2,219 on a longer probe). The scissor saved
+9 us and is gone (hotfix release). Cost of the cutaway drawn again: see Results.
 
 ## Fixes (all default on, all exact)
 
@@ -55,13 +57,13 @@ stock); reported here.
 - `treeCutawayReach` (`pzopt.CutawayMask`): a see-through tree stays in the bake unless a generous screen box of its
   sprites comes within `treeCutawayReachPx` (256 px at tileScale 2) of the mask's marked box; kept in the bake, its fade
   is stepped exactly as `IsoTree.render` steps it (same constants, 30 fps multiplier, layer check so a tree drawn per
-  frame is never stepped twice), so it has the stock fade when it gets there. Proof on the stock path (where the mask
-  does write in some frames): trees the rule keeps baked drew 0 samples inside the cutaway (47,720 probes at margin 0,
-  35,502 at 256) while the control that probes every see-through tree caught 786. Margin 0 / 128 / 256 measured the
+  frame is never stepped twice), so it has the stock fade when it gets there. Proof (occlusion queries round the inside passes of every tree the rule would keep baked):
+  0 samples inside the cutaway on the stock path (47,720 probes at margin 0, 35,502 at 256; control 786) and, after the
+  scissor fix, on ours (109,103 probes at 256; control 2,219). Margin 0 / 128 / 256 measured the
   same, 256 kept for bake latency.
-- `treeCutawayScissor`: the inside passes are scissored to the marked box (exact: nothing outside it has the bit).
+- `treeCutawayScissor` (be50962 only): removed, it hid the cutaway at zoom != 1 (above).
 - `driveTreeCutaway`: on = 42.21's rule; off (the default since 2026-10-03, maintainer's decision) restores 42.20's rule, the
-  last 15-20 %: the see-through trees rarely show on 42.21 anyway (the mask defect below).
+  last 15-20 %.
 - Tried and dropped: conditional rendering of the inside passes on an occlusion query of the mask draw (exact, but no
   measurable gain once the reach rule had removed most see-through trees).
 

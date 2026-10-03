@@ -623,7 +623,6 @@ PzoptOptionClasses = {
     treeBakePass = { "FBORenderCell", "IsoChunk" },
     treeCutawayReach = { "FBORenderCell" },
     treeCutawayReachPx = { "FBORenderCell" },
-    treeCutawayScissor = { "FBORenderTrees" },
     treeRebakeLazy = { "FBORenderCell" },
     treeRebakeLingerMs = { "FBORenderCell" },
     treesInChunkTexture = { "FBORenderCell" },

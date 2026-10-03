@@ -12,8 +12,9 @@ import zombie.iso.IsoWorld;
  * The part of the cutaway stencil that IsoCell.drawStencilMask really marks: the mask textures are drawn with alpha
  * test GREATER 0.1, so only their texels above 0.1 set the stencil bit. mask_transparency_player.png marks 21 % of its
  * 1024 x 1024 square (an ellipse, texels 111..922 x 287..740). A see-through tree's inside passes (FBORenderTrees,
- * stencil EQUAL 128) can only draw within those boxes, so they are scissored to them and skipped for a tree whose quad
- * misses them (treeCutawayScissor). Boxes are read once per texture from the PNG (mods that replace a mask included);
+ * stencil EQUAL 128) can only draw within those boxes, so a tree whose sprite stays clear of them stays in the bake
+ * (treeCutawayReach, FBORenderCell). The boxes are in the stencil areas' offscreen pixels, the space of isInStencil and
+ * cachedScreenX; the world framebuffer itself is screen-sized (the projection divides by the zoom). Boxes are read once per texture from the PNG (mods that replace a mask included);
  * an unreadable mask counts as its whole square.
  */
 public final class CutawayMask {

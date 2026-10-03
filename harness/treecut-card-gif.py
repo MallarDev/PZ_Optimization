@@ -2,7 +2,7 @@
 """Render docs/workshop/images/52-driving-trees.gif: the Workshop's "New! Driving through the trees" card in the animated New!
 format (harness/newcard.py). Right half: the 120 km/h drive (E:1200, max zoom, uncapped) with Build 42.21's driving tree
 cutaway as the previous release handled it against this release (docs/findings-4221-drive-regression-2026-10-03.md, runs
-r4221-full-*, r4221-final-*, mac-r4221-*). Left half: both recordings at the same route second (previous release on top),
+r4221-full-*, r4221-final-*, mac-r4221-*). Left half: both recordings at the same route second (previous release on top, `r4221-card-hotfix` below),
 and under them both runs' frame times over the last 3 s; the clip is the previous release's slowest 3.5 s.
 
     harness/queue.sh submit media --label treecut-card-gif --out docs/workshop/images/52-driving-trees.gif \\
@@ -24,7 +24,7 @@ from newcard import BG, INK, INK2, MUTED, OPT, RULE, STOCK, Card, font, write_gi
 
 OUT = "docs/workshop/images/52-driving-trees.gif"
 RUNS = Path(os.environ.get("SMOOTH_RUNS", os.path.join(os.path.dirname(os.path.abspath(__file__)), "runs")))
-STOCK_RUN, NEW_RUN = "r4221-final-drive-rec-off", "r4221-card-new"  # recorded; the table: unrecorded runs
+STOCK_RUN, NEW_RUN = "r4221-final-drive-rec-off", "r4221-card-hotfix"  # recorded; the table: unrecorded runs
 FPS = 12
 CLIP = 3.5          # seconds of the route shown (5 s was 9.4 MB)
 TRACE = 3.0         # seconds of frame times on screen
@@ -35,19 +35,19 @@ TONEMAP = ('zscale=tin=smpte2084:pin=bt2020:min=bt2020nc:t=linear:npl=200,format
 
 INTRO = ("Driving is back to Build 42.20 speed. Build 42.21 turns every tree around your car see-through while you "
          "drive; with our baked trees each tree you passed re-baked its chunk picture and its neighbours' up to four "
-         "times and was drawn again every frame. Now trees re-bake only when they really change, and the 42.20 tree rule "
-         "is the default (the 42.21 cutaway shows in only ~2 % of frames on 42.21 anyway).")
+         "times and was drawn again every frame. Now trees re-bake only when they really change, trees the cutaway cannot "
+         "reach stay baked, and the 42.20 tree rule is the default.")
 ROWS = [
     ("Frame rate, desktop", "120 km/h, max zoom, mean of 2 runs",
-     (323, "323 fps"), (510, "510 fps"), "+58 %"),
+     (323, "323 fps"), (500, "500 fps"), "+55 %"),
     ("p99 frame time, desktop", "1 frame in 100 is slower than this",
-     (9.25, "9.3 ms"), (5.45, "5.5 ms"), "-41 %"),
+     (9.25, "9.3 ms"), (5.65, "5.7 ms"), "-39 %"),
     ("Chunk pictures baked", "over the 39 s route",
      (31.4, "31.4k"), (17.4, "17.4k"), "-45 %"),
     ("Frame rate, MacBook M1 Pro", "same drive",
-     (118, "118 fps"), (175, "175 fps"), "+48 %"),
+     (118, "118 fps"), (167, "167 fps"), "+42 %"),
     ("p99 frame time, Mac", "same drive",
-     (21.2, "21.2 ms"), (13.8, "13.8 ms"), "-35 %"),
+     (21.2, "21.2 ms"), (16.4, "16.4 ms"), "-23 %"),
     ("On foot", "storm, camera spinning: unchanged",
      (272, "272 fps"), (272, "272 fps"), ("=", "same")),
 ]
@@ -56,7 +56,7 @@ FOOTER = [
     "last 3 s (recorded runs, their slowest 3.5 s; the recorder costs ~15 %). Desktop: Linux, RTX 4090, 5120x2160, "
     "uncapped; Mac: MacBook Pro M1 Pro.",
     "Options > Optimizations > Trees: see-through round your car while driving (Build 42.21) brings back 42.21's rule; "
-    "with it on the drive is still +33 % (430 fps) thanks to the fewer re-bakes.",
+    "with it on the drive is still +25 % (405 fps) thanks to the fewer re-bakes.",
     "Every number and the runs behind them: github.com/xD3I/PZ_Optimization, docs/findings-4221-drive-regression-2026-10-03.md.",
 ]
 

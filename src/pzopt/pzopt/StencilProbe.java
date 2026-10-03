@@ -8,8 +8,10 @@ import zombie.core.SpriteRenderer;
 import zombie.core.textures.TextureDraw;
 
 /**
- * devStencilProbe: reads the stencil at one offscreen pixel (the cutaway's centre, the player) on the render thread at
- * named points of the frame and logs the values every 2 s, to find where the cutaway's tree bit (128) is lost.
+ * devStencilProbe: reads the whole stencil of the bound framebuffer on the render thread at named points of the frame
+ * (after IsoCell.drawStencilMask, before the per-level loop, at a per-frame tree batch), every 2 s per point: how many
+ * pixels carry the cutaway's tree bit (128), their box, the GL state at the mask draw. The framebuffer is screen-sized at
+ * every zoom (the projection divides the offscreen coordinates by the zoom): never probe in offscreen pixels.
  * Dev only: glReadPixels stalls the pipeline.
  */
 public final class StencilProbe extends TextureDraw.GenericDrawer {
@@ -41,20 +43,54 @@ public final class StencilProbe extends TextureDraw.GenericDrawer {
       new StencilProbe(point, x, offscreenHeight - 1 - yDown).render();
    }
 
+   private static final java.util.Map<String, Long> NEXT_FULL = new java.util.HashMap<>();
+   private static java.nio.ByteBuffer full;
+
+   /** devStencilProbe: the whole stencil of the bound framebuffer, every 2 s: bit-128 pixel count and bounding box. */
+   private void fullRead() {
+      long now = System.currentTimeMillis();
+      if (now < NEXT_FULL.getOrDefault(this.point, 0L)) {
+         return;
+      }
+      NEXT_FULL.put(this.point, now + 2000L);
+      int[] vp = new int[4];
+      GL11.glGetIntegerv(GL11.GL_VIEWPORT, vp);
+      int w = vp[2], h = vp[3];
+      if (full == null || full.capacity() < w * h) {
+         full = MemoryUtil.memAlloc(w * h);
+      }
+      full.clear();
+      GL11.glReadPixels(vp[0], vp[1], w, h, GL11.GL_STENCIL_INDEX, GL11.GL_UNSIGNED_BYTE, full);
+      long n = 0;
+      int x1 = w, y1 = h, x2 = -1, y2 = -1;
+      int[] values = new int[256];
+      for (int y = 0; y < h; y++) {
+         for (int x = 0; x < w; x++) {
+            int v = full.get(y * w + x) & 0xFF;
+            values[v]++;
+            if ((v & 128) != 0) {
+               n++;
+               if (x < x1) x1 = x;
+               if (x > x2) x2 = x;
+               if (y < y1) y1 = y;
+               if (y > y2) y2 = y;
+            }
+         }
+      }
+      StringBuilder top = new StringBuilder();
+      for (int v = 0; v < 256; v++) {
+         if (values[v] > 0) top.append(v).append(':').append(values[v]).append(' ');
+      }
+      Log.info("stencil probe full " + this.point + ": viewport " + vp[0] + "," + vp[1] + " " + w + "x" + h + ", bit128 px=" + n
+         + (n > 0 ? " bbox x " + x1 + ".." + x2 + " y(gl) " + y1 + ".." + y2 : "") + ", probe point " + this.x + "," + this.y
+         + ", stencil writemask=" + GL11.glGetInteger(GL11.GL_STENCIL_WRITEMASK) + ", fbo=" + GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING)
+         + ", values " + top);
+   }
+
    @Override
    public void render() {
-      // a 4096-px row and column through the point: how many pixels carry the tree bit
+      this.fullRead();
       int v = 0;
-      ONE.clear();
-      GL11.glReadPixels(Math.max(0, this.x - 2048), this.y, 4096, 1, GL11.GL_STENCIL_INDEX, GL11.GL_UNSIGNED_BYTE, ONE);
-      for (int i = 0; i < 4096; i++) {
-         if ((ONE.get(i) & 128) != 0) v++;
-      }
-      ONE.clear();
-      GL11.glReadPixels(this.x, Math.max(0, this.y - 2048), 1, 4096, GL11.GL_STENCIL_INDEX, GL11.GL_UNSIGNED_BYTE, ONE);
-      for (int i = 0; i < 4096; i++) {
-         if ((ONE.get(i) & 128) != 0) v += 65536;
-      }
       int fbo = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
       String state = " depthTest=" + GL11.glIsEnabled(GL11.GL_DEPTH_TEST) + " depthFunc=" + GL11.glGetInteger(GL11.GL_DEPTH_FUNC)
          + " alphaTest=" + GL11.glIsEnabled(GL11.GL_ALPHA_TEST) + " stencilTest=" + GL11.glIsEnabled(GL11.GL_STENCIL_TEST)

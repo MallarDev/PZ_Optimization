@@ -533,10 +533,11 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   square turns see-through); with baked trees each one re-baked its chunk and the neighbours holding its copy up to four
   times and drew per frame. `treeRebakeLazy` (re-bake only on leaving / rejoining the bake, rejoining at the next check),
   `treeCutawayReach` (a see-through tree stays baked unless its sprite box nears the mask's marked ellipse, 21 % of the
-  square; its fade stepped as IsoTree.render would; GPU proof `devReachCheck`), `treeCutawayScissor`: daily drive 320 -> 430
+  square; its fade stepped as IsoTree.render would; GPU proof `devReachCheck`): daily drive 320 -> 430
   fps, p99 9.3 -> 6.4 ms; `driveTreeCutaway` (42.21's rule) is OFF by default (maintainer, 2026-10-03): 507-514 = the 42.20 level, nothing else in
-  42.21 slows it. Found on the way: in 42.21 `IsoCell.drawStencilMask` writes the cutaway's stencil bit in only ~2 % of frames (stock
-  too; `devStencilProbe`), so the game's see-through trees rarely show; left as stock. `edgeTestFast` (`pzopt.EdgeFast`):
+  42.21 slows it. be50962's `treeCutawayScissor` hid the cutaway at zoom != 1 (its box was in offscreen px, the world
+  framebuffer is screen-sized); removed in the hotfix, the cutaway (stock's works, the "~2 % of frames" reading was a probe
+  error) costs ~2 % on the default drive, inside the run spread. `edgeTestFast` (`pzopt.EdgeFast`):
   42.21's lambda-based `IsoGridSquare.isBlockedTo` written out for our separation callers (23.9 M calls, 0 different;
   154 vs 181 ns a call, a marginal gain).
 - Mod compatibility (2026-10-01, `docs/findings-mod-compat-2026-10-01.md`, branch `mod-compat`): `pzopt.ModCompat` scans the

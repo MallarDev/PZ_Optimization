@@ -5769,11 +5769,12 @@ up to four times and was drawn per frame in three passes (120 km/h drive 500 -> 
 
 ### zombie.iso.fboRenderChunk.FBORenderTrees
 
-- `renderTree`: with `treeCutawayScissor` the inside passes of a see-through tree (stencil EQUAL 128) run under a scissor
-  box = the union of the frame's marked mask boxes, flipped to GL coordinates of the offscreen buffer (one player only);
-  `devTreePassCycle` can skip each of the three passes; `devReachCheck` wraps the passes of a tree the reach rule would
+- `renderTree`: `devTreePassCycle` can skip each of the three passes; `devReachCheck` wraps the passes of a tree the reach rule would
   have kept baked in `GL_SAMPLES_PASSED` queries (polled without waiting at the next batch).
 - `addTree` / `render`: per-frame tree counters; the probe flag.
+
+- Hotfix (2026-10-03): be50962 also scissored the inside passes to the mask's box (`treeCutawayScissor`); the box was in
+  offscreen pixels while the world framebuffer is screen-sized, so at zoom != 1 it hid the cutaway. Removed.
 
 ### zombie.iso.IsoMovingObject
 
