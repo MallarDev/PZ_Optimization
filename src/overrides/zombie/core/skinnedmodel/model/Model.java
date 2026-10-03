@@ -321,7 +321,9 @@ public final class Model extends Asset {
             ProfileArea mvp = GameProfiler.getInstance().profile("Mesh.Draw.Call");
 
             try {
-               this.mesh.Draw(effect);
+               if (!pzopt.OccludedOutline.drawMesh(this.mesh, effect)) { // pzopt: occluded outlines, a character's stencil codes (its stock draw plus the hidden part)
+                  this.mesh.Draw(effect);
+               } // pzopt
             } catch (Throwable var9) {
                if (mvp != null) {
                   try {

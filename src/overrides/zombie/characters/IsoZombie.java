@@ -232,6 +232,9 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    private IsoMovingObject pzoptSepContact;
    private IsoMovingObject[] pzoptSepCollide;
    private int pzoptSepCollideCount;
+   public IsoGridSquare pzoptOutlineSquare; // pzopt: occluded outlines, the square the occluder test ran for (OccludedOutline.classify)
+   public long pzoptOutlineNs; // pzopt: occluded outlines, when it ran
+   public byte pzoptOutlineClass; // pzopt: occluded outlines, its result
 
    private static final int PZOPT_SEP_MAX_COLLIDE = 32; // 12 spilled ~20 times in a 25 s Louisville run; the array is only allocated for a zombie that actually collides
 
@@ -1642,7 +1645,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             this.getCurrentSquare().interpolateLight(col, x - this.getCurrentSquare().getX(), y - this.getCurrentSquare().getY());
          }
 
-         this.atlasTex.render(x, y, z, (int)ssx, (int)ssy, col.r, col.g, col.b, col.a);
+         this.atlasTex.pzoptRenderWithOutline(pzopt.OccludedOutline.eligible(this, IsoCamera.frameState.playerIndex), x, y, z, (int)ssx, (int)ssy, col.r, col.g, col.b, col.a); // pzopt: current visibility accompanies the atlas draw without forcing a 3D model
       }
    }
 

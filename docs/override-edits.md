@@ -5845,3 +5845,26 @@ glass was drawn there too (wasted) and the occupant was placed from the sun came
   the shader drops that connection and the diagonal for points above the floor on the wall's side. Floors unchanged.
   Rig: `--source-save Sandbox/2026-10-02_10-30-09 --shot-at 2` + `harness/wall-column.py` (Jev).
 
+
+## Occluded zombie outlines (`occludedZombieOutlines`, 2026-10-03; PR #48 by novakovicdavid, reworked; `pzopt.OccludedOutline`)
+
+The parts of a zombie the player sees that scenery hides get a thin contour. The PR's version replayed every eligible
+zombie into its own targets and patched every world material shader to record an opaque-depth image; the rework rides
+the world framebuffer's stencil (bits 0x7F; 0x80 stays the game's player-mask bit) during the draws the game already
+makes. Design and costs: `docs/plan-occluded-zombie-outlines.md`.
+
+- **TextureDraw:** field `pzoptOutline` (0 none, 1 outline, 2 outline with the plant slack), set in `drawModel` from
+  `OccludedOutline.eligible` (the player's current sight, on the game thread). The DrawModel command brackets
+  `drawer.render` with `OccludedOutline.beginModel` / `endModel`: a character's draw gets its stencil codes, a
+  vehicle's draw clears the "visible" bit where it lands.
+- **Model.DrawSolid:** `OccludedOutline.beforeMesh()` before `mesh.Draw` (the stencil code where the mesh passes the
+  depth test) and `afterMesh(mesh, effect)` after it (the same mesh again with the depth test inverted, colour and
+  depth writes off: the hidden part). DrawChar's `GLStateRenderThread.restore()` after each mesh puts the state back.
+- **IsoZombie:** `renderTextureInsteadOfModel` passes the eligibility with its atlas draw
+  (`BodyTexture.pzoptRenderWithOutline`); fields `pzoptOutlineSquare` / `pzoptOutlineFrame` / `pzoptOutlinePlants`
+  cache the plant test per square.
+- **DeadBodyAtlas:** `BodyTexture.pzoptRenderWithOutline` queues the stock depth drawer with the eligibility;
+  `BodyTextureDepthDrawer.pzoptOutline` (cleared in `init`) makes `render` call `OccludedOutline.atlas` before the
+  quad flushes (its stencil code; the quad is kept for the hidden-part pass).
+- **FBORenderCell.performRenderTiles:** `OccludedOutline.begin` after the chunk composite, `OccludedOutline.finish`
+  before the fog (the atlas zombies' hidden quads and the contour pass).

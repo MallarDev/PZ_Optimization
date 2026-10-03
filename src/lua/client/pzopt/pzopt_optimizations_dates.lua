@@ -624,6 +624,7 @@ PzoptOptionDates = {
     pplTorchFeetGlow = "2026-09-28",
     pplTorchNearChunk = "2026-09-27",
     pplVariants = "2026-09-25",
+    pplWallEdge = "2026-10-03",
     pplWetSpecular = "2026-09-25",
     pplWrapPct = "2026-09-25",
     preloadAnimSets = "2026-09-19",

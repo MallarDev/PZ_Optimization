@@ -947,6 +947,23 @@ local ENHANCEMENT_SECTIONS = {
         },
     },
     {
+        title = "Occluded zombie outlines (the hidden parts of the zombies you see)",
+        entries = {
+            { key = "occludedZombieOutlines", label = "Outline the hidden parts of zombies you see",
+              tip = "A zombie you can see that walks behind a wall, a tree, a fence or a car keeps a thin contour where the scenery hides it, so you know where it went. Only zombies your character sees right now (the same sight that draws them): no unseen or remembered zombies, nothing through the dark (the contour fades with the light on the zombie). The parts hidden behind other characters are not outlined. Next to nothing on a fast GPU: the zombies' own draws mark what they cover, then one pass draws the contour where they are hidden. Applies at once. Off while DLSS / TAAU object motion is on (it uses the same buffer bits)." },
+            { key = "occludedOutlineIgnorePlants", label = "Occluded outlines: ignore grass and bushes",
+              tip = "A zombie standing in grass or bushes, with nothing solid in front of it, does not get its legs outlined by the plants; a wall, a fence, a tree or a car further in front still outlines it." },
+            { key = "occludedOutlineWidth", label = "Occluded outlines: width (render pixels)",
+              choices = { "1", "2", "3", "4" }, note = { ["1"] = "default" },
+              tip = "The contour's width in pixels of the world picture (an upscaler draws them larger). Only the zombie's own outline is drawn, never a line along the edge of what hides it." },
+            { key = "occludedOutlineColour", label = "Occluded outlines: colour", colour = true,
+              tip = "Pick the contour colour, then press Apply. The aiming and interaction outlines keep theirs." },
+            { key = "occludedOutlineOpacityPct", label = "Occluded outlines: opacity (%)",
+              choices = { "25", "50", "70", "100" }, note = { ["70"] = "default" },
+              tip = "How opaque the contour is in daylight; dimmer in the dark and while the zombie fades in or out of sight." },
+        },
+    },
+    {
         title = "Wet blood (fresh blood reflects and catches the light)", clip = "hdr",
         entries = {
             { key = "bloodWet", label = "Wet blood",
@@ -1603,6 +1620,11 @@ local EFFECTS = {
     carOccupant = { render = 1 },
     carOccupantOcclusion = {},
     carOccupantLightPct = {},
+    occludedZombieOutlines = {},
+    occludedOutlineIgnorePlants = {},
+    occludedOutlineWidth = {},
+    occludedOutlineColour = {},
+    occludedOutlineOpacityPct = {},
     bloodWet = { gpu = 1, cpu = 1 },
     bloodWetMinutes = { gpu = 1 },
     bloodReflectPct = {},
@@ -2654,6 +2676,120 @@ local function addBoolOption(self, entry, splitpoint, y, BUTTON_HGT)
     return option
 end
 
+-- Colour controls store RGB hex; opacity remains a separate setting.
+local function colourHex(value)
+    return string.upper((value or ""):match("^%s*#?(%x%x%x%x%x%x)%s*$") or "FFC740")
+end
+
+local function colourRGB(value)
+    local hex = colourHex(value)
+    return {
+        r = tonumber(hex:sub(1, 2), 16) / 255,
+        g = tonumber(hex:sub(3, 4), 16) / 255,
+        b = tonumber(hex:sub(5, 6), 16) / 255,
+        a = 1,
+    }
+end
+
+local function addColourOption(self, entry, splitpoint, y)
+    local p = perf()
+    local pinnedBy = p:getPzoptOptionPinnedBy(entry.key)
+    local option
+    local function setValue(value)
+        local button = option.control
+        button.pzoptValue = value == "" and "" or colourHex(value)
+        button.backgroundColor = colourRGB(value ~= "" and value or p:getPzoptOptionDefault(entry.key))
+        button.backgroundColorMouseOver = button.backgroundColor
+    end
+    local function openPicker(screen, button)
+        if pinnedBy ~= "" then
+            return
+        end
+        require("ISUI/ISSliderPanel")
+        require("ISUI/ISColorPickerHSB")
+        if screen.pzoptColourPicker then
+            screen.pzoptColourPicker:removeSelf()
+        end
+        local rgb = button.backgroundColor
+        local picker = ISColorPickerHSB:new(0, 0, ColorInfo.new(rgb.r, rgb.g, rgb.b, 1))
+        picker:initialise()
+        picker.resetFocusTo = button.parent
+        picker:setPickedFunc(function(_, colour)
+            local function channel(value)
+                return math.floor(math.max(0, math.min(1, value)) * 255 + 0.5)
+            end
+            setValue(string.format("%02X%02X%02X", channel(colour.r), channel(colour.g), channel(colour.b)))
+            option:invokeOnChangeEvent()
+            if picker.parent then
+                picker:removeSelf()
+            end
+        end)
+        local removeSelf = picker.removeSelf
+        picker.removeSelf = function(o)
+            screen.pzoptColourPicker = nil
+            removeSelf(o)
+        end
+        -- The popup belongs to the options screen, not the scrolling settings panel.
+        local prerender = picker.prerender
+        picker.prerender = function(o)
+            if not button:getIsVisible() or not button.parent:getIsVisible() then
+                o:removeSelf()
+                return
+            end
+            prerender(o)
+        end
+        screen:addChild(picker)
+        local x = button:getAbsoluteX() - screen:getAbsoluteX()
+        local top = button:getAbsoluteY() - screen:getAbsoluteY()
+        local py = top + button:getHeight() + 1
+        if py + picker:getHeight() > screen:getHeight() then
+            py = top - picker:getHeight() - 1
+        end
+        picker:setX(math.max(0, math.min(x, screen:getWidth() - picker:getWidth())))
+        picker:setY(math.max(0, py))
+        picker:setCapture(true)
+        picker:setVisible(true)
+        picker:bringToTop()
+        screen.pzoptColourPicker = picker
+        local joypad = JoypadState.getMainMenuJoypad()
+        if joypad then
+            joypad.focus = picker
+        end
+    end
+    local button = self:addColorButton(splitpoint, y, entry.label, colourRGB(""), openPicker)
+    button.tooltip = tooltipFor(entry, pinnedBy)
+    button:setEnable(pinnedBy == "")
+    option = GameOption:new("pzopt." .. entry.key, button)
+    function option.toUI()
+        setValue(pinnedBy ~= "" and p:getPzoptOption(entry.key) or p:getPzoptOptionSaved(entry.key))
+    end
+    function option.apply(o)
+        if pinnedBy ~= "" then
+            return
+        end
+        local value = o.control.pzoptValue
+        p:setPzoptOption(entry.key, value)
+        afterStore(o, entry, value ~= "" and value or p:getPzoptOptionDefault(entry.key))
+    end
+    function option.pzoptReset()
+        if pinnedBy == "" then
+            setValue("")
+        end
+    end
+    function option.pzoptSet(_, value)
+        if pinnedBy == "" then
+            setValue(value or "")
+        end
+    end
+    function option.pzoptCurrent(o)
+        return o.control.pzoptValue ~= "" and ("#" .. o.control.pzoptValue)
+            or ("#" .. colourHex(p:getPzoptOptionDefault(entry.key)) .. " (default)")
+    end
+    option.pzoptKey = entry.key
+    self.gameOptions:add(option)
+    return option
+end
+
 local function addIntOption(self, entry, splitpoint, y, comboWidth)
     local p = perf()
     local pinnedBy = p:getPzoptOptionPinnedBy(entry.key)
@@ -3639,6 +3775,9 @@ local function buildSettingsPage(self, page)
                     if entry.bezier then
                         return addBezierOption(self, entry, splitpoint, y, comboWidth, BUTTON_HGT)
                     end
+                    if entry.colour then
+                        return addColourOption(self, entry, splitpoint, y)
+                    end
                     if entry.choices then
                         return addIntOption(self, entry, splitpoint, y, comboWidth)
                     end
@@ -3876,6 +4015,7 @@ local function install()
         end
         stockSetVisible(self, bVisible, ...)
         if not bVisible then
+            if self.pzoptColourPicker then self.pzoptColourPicker:removeSelf() end
             pcall(function() getPerformance():releasePzoptGifs() end)
         end
     end

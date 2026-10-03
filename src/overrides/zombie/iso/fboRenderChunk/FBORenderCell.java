@@ -1871,6 +1871,7 @@ public final class FBORenderCell {
       pzopt.CloudShadow.afterComposite(); // pzopt: cloudShadows, dev timing of the composite
       pzopt.AmbientOcclusion.queue(playerIndex); // pzopt: ambient occlusion on the static world, before anything else is drawn over it
       pzopt.PixelLight.afterComposite(playerIndex); // pzopt: pixelLight, the per-pixel light pass (pass mode) and the dev dumps, before anything else is drawn over the static world
+      pzopt.OccludedOutline.begin(playerIndex); // pzopt: occluded outlines, the characters and vehicles below mark the stencil
       pzopt.CapsuleShadow.queue(playerIndex); // pzopt: sunShadows, the characters' sun shadows onto the static world (they add themselves below)
       FBORenderShadows.getInstance().clear();
       boolean pzoptFloorOnly = pzopt.ResumeShot.noMoving; // pzopt: resumeShot's exit capture (below "full"): no players, shadows, corpses
@@ -2087,6 +2088,7 @@ public final class FBORenderCell {
       AbstractPerformanceProfileProbe var33 = fog.profile();
 
       try {
+         pzopt.OccludedOutline.finish(playerIndex); // pzopt: occluded outlines, the atlas zombies' hidden parts and the contour, after every occluder, before the fog
          pzopt.CapsuleShadow.beforeFog(playerIndex); // pzopt: sunShadowPassLate, the casters' shadows, their depth read beside the god rays' and the fog's
          pzopt.GodRays.queue(playerIndex); // pzopt: god rays, this frame's light, volume updates and screen mapping (the scene depth is complete here)
          this.renderFog(playerIndex);

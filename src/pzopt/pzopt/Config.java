@@ -649,6 +649,9 @@ public final class Config {
    public static final boolean VIS_POLY_ASYNC = bool("visPolyAsync", true); // the vision cone's shadow polygon computed on its own thread from the top of the tile render, taken in VisibilityPolygon2.renderMain (pzopt.VisPolyAsync)
    public static final boolean LOS_LIGHT_PREFETCH = bool("losLightPrefetch", false); // the lazy per-square lighting refresh of the squares the player's line-of-sight pass reads, done ahead on the frame workers (one task per chunk level, room / meta hooks deferred; pzopt.LosPrefetch)
    public static final boolean DEV_SCHED_CHECK = bool("devSchedCheck", false); // dev: schedulerClassifyParallel, every worker classification compared with the game thread's own (mismatches in gt_offload=)
+   public static final boolean DEV_OUTLINE_TIMING = bool("devOutlineTiming", false); // dev: occluded outlines, every 10 s the hidden mesh / atlas quad counts, the end pass's render-thread time and the frame time with it on / off
+   public static final int DEV_OUTLINE_VIEW = integer("devOutlineView", 0); // dev: occluded outlines, 1 = paint the stencil codes instead of the contour (hidden red, seen zombie green, other characters blue)
+   public static final int DEV_OUTLINE_ALTERNATE = integer("devOutlineAlternate", 0); // dev: ms; occluded outlines switch off and on every period (a within-run A/B, read with devOutlineTiming)
    public static final int DEV_GT_ALTERNATE = integer("devGtAlternate", 0); // dev: ms; the keys in devGtAlternateKeys switch off and on every period (a within-run A/B: harness/gtab.py)
    public static final String DEV_GT_ALTERNATE_KEYS = string("devGtAlternateKeys", ""); // dev: comma list of the offload keys the alternation switches (or "all")
    public static final int CHAR_DRAW_THREADS = Math.max(1, integer("charDrawThreads", 14)); // threads of the characters draw pre-pass pool (pzopt.CharDraw; clamped to cores - 2): the ~480 zombies' draw data must finish inside the chunk bakes, eight threads left the game thread waiting 0.2 ms a frame, twelve 0.13
@@ -1294,6 +1297,11 @@ public final class Config {
    public static final String HDR_ENCODE = string("hdrEncode", "auto").toLowerCase(java.util.Locale.ROOT); // on: ext_linear description + encode pass at the swap (standard, exact roll-off); off: no description, the compositor's own SDR decode shows the FP16 values above 1.0 (KWin; ~0.3 ms a frame cheaper at 4K); auto: off on KDE Plasma, on elsewhere
    public static volatile boolean SSR; // screen-space reflections of the scene in the water and the puddles (pzopt.Ssr)
    public static volatile int SSR_STRENGTH_PCT; // how strongly the water mirrors the scene, % (a deep river at the camera's angle reflects ~6 % physically)
+   public static volatile boolean OCCLUDED_OUTLINES; // occluded zombie outlines (pzopt.OccludedOutline, PR #48): the parts of a seen zombie that scenery hides get a contour (live)
+   public static volatile boolean OCCLUDED_OUTLINE_IGNORE_PLANTS; // occluded outlines: grass and bushes in front of a zombie (nothing solid) do not outline its legs (live)
+   public static volatile int OCCLUDED_OUTLINE_WIDTH; // occluded outlines: contour width in render pixels, 1..4 (live)
+   public static volatile int OCCLUDED_OUTLINE_OPACITY; // occluded outlines: opacity in daylight, % (live)
+   public static volatile String OCCLUDED_OUTLINE_COLOUR; // occluded outlines: RGB hex (live)
    public static volatile boolean BLOOD_WET; // wet blood (pzopt.BloodWet): fresh floor splats reflect the scene (with reflections on) and catch the sun and the lamps (a GGX sheen; with HDR output, glints above white) until they dry (live)
    public static volatile int BLOOD_WET_MINUTES; // wet blood: game minutes a splat stays wet (drying from its edges in) (live)
    public static volatile int BLOOD_REFLECT_PCT; // wet blood: strength of the reflection in the film, % of the water's Fresnel (live)
@@ -1542,6 +1550,11 @@ public final class Config {
       CAR_GLASS_REFLECT_PCT = Math.max(0, Math.min(400, integer("carGlassReflectPct", 100)));
       SSR_STRENGTH_PCT = Math.max(0, Math.min(100, integer("reflectionStrengthPct", 45)));
       SSR_PUDDLES = bool("reflectionPuddles", true);
+      OCCLUDED_OUTLINES = bool("occludedZombieOutlines", false);
+      OCCLUDED_OUTLINE_IGNORE_PLANTS = bool("occludedOutlineIgnorePlants", true);
+      OCCLUDED_OUTLINE_WIDTH = Math.max(1, Math.min(4, integer("occludedOutlineWidth", 1)));
+      OCCLUDED_OUTLINE_OPACITY = Math.max(0, Math.min(100, integer("occludedOutlineOpacityPct", 70)));
+      OCCLUDED_OUTLINE_COLOUR = string("occludedOutlineColour", "FFC740");
       BLOOD_WET = bool("bloodWet", false);
       BLOOD_WET_MINUTES = Math.max(1, integer("bloodWetMinutes", 120));
       BLOOD_REFLECT_PCT = Math.max(0, Math.min(200, integer("bloodReflectPct", 100)));
@@ -1710,7 +1723,7 @@ public final class Config {
       String[][] groups = {
          // the switch of each feature on the Enhancements tab; the rest of each section only tunes it
          {"enhancementsEnabled", "upscaler", "off", "dynRes", "false", "spriteFilter", "stock", "hdr", "false", "hdrAuto", "false",
-            "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "bloodWet", "false", "darknessFloorPct", "0",
+            "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "bloodWet", "false", "occludedZombieOutlines", "false", "darknessFloorPct", "0",
             "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false", "relief", "false", "carGlass", "false"},
          // everything that makes the overlay measure or show (Overlay.configure; harness runs still measure)
          {"profilerEnabled", "overlaySampling", "false", "overlay", "false", "overlayLog", "false"},

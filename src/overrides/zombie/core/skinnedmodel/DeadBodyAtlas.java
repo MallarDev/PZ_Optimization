@@ -989,6 +989,18 @@ public final class DeadBodyAtlas {
          }
       }
 
+      /** pzopt: occluded outlines, render() with the zombie's eligibility (OccludedOutline.eligible) carried by its queued draw. */
+      public void pzoptRenderWithOutline(int outline, float originX, float originY, float originZ, float x, float y, float r, float g, float b, float a) { // pzopt
+         if (outline == 0 || !PerformanceSettings.fboRenderChunk) { // pzopt
+            this.render(originX, originY, originZ, x, y, r, g, b, a); // pzopt
+            return; // pzopt
+         } // pzopt
+         DeadBodyAtlas.BodyTextureDepthDrawer rbt = (DeadBodyAtlas.BodyTextureDepthDrawer)DeadBodyAtlas.s_BodyTextureDepthDrawerPool.alloc(); // pzopt
+         rbt.init(this, originX, originY, originZ, x, y, r, g, b, a); // pzopt
+         rbt.pzoptOutline = outline; // pzopt
+         SpriteRenderer.instance.drawGeneric(rbt); // pzopt
+      } // pzopt
+
       public void renderObjectPicker(float sx, float sy, ColorInfo lightInfo, IsoGridSquare square, IsoObject object) {
          if (this.entry.ready) {
             IsoObjectPicker.Instance
@@ -998,6 +1010,7 @@ public final class DeadBodyAtlas {
    }
 
    private static final class BodyTextureDepthDrawer extends GenericDrawer {
+      int pzoptOutline; // pzopt: occluded outlines, this queued draw's eligibility (OccludedOutline.eligible), not the shared atlas entry's
       DeadBodyAtlas.BodyTexture bodyTexture;
       float ox;
       float oy;
@@ -1012,6 +1025,7 @@ public final class DeadBodyAtlas {
       DeadBodyAtlas.BodyTextureDepthDrawer init(
          DeadBodyAtlas.BodyTexture bodyTexture, float originX, float originY, float originZ, float x, float y, float r, float g, float b, float a
       ) {
+         this.pzoptOutline = 0; // pzopt: pooled corpse / zombie draws must not inherit a previous zombie's outline
          this.bodyTexture = bodyTexture;
          this.ox = originX;
          this.oy = originY;
@@ -1076,6 +1090,7 @@ public final class DeadBodyAtlas {
                vbor.cmdShader1f("zDepthBlendZ", depthNear);
                vbor.cmdShader1f("zDepthBlendToZ", depthFar);
                vbor.addQuad(x1, y1, tex.getXStart(), tex.getYStart(), x1 + w, y1 + h, tex.getXEnd(), tex.getYEnd(), 0.0F, this.r, this.g, this.b, this.a);
+               if (this.pzoptOutline != 0) pzopt.OccludedOutline.atlas(this.pzoptOutline, tex, entry.atlas.depth, this.r, this.g, this.b, this.a, x1, y1, w, h, depthNear, depthFar); // pzopt: occluded outlines, the quad's stencil code and its hidden-part quad
                vbor.endRun();
                vbor.flush();
                GL13.glActiveTexture(33985);

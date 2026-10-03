@@ -45,6 +45,7 @@ import zombie.util.list.PZArrayUtil;
 import zombie.viewCone.ViewConeTextureFBO;
 
 public final class TextureDraw {
+   public int pzoptOutline; // pzopt: occluded outlines, this player's sight of the zombie snapshotted on the game thread (0 none, 1 outline, 2 with the plant slack)
    // pzopt: marker so the game log shows the loose class was loaded, not the jar's copy
    static {
       pzopt.Overrides.onClassLoaded("zombie.core.textures.TextureDraw");
@@ -295,6 +296,7 @@ public final class TextureDraw {
    public static void drawModel(TextureDraw texd, ModelSlot modelSlot) {
       texd.type = TextureDraw.Type.DrawModel;
       texd.a = modelSlot.id;
+      texd.pzoptOutline = pzopt.OccludedOutline.eligible(modelSlot.character, zombie.iso.IsoCamera.frameState.playerIndex); // pzopt: occluded outlines, do not read mutable visibility on the render thread
       texd.b = pzopt.ObjectMotion.record(modelSlot); // pzopt: upscaler, the stencil id of the model's object motion (0 = none)
       pzopt.CapsuleShadow.tileFor(modelSlot, texd); // pzopt: sunShadowMeshes, the caster's atlas tile for its sun draw (-1 none)
       // pzopt: charDrawPrep. The draw data of a zombie the workers already built and initialised this frame
@@ -626,9 +628,11 @@ public final class TextureDraw {
                if (pzoptMotionId > 0) {
                   pzopt.ObjectMotion.beginStencil(pzoptMotionId);
                }
+               boolean pzoptOutline = pzopt.OccludedOutline.beginModel(this); // pzopt: occluded outlines, the stencil codes this model's meshes write
                synchronized (this.drawer) {
                   this.drawer.render(this);
                }
+               if (pzoptOutline) pzopt.OccludedOutline.endModel(); // pzopt
                if (pzoptMotionId > 0) {
                   pzopt.ObjectMotion.endStencil();
                }
