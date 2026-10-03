@@ -1531,6 +1531,7 @@ public final class CapsuleShadow {
       private int lastFbo = -1;
       private int vpAge;
       private int devFboLogs;
+      private long devFboChecks, devFboWrong;
       private int lastDepth;
       private final int[] viewport = new int[4];
       private final float[] viewportF = new float[4];
@@ -1581,6 +1582,12 @@ public final class CapsuleShadow {
             double expect = (B + 0.0 - (f.d0 / PixelLight.DEPTH_PER_XY)) * -PixelLight.DEPTH_PER_XY; // C = x + y + 2z = B at z 0: depth = (cC - C) * DEPTH_PER_XY
             Log.info(String.format(java.util.Locale.ROOT, "capsule shadows: dev depth at the first caster's feet (window %d,%d): %.6f %.6f %.6f, the mapping expects %.6f (d0 %.6f)",
                px, py, b.get(0), b.get(4), b.get(8), f.d0 - B * PixelLight.DEPTH_PER_XY, f.d0));
+         }
+         if (Config.DEV_SHADOW_GL_GET && ++devFboChecks % 2000 == 0) {
+            Log.info("capsule shadows: dev framebuffer checks " + devFboChecks + ", the cache wrong " + devFboWrong);
+         }
+         if (Config.DEV_SHADOW_GL_GET && sceneFbo != ShadowAtlas.worldFbo()) {
+            devFboWrong++;
          }
          if (Config.DEV_SHADOW_GL_GET && sceneFbo != ShadowAtlas.worldFbo() && devFboLogs++ < 5) {
             Log.info("capsule shadows: dev bound framebuffer " + sceneFbo + " but the cache says " + ShadowAtlas.worldFbo() + " (TextureFBO.lastID " + zombie.core.textures.TextureFBO.lastID + ")");

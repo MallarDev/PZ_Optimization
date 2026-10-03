@@ -136,8 +136,16 @@ first frame (the loading screen). `harness/carglass/car-blink-judge.py` (one-fra
 blinks (0.97), the fixed run is like the control (0.85), verdict confirmed_and_fixed (1.00). Cost after the fix: pass setup
 3.4 us, reused tile 0.4 us GPU, render thread as without the occupant (run `occ-cost-fbofix2`).
 
-Open, not this feature's code: `ShadowAtlas.worldFbo()` is also what `CapsuleShadow` and `ShadowAtlas`'s mid-world flush
-(`sunShadowMeshSameFrame`, default on) put back; if their cache goes stale the same way, what draws after them would blink out.
+Checked afterwards (2026-10-03 afternoon): `ShadowAtlas.worldFbo()` is also what `CapsuleShadow` reads the scene depth through
+and what `ShadowAtlas`'s mid-world flush (`sunShadowMeshSameFrame`, default on) puts back. Dev glGet checks at both
+(`devShadowGlGet`, counters added: `shadow atlas: dev flush framebuffer checks`, `capsule shadows: dev framebuffer checks`),
+sun shadows + HDR + pixel light, noon, no upscaler and FSR (runs `shadow-fbo-off`, `shadow-fbo-fsr1`, `shadow-fbo-day2`): 2,000
+mid-world flushes and 2,000 capsule passes a run, 0 wrong. Both ask every frame at the same point of the frame (right before the
+caster pass), where the bound framebuffer is the same each frame, so the cache holds their own value. The occupant pass asked at
+another point (before the moving objects), 4 times a second: the cache kept whatever another point had left in it (its refresh
+runs only when `TextureFBO.lastID` changes or every 120 calls, ~30 s at 4 a second). Night with torch, headlights and rain
+(`shadow-fbo-night`) ran neither pass (no sun / moon caster through the clouds). No change needed there; a pass at its own point
+of the frame must not share that cache.
 
 ## Pitfalls found on the way
 

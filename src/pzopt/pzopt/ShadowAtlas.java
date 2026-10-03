@@ -163,6 +163,7 @@ public final class ShadowAtlas {
    // ------------------------------------------------------------------------------------------------ the caster's draw
 
    private static int cFbo = -1, cFboLast, cAge;
+   private static long devFlushChecks, devFlushWrong, devFlushMid;
 
    /**
     * The framebuffer bound now, read back once and again only when the game binds another (TextureFBO.lastID) or every 120
@@ -316,6 +317,20 @@ public final class ShadowAtlas {
       // in the middle of the world (sunShadowMeshSameFrame, before the caster pass) the bound framebuffer can be one the
       // game's tracking does not know (the upscaler's): the pass's own cache of it
       int previousFbo = midWorld ? worldFbo() : zombie.core.textures.TextureFBO.lastID;
+      if (Config.DEV_SHADOW_GL_GET) { // dev: the framebuffer this flush will put back against the one bound now (a glGet)
+         int bound = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+         devFlushChecks++;
+         if (midWorld) {
+            devFlushMid++;
+         }
+         if (bound != previousFbo && devFlushWrong++ < 10) {
+            Log.info("shadow atlas: dev flush (" + (midWorld ? "mid-world" : "composite") + ") would put back framebuffer " + previousFbo + ", bound is " + bound
+                  + " (TextureFBO.lastID " + zombie.core.textures.TextureFBO.lastID + ")");
+         }
+         if (devFlushChecks % 2000 == 0) {
+            Log.info("shadow atlas: dev flush framebuffer checks " + devFlushChecks + " (" + devFlushMid + " mid-world), wrong " + devFlushWrong);
+         }
+      }
       ModelCamera prev = ModelCamera.instance;
       GL11.glPushAttrib(GL11.GL_VIEWPORT_BIT | GL11.GL_SCISSOR_BIT);
       Tracked saved = Tracked.save();
