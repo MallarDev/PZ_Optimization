@@ -215,7 +215,55 @@ public final class Mirrors {
    private static boolean capMirror;
    private static float[] capInfo;
    private static Refl capRefl;
+   private static float capAlpha = -1F; // an attached mirror's own alpha (its capture draw is transparent), else -1
    private static int lateFrom;
+
+   /**
+    * The mirror among a wall's attached sprites, else null. The map's wall mirrors (walls_decoration_01_*, 18 of the 24
+    * masked tiles) are WallOverlay tiles: CellLoader adds them to their wall's attachedAnimSprite list instead of making
+    * an object, so they bake with the wall and the object test never saw them (player save, 2026-10-04).
+    */
+   public static zombie.iso.sprite.IsoSpriteInstance attachedMirror(IsoObject o) {
+      if (!Config.MIRRORS || failed || o == null) {
+         return null;
+      }
+      ArrayList<zombie.iso.sprite.IsoSpriteInstance> a = o.getAttachedAnimSprite();
+      if (a == null) {
+         return null;
+      }
+      for (int i = 0, n = a.size(); i < n; i++) {
+         zombie.iso.sprite.IsoSpriteInstance s = a.get(i);
+         if (s != null && mirrorInfo(s.getParentSprite()) != null) {
+            return s;
+         }
+      }
+      return null;
+   }
+
+   /**
+    * Game thread, FBORenderCell's animated-attachments pass: a wall's mirror overlay about to be drawn transparent, for its
+    * quad (the baked copy is what shows; the reflection is composited over it like over a mirror object).
+    */
+   public static boolean beginCaptureAttached(IsoObject wall, zombie.iso.sprite.IsoSpriteInstance s) {
+      if (!frameOn || wall == null || wall.square == null || s == null || curKey.containsKey(wall)) {
+         return false;
+      }
+      float[] info = mirrorInfo(s.getParentSprite());
+      if (info == null) {
+         return false;
+      }
+      IsoGridSquare sq = wall.square;
+      capAxis = (int)info[0];
+      capC = (capAxis == 0 ? sq.y : sq.x) + info[1];
+      capMirror = true;
+      capInfo = info;
+      capZ = sq.z;
+      capAlpha = s.alpha;
+      capturing = wall;
+      capturingNow = true;
+      capRefl = null;
+      return true;
+   }
 
    /** Game thread, FBORenderCell.renderTranslucent: a window / mirror tile about to draw; its quads go to {@link #captured}. */
    public static boolean beginCapture(IsoObject o) {
@@ -283,7 +331,7 @@ public final class Mirrors {
       r.z = capZ;
       r.mirror = capMirror;
       r.tex = texd.tex;
-      r.alpha = ((texd.col0 >>> 24) & 0xFF) / 255F;
+      r.alpha = capAlpha >= 0F ? capAlpha : ((texd.col0 >>> 24) & 0xFF) / 255F;
       double a32 = 32.0 * Core.tileScale, a16 = 16.0 * Core.tileScale;
       float offX = IsoCamera.frameState.offX, offY = IsoCamera.frameState.offY;
       r.u0 = (float)((xa + offX) / a32);
@@ -347,6 +395,7 @@ public final class Mirrors {
       capturing = null;
       capturingNow = false;
       capRefl = null;
+      capAlpha = -1F;
    }
 
    // ------------------------------------------------------------------------------------------------ the frame (game thread)
@@ -371,6 +420,7 @@ public final class Mirrors {
       final float[] planes = new float[MAXP * 10];
       int nP;
       int modelsQueued, skip, nClear;
+      float ppu, ppv; // this frame's px per iso unit (a tile marched at another zoom is read scaled by the ratio)
       final int[] clear = new int[MAXR * 4]; // atlas tiles new this frame: cleared to "no reflection" before the march
       long modelSig;
       final StaticDrawer stat = new StaticDrawer();
@@ -388,8 +438,24 @@ public final class Mirrors {
    private static final Frame[] FRAMES = {new Frame(), new Frame(), new Frame(), new Frame()};
    private static Frame frame;
 
+   /**
+    * Render thread, at the top of a frame's cell render: a model queued after the previous frame's flush (or in a frame
+    * without one) is dropped. Its slot data is released with that frame's state, so the next flush drew freed data:
+    * "model pass failed, off: NullPointerException ... modelInstance is null" turned the mirrors off for the session
+    * (player save, 2026-10-04).
+    */
+   private static final TextureDraw.GenericDrawer DROP_STALE = new TextureDraw.GenericDrawer() {
+      @Override
+      public void render() {
+         recyclePending();
+      }
+   };
+
    /** Game thread, FBORenderCell.performRenderTiles before the chunks: this frame's reflectors from last frame's capture. */
    public static void beginFrame(int playerIndex) {
+      if (Config.MIRRORS && !failed) {
+         SpriteRenderer.instance.drawGeneric(DROP_STALE);
+      }
       // last frame's capture becomes the static pass's list
       for (Refl r : prev) {
          r.key = null;
@@ -441,6 +507,12 @@ public final class Mirrors {
       VPG[3] = vh;
       f.view.mapping(VPG, MAPG);
       float ppu = 1F / MAPG[0], ppv = 1F / Math.abs(MAPG[2]);
+      f.ppu = ppu;
+      f.ppv = ppv;
+      // a zoom in motion keeps every pane's tile (read scaled by the composite); the zoom it settles at is marched once
+      boolean zoomMoving = ppu != lastPpu || ppv != lastPpv;
+      lastPpu = ppu;
+      lastPpv = ppv;
       float ou = f.view.ox - f.view.oy, ov = f.view.ox + f.view.oy;
       int budget = Config.MIRRORS_REFRESH_BUDGET;
       int every = Math.max(1, Config.MIRRORS_STATIC_EVERY);
@@ -460,9 +532,14 @@ public final class Mirrors {
          if (!staticPass || f.nS >= MAXR) {
             continue;
          }
-         Tile tl = tileFor(r, ppu, ppv);
-         if (tl == null) {
+         if (!passFrame) {
+            // marches, and so new tiles, only on a pass frame: a tile allocated between them replaced the pane's marched
+            // one and the composite found nothing in it, so the reflection showed one frame in four while zooming
             continue;
+         }
+         Tile tl = tileFor(r, ppu, ppv, zoomMoving);
+         if (tl == null || tl.ppu != ppu || tl.ppv != ppv) {
+            continue; // (zooming: the kept tile, read scaled, until the zoom settles)
          }
          float pa = ((r.u0 - ou) - MAPG[1]) / MAPG[0], pb = ((r.u1 - ou) - MAPG[1]) / MAPG[0];
          float qa = ((r.v0 - ov) - MAPG[3]) / MAPG[2], qb = ((r.v1 - ov) - MAPG[3]) / MAPG[2];
@@ -532,8 +609,8 @@ public final class Mirrors {
       d[o + 23] = t == null ? 0F : t.h;
       d[o + 24] = r.mirror ? 1F : 0F;
       d[o + 25] = t == null ? 1F : t.scale; // texels per px: 1, or 0.5 (a window's half-resolution march)
-      d[o + 26] = 0F;
-      d[o + 27] = 0F;
+      d[o + 26] = t == null || t.ppu <= 0F || f.ppu <= 0F ? 1F : t.ppu / f.ppu; // tile px per px of this frame (1 unless the tile was marched at another zoom)
+      d[o + 27] = t == null || t.ppv <= 0F || f.ppv <= 0F ? 1F : t.ppv / f.ppv;
    }
 
    // ------------------------------------------------------------------------------------------------ the static atlas (game thread)
@@ -551,15 +628,23 @@ public final class Mirrors {
    private static final IdentityHashMap<Object, Tile> TILES = new IdentityHashMap<>();
    private static int shelfX, shelfY, shelfH, atlasGen;
    static volatile float lastVw, lastVh;
+   private static float lastPpu, lastPpv;
    private static final float[] VPG = new float[4], MAPG = new float[6];
    static long tileAllocs, atlasResets, tileMarches, hiddenSkips;
 
-   /** The pane's tile at this frame's px per iso unit (a zoom change or a too small tile gets a new one; a full atlas starts over). */
-   private static Tile tileFor(Refl r, float ppu, float ppv) {
+   /**
+    * The pane's tile at this frame's px per iso unit (a zoom change or a too small tile gets a new one; a full atlas starts
+    * over). With {@code keep} (the zoom is still moving) a marched tile of the same sprite is returned at its own zoom:
+    * the composite reads it scaled, and the atlas is not filled with a tile per pane every pass frame of a zoom.
+    */
+   private static Tile tileFor(Refl r, float ppu, float ppv, boolean keep) {
       Tile t = TILES.get(r.key);
       float scale = !r.mirror && Config.MIRRORS_WINDOW_HALF_RES ? 0.5F : 1F;
       int w = (int)Math.ceil((r.u1 - r.u0) * ppu) + 2, h = (int)Math.ceil((r.v1 - r.v0) * ppv) + 2; // (px of the quad: the colour and the glass mask texel per px)
       if (t != null && t.gen == atlasGen && t.ppu == ppu && t.ppv == ppv && t.scale == scale && t.w >= w && t.h >= h && t.tex == r.tex) {
+         return t;
+      }
+      if (keep && t != null && t.gen == atlasGen && t.scale == scale && t.tex == r.tex && t.refreshed >= 0L) {
          return t;
       }
       if (w > ATLAS || h > ATLAS) {
@@ -1862,7 +1947,7 @@ public final class Mirrors {
          "   vec4 tile = texelFetch(Data, ivec2(5, inst), 0);",
          "   vec4 t6 = texelFetch(Data, ivec2(6, inst), 0);", // mirror, texels per px
          "   vec2 local = vec2((u - q0.x) / mapA.x, (v - q0.y) / abs(mapA.z));",
-         "   ivec2 lp = ivec2(floor(local));",
+         "   ivec2 lp = ivec2(floor(local * t6.zw));", // (t6.zw: tile px per px, 1 unless the tile was marched at another zoom)
          "   ivec2 texel = clamp(lp, ivec2(0), ivec2(tile.zw) - 1);",
          stat ? String.join("\n",
          "   vec4 sp = texture(Sprite, sUv);",

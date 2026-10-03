@@ -2547,6 +2547,7 @@ public final class FBORenderCell {
                            }
 
                            bHasAnimatedAttachments |= object.hasAnimatedAttachments();
+                           bHasAnimatedAttachments |= pzopt.Mirrors.attachedMirror(object) != null; // pzopt: mirrors, a wall's mirror overlay is captured in the animated-attachments pass
                            if (!DebugOptions.instance.fboRenderChunk.itemsInChunkTexture.getValue()) {
                               bHasItems |= object instanceof IsoWorldInventoryObject;
                            }
@@ -5612,9 +5613,42 @@ public final class FBORenderCell {
             && object.hasAnimatedAttachments()) {
             this.renderAnimatedAttachments(object);
          }
+         if (renderLayer != ObjectRenderLayer.None) { // pzopt: mirrors
+            this.pzoptCaptureAttachedMirror(object); // pzopt
+         } // pzopt
       }
 
       this.renderAnimatedAttachments = false;
+   }
+
+   private final ColorInfo pzoptMirrorCol = new ColorInfo(); // pzopt
+
+   /**
+    * pzopt: mirrors. A wall mirror the map placed is an overlay of its wall (WallOverlay tiles, CellLoader) and bakes with
+    * it, so it never reached Mirrors' per-frame capture. Here it is drawn once more per frame, transparent (alpha 0.001:
+    * Texture.render skips exactly 0, the byte colour is 0, so no pixel changes), with the bake's own call, and Mirrors
+    * takes its quad; the reflection is composited over the baked mirror. Not while its wall side is cut away.
+    */
+   private void pzoptCaptureAttachedMirror(IsoObject wall) {
+      IsoSpriteInstance s = pzopt.Mirrors.attachedMirror(wall);
+      if (s == null || wall.square == null) {
+         return;
+      }
+      int playerIndex = IsoCamera.frameState.playerIndex;
+      boolean north = s.getParentSprite().getProperties().has(IsoFlagType.attachedN);
+      if ((wall.square.getPlayerCutawayFlag(playerIndex, this.currentTimeMillis) & (north ? 1 : 2)) != 0) {
+         return;
+      }
+      if (!pzopt.Mirrors.beginCaptureAttached(wall, s)) {
+         return;
+      }
+      try {
+         this.pzoptMirrorCol.set(1.0F, 1.0F, 1.0F, 0.001F);
+         s.getParentSprite().render(s, wall, wall.getX(), wall.getY(), wall.getZ(), IsoDirections.N, wall.offsetX,
+            wall.offsetY + wall.getRenderYOffset() * Core.tileScale, this.pzoptMirrorCol, true, null);
+      } finally {
+         pzopt.Mirrors.endCapture();
+      }
    }
 
    public void renderAnimatedAttachments(IsoObject object) {

@@ -1908,6 +1908,10 @@ public final class Harness {
                      info = new float[]{win.getNorth() ? 0F : 1F, 0F, 0F};
                   } else {
                      info = Mirrors.mirrorInfo(o.getSprite());
+                     if (info == null) {
+                        zombie.iso.sprite.IsoSpriteInstance att = Mirrors.attachedMirror(o); // a wall mirror the map placed: an overlay of its wall
+                        info = att == null ? null : Mirrors.mirrorInfo(att.getParentSprite());
+                     }
                   }
                   if (info == null) continue;
                   if (!at.isEmpty() && !at.equals(x + "," + y)) continue;

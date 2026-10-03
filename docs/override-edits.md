@@ -5915,6 +5915,16 @@ test that returns at once.
   `Mirrors.beginCapture` / `endCapture` so a window's or mirror tile's quad is captured while it draws.
 - `pzoptPerFrameTranslucentTile`: a mirror tile (`IsMirror`, Facing S / E, with a glass mask) is drawn per frame
   (`Mirrors.perFrame`), out of the chunk textures, so its quad is captured and its glass composited over.
+- Wall mirrors the map placed (2026-10-04, player save: a tall living-room mirror never reflected). 18 of the 24 masked
+  mirror tiles (`walls_decoration_01_*`) are `WallOverlay` tiles: `CellLoader` adds them to their wall's
+  `attachedAnimSprite` list instead of making an object, so they bake with the wall and the object test above never saw
+  them (the 10-03 rigs placed their mirror with `place_tile`, a separate object). The level preparation now lists a
+  square whose object carries a mirror overlay (`Mirrors.attachedMirror`) among the animated-attachment squares, and the
+  per-frame animated-attachments pass (`renderAnimatedAttachments(IsoGridSquare)`) calls the new
+  `pzoptCaptureAttachedMirror`: the overlay drawn once more with the bake's own sprite call at alpha 0.001 (Texture.render
+  skips exactly 0; the byte colour is 0, so no pixel changes) between `Mirrors.beginCaptureAttached` / `endCapture`, which
+  take its quad with the overlay's own alpha; skipped while the wall's side is cut away (`getPlayerCutawayFlag` bit 1 N /
+  2 W). The baked mirror stays in the chunk texture and the reflection is composited over it.
 
 ### zombie.core.textures.TextureDraw
 - New field `pzoptMirrorPlanes` (the frame's pane planes a model shows in, bits).
