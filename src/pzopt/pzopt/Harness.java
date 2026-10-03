@@ -656,6 +656,16 @@ public final class Harness {
                if (!HarnessFlags.get("place_tile", "").isBlank()) {
                   placeTiles(HarnessFlags.get("place_tile", "")); // dev: tiles added to the bench save copy (glassTilesPerFrame rig)
                }
+               if ("mirror".equals(HarnessFlags.get("find", "")) || "window".equals(HarnessFlags.get("find", ""))) {
+                  float[] spot = findMirror(p, "window".equals(HarnessFlags.get("find", ""))); // dev: mirrors (after place_tile: a placed mirror can be the target), the player in front of the nearest wall mirror, facing it
+                  if (spot != null) {
+                     x = spot[0];
+                     y = spot[1];
+                     routeZ = (int)spot[2];
+                     faceSet = true;
+                     turnAngle = spot[3];
+                  }
+               }
                if (!HarnessFlags.get("pin_zombies", "").isBlank()) {
                   pinZombiesAt(p, HarnessFlags.get("pin_zombies", "")); // dev: idle zombies held on given squares (bus shelter glass)
                }
@@ -1842,6 +1852,66 @@ public final class Harness {
       Log.info("harness: find=" + kind + ": " + (best[5] == 1 ? "north" : "west") + " edge at " + best[6] + "," + best[7]
             + " (" + spriteNames(cell.getGridSquare(best[6], best[7], 0)) + ")"
             + ", standing at " + best[0] + "," + best[1] + " facing " + best[2] + ", " + spawned + " zombies behind at " + best[3] + "," + best[4]);
+      return best;
+   }
+
+   /**
+    * find=mirror (2026-10-03, pzopt.Mirrors): the nearest mirror tile whose glass the camera sees (Facing S / E) within 80
+    * tiles, levels 0-2; the player stands where his own reflection falls on its glass (1.3 squares in front, offset sideways
+    * by the same: a reflected point d in front of the pane shows d along it), facing the pane. find_offset=F moves him
+    * F squares further along the wall. Every candidate is logged. find=window: the same in front of an intact window
+    * (find_side=out, the default: standing outdoors; in: in its room).
+    */
+   private static float[] findMirror(IsoPlayer p, boolean windows) {
+      boolean outSide = !"in".equals(HarnessFlags.get("find_side", "out"));
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = p.getXi(), py = p.getYi();
+      float[] best = null;
+      long bestD = Long.MAX_VALUE;
+      int found = 0;
+      float d = Float.parseFloat(HarnessFlags.get("find_dist", "1.3"));
+      float along = Float.parseFloat(HarnessFlags.get("find_offset", "0"));
+      String at = HarnessFlags.get("find_at", "").trim(); // x,y: that square's mirror / window only
+      for (int z = 0; z <= 2; z++) {
+         for (int y = py - 80; y <= py + 80; y++) {
+            for (int x = px - 80; x <= px + 80; x++) {
+               zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, z);
+               if (sq == null) continue;
+               for (int i = 0; i < sq.getObjects().size(); i++) {
+                  zombie.iso.IsoObject o = sq.getObjects().get(i);
+                  float[] info;
+                  if (windows) {
+                     if (!(o instanceof zombie.iso.objects.IsoWindow win) || win.isDestroyed() || win.isSmashed() || win.IsOpen()) continue;
+                     info = new float[]{win.getNorth() ? 0F : 1F, 0F, 0F};
+                  } else {
+                     info = Mirrors.mirrorInfo(o.getSprite());
+                  }
+                  if (info == null) continue;
+                  if (!at.isEmpty() && !at.equals(x + "," + y)) continue;
+                  boolean north = info[0] == 0F;
+                  float sx = north ? x + 0.5F - d + along : x + d + info[1];
+                  float sy = north ? y + d + info[1] : y + 0.5F - d + along;
+                  zombie.iso.IsoGridSquare stand = cell.getGridSquare((int)Math.floor(sx), (int)Math.floor(sy), z);
+                  boolean free = stand != null && stand.isFree(false) && (!windows || (stand.getRoom() == null) == outSide);
+                  found++;
+                  if (found <= 40) {
+                     Log.info("harness: find=" + (windows ? "window" : "mirror") + ": " + o.getSprite().getName() + " at " + x + "," + y + "," + z + (north ? " (north wall)" : " (west wall)") + (free ? "" : " (no room in front)"));
+                  }
+                  if (!free) continue;
+                  long dd = (long)(x - px) * (x - px) + (long)(y - py) * (y - py) + (long)z * 400L;
+                  if (dd < bestD) {
+                     bestD = dd;
+                     best = new float[]{sx, sy, z, north ? 270F : 180F};
+                  }
+               }
+            }
+         }
+      }
+      if (best == null) {
+         Log.info("harness: find=mirror: no mirror with room in front within 80 tiles of " + px + "," + py + " (" + found + " mirrors)");
+         return null;
+      }
+      Log.info(String.format(java.util.Locale.ROOT, "harness: find=mirror: standing at %.2f,%.2f,%.0f facing %.0f (%d mirrors seen)", best[0], best[1], best[2], best[3], found));
       return best;
    }
 

@@ -1327,6 +1327,33 @@ public final class Config {
    public static final int SSR_REFINE = integer("ssrRefine", 3); // reflections: binary refinements between the last miss and the hit
    public static final int SSR_THICKNESS_PCT = integer("ssrThicknessPct", 150); // reflections: how far behind a surface the ray may pass and still count it as hit, % of a square
    public static final int SSR_DISTORT_PCT = integer("ssrDistortPct", 100); // reflections: how far the waves displace the reflected image
+   public static final boolean MIRRORS = bool("mirrors", false); // wall mirrors and windows reflect the room / street in front of them, characters and cars as their real mirrored models (pzopt.Mirrors; next launch)
+   public static final boolean MIRRORS_WINDOWS = bool("mirrorsWindows", true); // mirrors: windows reflect too (false: wall mirrors only)
+   public static final int MIRRORS_WINDOW_PCT = integer("mirrorsWindowPct", 30); // mirrors: how much of a window pane is its reflection, %
+   public static final int MIRRORS_MIRROR_PCT = integer("mirrorsMirrorPct", 90); // mirrors: how much of a mirror's glass is its reflection, % (silvered glass: ~90)
+   public static final boolean MIRRORS_MODELS = bool("mirrorsModels", true); // mirrors: characters and vehicles in front of a reflector drawn once more through the mirror plane (their real other side); false = only what the camera sees
+   public static final String MIRRORS_STATIC = string("mirrorsStatic", "pass"); // mirrors: the room / street in the reflection. pass = marched once before the characters draw (the static world alone), late = marched by the composite in the finished frame (the characters' camera side in it), off = models only
+   public static final int MIRRORS_STEPS = integer("mirrorsSteps", 32); // mirrors: most depth taps along a reflected ray (then 4 refinements)
+   public static final int MIRRORS_STEP_PX = integer("mirrorsStepPx", 10); // mirrors: px between the taps (fewer taps on short rays)
+   public static final int MIRRORS_REACH = integer("mirrorsReach", 8); // mirrors: the longest reflected ray, squares
+   public static final int MIRRORS_THICKNESS_PCT = integer("mirrorsThicknessPct", 80); // mirrors: how far behind a surface the ray may pass and still hit it, % of a unit of iso depth (x + y + 2z); 80 matched an analytic ray cast best (harness/mirrors/march_sim.py: 1.5 -> 22 % of the pixels wrong, 0.8 -> 5.5 %)
+   public static final int MIRRORS_STATIC_REUSE = integer("mirrorsStaticReuse", 30); // mirrors: a pane's static reflection (kept in its own atlas tile: the ortho camera's reflected rays do not move with a pan) is marched again every this many frames, staggered; at once when the pane is new or more of it came on screen (0: every pane every frame)
+   public static final boolean MIRRORS_WINDOW_HALF_RES = bool("mirrorsWindowHalfRes", true); // mirrors: a window's static reflection marched for one pixel in each 2x2 block (a quarter of the rays; the pane's tint and the weak reflection hide it), mirrors at every pixel
+   public static final int MIRRORS_MODEL_REUSE = integer("mirrorsModelReuse", 3); // mirrors: while the camera and every mirrored model stand still (position, facing, plane), the model layer is kept up to this many frames (the idle animation at a half / third of the rate); 0 or 1: drawn every frame
+   public static final int MIRRORS_REFRESH_BUDGET = integer("mirrorsRefreshBudget", 8); // mirrors: most panes re-marched for age in one frame (every 4th frame; new panes and ones coming on screen do not count)
+   public static final int MIRRORS_MODEL_RANGE = integer("mirrorsModelRange", 14); // mirrors: characters / vehicles farther than this from the camera's centre (squares) are not mirrored
+   public static final int MIRRORS_STATIC_EVERY = integer("mirrorsStaticEvery", 4); // mirrors: the static pass runs at most every this many frames (its fixed cost, the frame made readable, ~20 us at 5K, is paid once for every pane due): a pane new on screen waits as long for its reflection
+   public static final boolean MIRRORS_VISIBILITY = bool("mirrorsVisibility", true); // mirrors: the composite counts each pane's visible pixels (read back a few frames later, never waited for); a pane hidden under a roof or behind a building is neither marched nor mirrors anyone
+   public static final int MIRRORS_MODEL_HZ = integer("mirrorsModelHz", 120); // mirrors: the mirrored models are redrawn at most this many times a second (0: every frame); at 240 fps every other frame
+   public static final boolean MIRRORS_COMPOSITE_ONCE = bool("mirrorsCompositeOnce", true); // mirrors: one composite after every level's translucent objects instead of one per level (a level's pass costs ~5-9 us fixed; a higher level's translucent object over a lower pane would get the reflection drawn over it)
+   public static final boolean MIRRORS_STATIC_FBO = bool("mirrorsStaticFbo", false); // mirrors: the static pass renders the panes' tiles into the atlas framebuffer (tile space) instead of storing into the atlas images (the GL 4.1 path, macOS core, always; elsewhere an A/B)
+   public static final int MIRRORS_MAX_MODELS = integer("mirrorsMaxModels", 24); // mirrors: most mirrored model draws a frame (nearest first)
+   public static final int DEV_MIRRORS_ALTERNATE = integer("devMirrorsAlternate", 0); // dev: mirrors on / off every N ms in one run (GPU sections mirrors.* tagged .mon / .moff)
+   public static final int DEV_MIRRORS_VIEW = integer("devMirrorsView", 0); // dev: 1 the reflection alone at full strength, 2 the glass mask (red) and the static hit (green), 3 the hit distance, 4 the model layer alone
+   public static final int DEV_MIRRORS_VIEW_TOGGLE_MS = integer("devMirrorsViewToggleMs", 0); // dev: devMirrorsView only every other N ms (the two --shot-at captures 2 s apart: N = 2000 shows the view in one and the picture in the other)
+   public static final String DEV_MIRRORS_CYCLE = string("devMirrorsCycle", ""); // dev: with devMirrorsAlternate, one entry per period in turn: "off" (mirrors off) or a devMirrorsSkip mask, e.g. off,0,1,2,4 (GPU sections tagged .c<index>)
+   public static final int DEV_MIRRORS_SKIP = integer("devMirrorsSkip", 0); // dev: bits 1 no static pass, 2 no model pass, 4 no composite, 8 the composite reads nothing (constant colour), 16 no floor-first shortcut, 32 the static pass stores a constant (no march), 64 the static pass without its texture barrier
+   public static final boolean DEV_MIRRORS_LOG = bool("devMirrorsLog", false); // dev: the reflectors and planes of every 300th frame logged
    public static final boolean CAR_GLASS = bool("carGlass", false); // car windows reflect the sky, the sun, the lamps and the ground around them and show the cabin behind them (pzopt.CarGlass; the vehicle shaders are patched at launch)
    public static final boolean CAR_GLASS_SNAP = bool("carGlassSnap", true) && "blit".equals(string("carGlassSnapMode", "live")); // car glass: each car's screen rect of the scene copied before the vehicles draw (the ground it reflects, the scene behind it through the far window)
    public static final String CAR_GLASS_SNAP_MODE = string("carGlassSnapMode", "live"); // car glass: live = no copy, the world read as drawn (one barrier a frame with probes, else before each car); pass = each car drawn body first (glass discarded), then a texture barrier and the glass reading the world as drawn (no copies); blit = each car's rect copied before the vehicles draw; live = no copy, a texture barrier before each car and the world read as drawn so far; off = neither (sky, glints, cabin only)
@@ -1751,7 +1778,7 @@ public final class Config {
          {"enhancementsEnabled", "upscaler", "off", "dynRes", "false", "spriteFilter", "stock", "hdr", "false", "hdrAuto", "false",
             "ambientOcclusion", "false", "sunShadows", "false", "reflections", "false", "bloodWet", "false", "occludedZombieOutlines", "false", "darknessFloorPct", "0",
             "memoryTint", "false", "colorGrading", "false", "pixelLight", "false", "godRays", "false", "foliageSway", "false", "relief", "false", "carGlass", "false",
-            "torchSource", "false"},
+            "torchSource", "false", "mirrors", "false"},
          // everything that makes the overlay measure or show (Overlay.configure; harness runs still measure)
          {"profilerEnabled", "overlaySampling", "false", "overlay", "false", "overlayLog", "false"},
       };

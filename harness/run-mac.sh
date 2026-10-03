@@ -73,7 +73,7 @@ case "${1:-}" in
       cp "$f" "$PZ_DIR/$rel"
       echo "$rel $(shasum -a 256 "$PZ_DIR/$rel" | cut -d' ' -f1)" >> "$tmp"
       n=$((n+1))
-    done < <(find "$src" -type f \( -name '*.class' -o -name '*.properties' -o -name '*.lua' -o -name '*.txt' -o -name '*.frag' -o -name '*.vert' -o -name '*.glsl' -o -name '*.h' -o -name '*.gif' \) | sort) # media/shaders: pzopt's own shader files (pixel light, sway, sprite filter, puddle early-Z, visBlurReduce); media/ui: the Options preview clips
+    done < <(find "$src" -type f \( -name '*.class' -o -name '*.properties' -o -name '*.lua' -o -name '*.txt' -o -name '*.frag' -o -name '*.vert' -o -name '*.glsl' -o -name '*.h' -o -name '*.gif' -o -name '*.png' \) | sort) # media/shaders: pzopt's own shader files (pixel light, sway, sprite filter, puddle early-Z, visBlurReduce); media/ui: the Options preview clips and the mirror glass masks (png)
     mv "$tmp" "$MANIFEST"
     echo "installed $n files into $PZ_DIR (revision $want)"; exit 0 ;;
   uninstall)

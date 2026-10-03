@@ -54,6 +54,7 @@ public final class TextureDraw {
    public static float nextZ;
    public int pzoptShadowTile = -1; // pzopt: sunShadowMeshes, DrawModel: the caster's tile of the sun shadow atlas (-1: none)
    public float pzoptShadowX, pzoptShadowY, pzoptShadowZ, pzoptShadowHalf; // pzopt: its centre (world, z metric) and half size
+   public int pzoptMirrorPlanes; // pzopt: mirrors, DrawModel: the frame's reflector planes the model shows in (bits; pzopt.Mirrors)
    public int pzoptLampN; // pzopt: sunShadowLampMeshes, DrawModel: the caster's lamp views to draw (ShadowAtlas.renderLamps)
    public float[] pzoptLampDraw; // pzopt: per view tile, centre x, y, z, half size, lamp x, y, z
    public static float nextChunkDepth;
@@ -299,6 +300,7 @@ public final class TextureDraw {
       texd.pzoptOutline = pzopt.OccludedOutline.eligible(modelSlot.character, zombie.iso.IsoCamera.frameState.playerIndex); // pzopt: occluded outlines, do not read mutable visibility on the render thread
       texd.b = pzopt.ObjectMotion.record(modelSlot); // pzopt: upscaler, the stencil id of the model's object motion (0 = none)
       pzopt.CapsuleShadow.tileFor(modelSlot, texd); // pzopt: sunShadowMeshes, the caster's atlas tile for its sun draw (-1 none)
+      pzopt.Mirrors.planesFor(modelSlot, texd); // pzopt: mirrors, the reflectors this model shows in
       // pzopt: charDrawPrep. The draw data of a zombie the workers already built and initialised this frame
       // (pzopt.CharDraw, from FBORenderCell.renderMovingObjects) goes straight into the slot; nothing to init, no
       // future for the render thread to wait on. Everyone else takes the stock path below.
@@ -641,6 +643,9 @@ public final class TextureDraw {
                } // pzopt
                if (this.pzoptLampN > 0) { // pzopt: sunShadowLampMeshes, the same model from its lamps
                   pzopt.ShadowAtlas.renderLamps(this); // pzopt
+               } // pzopt
+               if (this.pzoptMirrorPlanes != 0) { // pzopt: mirrors, the same model through its reflectors' planes (drawn at the frame's flush)
+                  pzopt.Mirrors.renderModel(this); // pzopt
                } // pzopt
                pzopt.RenderScale.afterModelDraw(); // pzopt: upscaler, an imposter card render restores an integer viewport: put the jittered one back
             }
@@ -1220,6 +1225,9 @@ public final class TextureDraw {
          texd.singleCol = texd.col0 == texd.col1 && texd.col0 == texd.col2 && texd.col0 == texd.col3;
       }
 
+      if (pzopt.Mirrors.capturingNow) { // pzopt: mirrors, a window / mirror tile drawing: its quad and texture
+         pzopt.Mirrors.captured(texd); // pzopt
+      } // pzopt
       texd.z = nextZ;
       texd.chunkDepth = nextChunkDepth;
       nextZ = 0.0F;

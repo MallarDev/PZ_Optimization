@@ -580,6 +580,20 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   `car_rig_seat=true [car_rig_spin=D] [car_rig_p2=split|npc car_rig_p2_car=same|other car_rig_p2_count=N]`, dev views 12-18,
   `devCarOccupantDump`, `harness/carglass/occframes.py` / `occcost.py`. Several people / cars / split screen work (tiles per car and
   view, 4 cars a view, the rest the proxy): split screen driver + passenger 1.2 us, six occupied cars 1.6 us.
+- Mirrors and windows (2026-10-03, `docs/findings-mirrors-2026-10-03.md`, `pzopt.Mirrors`, key `mirrors`, off by default,
+  Enhancements tab "Mirrors and windows", next launch): wall mirrors (`IsMirror` tiles, now drawn per frame) and window panes
+  reflect the scene in front. The ortho camera makes the reflected ray of a vertical pane a straight screen line (N-wall pane
+  down-left, W-wall down-right, iso depth -2/3 a square), reaching the floor after 3 h squares. Static part: marched after the
+  chunk composite into a per-pane atlas tile (pan-invariant; refreshed when new / more on screen / every 30 frames, the pass at
+  most every 4th frame); characters / vehicles drawn once more through the plane's reflection (MV post-multiplied by B^-1 R B,
+  `glFrontFace(GL_CW)`) into a layer; one composite per frame, hardware depth test at the pane's analytic depth; panes the
+  composite drew no pixel of (visibility feedback through a persistent buffer, no sync) are skipped. GL 4.3 path (image stores)
+  and a GL 4.1 path (macOS: static pass into an atlas framebuffer in tile space). Cost GPU-bound at 5K: +13 us GPU / +34 us frame
+  (29 windows), crowd +25 / +37; Mac within noise. Traps: an atomic per pixel on one counter serialised the composite
+  (73 us); mapped-coherent host memory as the shader's target grew it to 300 us walking; PBO + fence readback cost 137 us of
+  render thread (NVIDIA threaded driver); `glGet` every 120 frames was ~4.7 us a call on average. Rigs `find=mirror|window`
+  (`find_at`, `find_dist`, runs after `place_tile`), `devMirrorsCycle` / `devMirrorsView` / `devMirrorsLog`,
+  `harness/mirrors/` (cost.py, crops.py, march_sim.py, masks.py).
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

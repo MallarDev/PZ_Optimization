@@ -40,7 +40,7 @@ local MASTER = { key = "enabled", label = "Optimizations enabled (master switch)
 -- (Config's GATED list) while the choices below stay saved for when it is on again. Both apply at once; the features
 -- that pick their shaders or window at start-up (NEXT_LAUNCH_ONLY) follow on the next launch.
 local ENHANCEMENTS_MASTER = { key = "enhancementsEnabled", label = "Enhancements enabled (master switch)", live = true,
-  restartKeys = { "hdr", "hdrAuto", "pixelLight", "reflections", "carGlass" },
+  restartKeys = { "hdr", "hdrAuto", "pixelLight", "reflections", "carGlass", "mirrors" },
   tip = "Off = the picture is the stock game's: upscaling, sprite filtering, HDR output, ambient occlusion, sun shadows, reflections, car glass, the darkness floor, remembered places, colour grading, per-pixel lighting, god rays and foliage sway are all off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply. HDR output, per-pixel lighting, reflections and car glass switch on the next launch." }
 local PROFILER_MASTER = { key = "profilerEnabled", label = "Profiler enabled (master switch)", live = true,
   tip = "Off = no performance overlay, no measuring and no frame log: the overlay's samplers never start and the toggle key only says the profiler is off, whatever the settings below say (they are kept for when you switch it on again). On = the settings below apply." }
@@ -964,6 +964,20 @@ local ENHANCEMENT_SECTIONS = {
         },
     },
     {
+        title = "Mirrors and windows (real reflections)", clip = "hdr",
+        entries = {
+            { key = "mirrors", label = "Mirror and window reflections",
+              tip = "Wall mirrors, mirrored medicine cabinets and dressers, and window panes reflect what stands in front of them: the floor and the room, the street, and you, the zombies and the cars as their real other side (the game's own models drawn once more through the mirror's plane, lit as they are lit), so a mirror shows your face, not your back. From the game's high camera a wall mirror shows the floor and whoever stands within a couple of squares of it; a window upstairs shows the street below. Someone inside a room seen through a window keeps the reflection over them, as glass does; a closed curtain stops it. The room part of each pane's reflection is worked out once and kept while nothing changes (the camera's pan does not change it), panes hidden under a roof or behind a building are skipped, and the people in it are redrawn at most 120 times a second: a few hundredths of a millisecond a frame for a street of windows on a fast GPU, nothing when no mirror or window is on screen. Applies on the next launch (mirror tiles are drawn on their own instead of into the chunk pictures)." },
+            { key = "mirrorsWindows", label = "Mirrors: windows reflect too",
+              tip = "On: window panes reflect as well (subtly, as glass does). Off: only wall mirrors. Applies on the next launch." },
+            { key = "mirrorsWindowPct", label = "Mirrors: window reflection strength (%)",
+              choices = { "15", "30", "50", "70" }, note = { ["30"] = "default" },
+              tip = "How much of a window pane is its reflection. Real glass reflects a few percent head-on, more where the room behind it is dark; higher reads more like a shop window by day. Applies on the next launch." },
+            { key = "mirrorsModels", label = "Mirrors: people and cars in the reflection",
+              tip = "On: characters and vehicles in front of a mirror or window are drawn once more through its plane, so the mirror shows their faces and the side of the car facing it. Off: the reflection is made of what the camera sees (cheaper; you see their backs). Applies on the next launch." },
+        },
+    },
+    {
         title = "Wet blood (fresh blood reflects and catches the light)", clip = "hdr",
         entries = {
             { key = "bloodWet", label = "Wet blood",
@@ -1113,6 +1127,8 @@ local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true, carOccupant = true, carOc
     reflections = true,
     -- car glass: the vehicle shaders are patched when the game loads them (only then); its strengths apply at once
     carGlass = true,
+    -- mirrors: mirror tiles leave the chunk pictures at start-up; the settings are read once
+    mirrors = true, mirrorsWindows = true, mirrorsWindowPct = true, mirrorsModels = true,
     -- relief: compiled into the chunk composite programs when the game loads them
     relief = true, reliefDepthPct = true, reliefSunPct = true, reliefTorchShadowSteps = true }
 for _, section in ipairs(ENHANCEMENT_SECTIONS) do
@@ -1625,6 +1641,10 @@ local EFFECTS = {
     cloudShadows = { gpu = 1 },
     reflections = { gpu = 1, vram = 1 },
     carGlass = { gpu = 1 },
+    mirrors = { gpu = 1, vram = 1, render = 1 },
+    mirrorsWindows = { gpu = 1 },
+    mirrorsWindowPct = {},
+    mirrorsModels = { gpu = 1, render = 1 },
     carGlassReflectPct = {},
     carGlassInteriorPct = {},
     carGlassSunPct = {},

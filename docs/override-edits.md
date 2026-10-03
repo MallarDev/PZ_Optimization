@@ -5900,3 +5900,28 @@ re-solve for every per-pixel consumer and the dev markers, whichever consumer is
 
 Dev rig `devVisBlinkTrace`: when a refresh changes the square's visibility bits, `pzopt.VisBlink.change(square, was, now)`
 (off: one static final test). The tile-flicker investigation of `docs/findings-torch-source-2026-10-03.md`.
+## Mirror and window reflections (`mirrors`, 2026-10-03; `pzopt.Mirrors`; write-up docs/findings-mirrors-2026-10-03.md)
+
+Off by default (Enhancements tab "Mirrors and windows", next launch). With `mirrors=false` every hook below is a static
+test that returns at once.
+
+### zombie.iso.fboRenderChunk.FBORenderCell
+- `performRenderTiles`: `Mirrors.beginFrame` before the chunks (last frame's panes under this frame's camera, the atlas
+  decisions, the visibility read-back), `Mirrors.afterComposite` after the static-world passes and before the players (the
+  static march), `Mirrors.afterMoving` after the moving objects (the mirrored model draws into the layer),
+  `Mirrors.afterTranslucent` after each level's translucent objects and `Mirrors.afterLevels` after the level loop (the
+  composite: per level, or once with `mirrorsCompositeOnce`).
+- `renderTranslucent(IsoObject)`: the stock body moved into `pzoptRenderTranslucent`; the new method wraps it in
+  `Mirrors.beginCapture` / `endCapture` so a window's or mirror tile's quad is captured while it draws.
+- `pzoptPerFrameTranslucentTile`: a mirror tile (`IsMirror`, Facing S / E, with a glass mask) is drawn per frame
+  (`Mirrors.perFrame`), out of the chunk textures, so its quad is captured and its glass composited over.
+
+### zombie.core.textures.TextureDraw
+- New field `pzoptMirrorPlanes` (the frame's pane planes a model shows in, bits).
+- `drawModel`: `Mirrors.planesFor` fills it (characters / vehicles within `mirrorsModelRange` of a visible pane they reach).
+- `Create` (the central one): while a pane draws (`Mirrors.capturingNow`) the quad and texture go to `Mirrors.captured`.
+- `DrawModel` render: after the model's world draw (and the shadow atlas draws), `Mirrors.renderModel` queues the same
+  slot for the frame's mirrored draws.
+
+### pzopt.ShadowAtlas (not an override)
+- `Tracked` is package-private now (the mirrored model flush saves / restores the tracked GL state the same way).

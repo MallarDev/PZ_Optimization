@@ -1764,6 +1764,7 @@ public final class FBORenderCell {
 
    private void performRenderTiles(PerPlayerRender perPlayerRender, int playerIndex, long currentTimeMillis) {
       pzopt.ChunkAo.tilesBegin(); // pzopt: aoContextParallel, this frame's bakes defer their AO masks to ChunkAo.flush's batch
+      pzopt.Mirrors.beginFrame(playerIndex); // pzopt: mirrors, last frame's reflectors under this frame's camera
       Shader floorRenderShader = null;
       Shader wallRenderShader = null;
       this.renderAnimatedAttachments = false;
@@ -1874,6 +1875,7 @@ public final class FBORenderCell {
       pzopt.PixelLight.afterComposite(playerIndex); // pzopt: pixelLight, the per-pixel light pass (pass mode) and the dev dumps, before anything else is drawn over the static world
       pzopt.OccludedOutline.begin(playerIndex); // pzopt: occluded outlines, the characters and vehicles below mark the stencil
       pzopt.CapsuleShadow.queue(playerIndex); // pzopt: sunShadows, the characters' sun shadows onto the static world (they add themselves below)
+      pzopt.Mirrors.afterComposite(); // pzopt: mirrors, the reflected rays marched through the static world (before anything stands in front)
       FBORenderShadows.getInstance().clear();
       boolean pzoptFloorOnly = pzopt.ResumeShot.noMoving; // pzopt: resumeShot's exit capture (below "full"): no players, shadows, corpses
       if (!pzoptFloorOnly) {
@@ -1924,6 +1926,7 @@ public final class FBORenderCell {
       pzopt.CarGlass.beforeMoving(playerIndex); /* pzopt: car glass, this frame's sky and the cars' snapshots before they draw */ long pzoptMoving = pzopt.GtAb.begin(); pzopt.GpuSections.begin(pzopt.CarGlass.section("moving")); /* pzopt: GPU section */ this.renderMovingObjects(); pzopt.GpuSections.end(pzopt.CarGlass.section("moving")); pzopt.GtAb.end(pzopt.GtAb.S_MOVING, pzoptMoving); // pzopt: devGtAlternate section timer
       }
       pzopt.CapsuleShadow.afterMoving(playerIndex); // pzopt: sunShadowSilhouette, the casters' shadows from their drawn shapes (after they are drawn)
+      pzopt.Mirrors.afterMoving(); // pzopt: mirrors, the characters / vehicles through the reflectors' planes into the model layer
       SpriteRenderer.instance.endProfile(movingObjectsProbe);
       AbstractPerformanceProfileProbe var30 = water.profile();
 
@@ -2078,9 +2081,11 @@ public final class FBORenderCell {
          }
 
          SpriteRenderer.instance.endProfile(translucentObjectsProbe);
+         pzopt.Mirrors.afterTranslucent(); // pzopt: mirrors, the reflections over the panes this level drew
       }
 
       FBORenderShadows.getInstance().endRender();
+      pzopt.Mirrors.afterLevels(); // pzopt: mirrors, mirrorsCompositeOnce: every level's panes in one composite
       pzopt.GpuSections.end("zloop"); // pzopt: GPU section
       if (DebugOptions.instance.weather.showUsablePuddles.getValue()) {
          this.renderPuddleDebug(playerIndex);
@@ -3369,6 +3374,9 @@ public final class FBORenderCell {
     * characters standing behind it, which stock draws first and blends the pane over (2026-10-01).
     */
    private static boolean pzoptPerFrameTranslucentTile(IsoSprite sprite) {
+      if (pzopt.Mirrors.perFrame(sprite)) { // pzopt: mirrors, a mirror tile draws per frame (its glass gets the reflection over it)
+         return true; // pzopt
+      } // pzopt
       if (sprite == null || (sprite.depthFlags & 2) == 0) {
          return false;
       }
@@ -5487,6 +5495,15 @@ public final class FBORenderCell {
 
    public void renderTranslucent(IsoObject object) {
       if (pzopt.Config.INSTRUMENT) pzoptCountTranslucent(object);
+      boolean pzoptMirror = pzopt.Mirrors.beginCapture(object); // pzopt: mirrors, a window / mirror tile: its quad is captured as it draws
+      try { // pzopt
+         this.pzoptRenderTranslucent(object); // pzopt
+      } finally { // pzopt
+         if (pzoptMirror) pzopt.Mirrors.endCapture(); // pzopt
+      } // pzopt
+   } // pzopt
+
+   private void pzoptRenderTranslucent(IsoObject object) { // pzopt: stock renderTranslucent's body
       IndieGL.glDefaultBlendFunc();
       IsoSprite sprite = object.getSprite();
       if (sprite != null && sprite.getProperties().has(IsoFlagType.transparentFloor)) {

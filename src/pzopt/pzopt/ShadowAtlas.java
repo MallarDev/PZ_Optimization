@@ -604,7 +604,7 @@ public final class ShadowAtlas {
    }
 
    /** The tracked GL state (GLStateRenderThread) of the world pass, put back after a sun draw (its values are package-private). */
-   private static final class Tracked {
+   static final class Tracked { // (package: pzopt.Mirrors restores the world pass state the same way)
       private static Field current;
       private static Field bVal;
       private static Field[] b4;

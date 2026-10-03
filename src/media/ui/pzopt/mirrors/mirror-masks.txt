@@ -1,0 +1,25 @@
+# pzopt.Mirrors glass masks (harness/mirrors/masks.py): sprite cell; cells 128x256, 8 a row
+fixtures_bathroom_01_28 0
+fixtures_bathroom_01_29 1
+furniture_storage_01_42 2
+furniture_storage_01_43 3
+furniture_storage_01_66 4
+furniture_storage_01_67 5
+walls_decoration_01_0 6
+walls_decoration_01_1 7
+walls_decoration_01_2 8
+walls_decoration_01_3 9
+walls_decoration_01_4 10
+walls_decoration_01_5 11
+walls_decoration_01_6 12
+walls_decoration_01_7 13
+walls_decoration_01_8 14
+walls_decoration_01_9 15
+walls_decoration_01_10 16
+walls_decoration_01_11 17
+walls_decoration_01_12 18
+walls_decoration_01_13 19
+walls_decoration_01_14 20
+walls_decoration_01_15 21
+walls_decoration_01_36 22
+walls_decoration_01_37 23
