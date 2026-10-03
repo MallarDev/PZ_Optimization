@@ -1188,7 +1188,7 @@ implements Mover {
         for (int i = 0; i <= 8; ++i) {
             IsoGridSquare sq;
             IsoGridSquare isoGridSquare = sq = i == 8 ? this.current : this.current.getSurroundingSquares()[i];
-            if (sq == null || sq.getMovingObjects().isEmpty() || sq != this.current && this.current.isBlockedTo(sq)) continue;
+            if (sq == null || sq.getMovingObjects().isEmpty() || sq != this.current && (pzopt.Config.EDGE_TEST_FAST && pzopt.Overrides.enabled() ? pzopt.EdgeFast.isBlockedTo(this.current, sq) : this.current.isBlockedTo(sq))) continue; // pzopt: edgeTestFast, 42.21's edge-object isBlockedTo without its megamorphic predicates
             float maxWeaponRange = thisPlyr != null && thisPlyr.getPrimaryHandItem() instanceof HandWeapon ? ((HandWeapon)thisPlyr.getPrimaryHandItem()).getMaxRange() : 0.3f;
             int size = sq.getMovingObjects().size();
             for (int n = 0; n < size; ++n) {

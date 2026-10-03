@@ -528,6 +528,17 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   113 classes changed. 42.21 made `saveCellAsync` moot (stock queues and throttles cell saves) and fades trees while
   driving (`pzopt.XxlTreeFade` keeps baked XXL trees in step, 12-square radius). `decompiled/` is the 42.21 CFR tree; the
   42.20 one is in `build/port4221/decompiled-42.20/`. The bench save still logs "invalid room metaID" on 42.21, stock too.
+- 42.21 drive regression (2026-10-03, `docs/findings-4221-drive-regression-2026-10-03.md`): the optimized 120 km/h drive fell
+  500 -> 305 fps with the port because 42.21 counts driving as aiming for the tree cutaway (every tree in the 2048 px cutaway
+  square turns see-through); with baked trees each one re-baked its chunk and the neighbours holding its copy up to four
+  times and drew per frame. `treeRebakeLazy` (re-bake only on leaving / rejoining the bake, rejoining at the next check),
+  `treeCutawayReach` (a see-through tree stays baked unless its sprite box nears the mask's marked ellipse, 21 % of the
+  square; its fade stepped as IsoTree.render would; GPU proof `devReachCheck`), `treeCutawayScissor`: daily drive 320 -> 430
+  fps, p99 9.3 -> 6.4 ms; `driveTreeCutaway` (42.21's rule) is OFF by default (maintainer, 2026-10-03): 507-514 = the 42.20 level, nothing else in
+  42.21 slows it. Found on the way: in 42.21 `IsoCell.drawStencilMask` writes the cutaway's stencil bit in only ~2 % of frames (stock
+  too; `devStencilProbe`), so the game's see-through trees rarely show; left as stock. `edgeTestFast` (`pzopt.EdgeFast`):
+  42.21's lambda-based `IsoGridSquare.isBlockedTo` written out for our separation callers (23.9 M calls, 0 different;
+  154 vs 181 ns a call, a marginal gain).
 - Mod compatibility (2026-10-01, `docs/findings-mod-compat-2026-10-01.md`, branch `mod-compat`): `pzopt.ModCompat` scans the
   launch's Java mods (`-javaagent` jars, ZombieBuddy `javaJarFile`) at Config init and switches off the boolean keys of every
   edited method a mod patches (`modCompat=auto`, map from `scripts/override-methods.py`, tested mods in `ModCompat.KNOWN`);

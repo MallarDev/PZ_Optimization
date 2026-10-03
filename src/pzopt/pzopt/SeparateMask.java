@@ -32,11 +32,16 @@ public final class SeparateMask {
 
    public static long hits, misses, collideSpills;
 
+   /** 42.21's isBlockedTo, through pzopt.EdgeFast when edgeTestFast is on. */
+   private static boolean blockedNow(IsoGridSquare square, IsoGridSquare other) {
+      return Config.EDGE_TEST_FAST && Overrides.enabled() ? EdgeFast.isBlockedTo(square, other) : square.isBlockedTo(other);
+   }
+
    /** Whether {@code square} is blocked to its {@code i}-th surrounding square, from this frame's cache. */
    public static boolean blocked(IsoGridSquare square, IsoGridSquare other, int i) {
       if (Thread.currentThread() != GameWindow.gameThread) {
          // the table is the game thread's; a mod that updates characters on other threads (PZMulticore) asks directly
-         return square.isBlockedTo(other);
+         return blockedNow(square, other);
       }
       int slot = (System.identityHashCode(square) >>> 4) & MASK;
       int value = VALUES[slot];
@@ -54,7 +59,7 @@ public final class SeparateMask {
       }
 
       misses++;
-      boolean blocked = square.isBlockedTo(other);
+      boolean blocked = blockedNow(square, other);
       value |= bit << 8;
       if (blocked) {
          value |= bit;

@@ -33,3 +33,14 @@ The top-right corner is dark in both shots from the view cone, not the grid. No 
 the ground floor), `gridz-roof4-*` (no coverage line yet).
 Release check on origin/master 2456dbb + the change (`gridz-rel-cov4-20260924-172608`, follow view on by default):
 centre chunk 1554,168, corners 0 / 0 / 0 / 0, no exceptions.
+
+## 2026-10-03: the 42.20 -> 42.21 drive regression (branch `perf-4221-regression`)
+
+Runs `r4221-*` (desktop, 5120x2160, uncapped, empty tab file, `instrument=true`). Daily drive E:1200 at kmh=193, max zoom:
+tree fixes off (the 42.21 port as released) 326 / 320 fps, p99 9.2-9.3 ms; on (`treeRebakeLazy`, `treeCutawayReach`,
+`treeCutawayScissor`) 428-438 fps, p99 6.3-6.4 ms, bakes 31.5k -> 21.6k; `driveTreeCutaway=false` (42.20's tree rule)
+507 / 514 fps, the 42.20.4 daily level (471-503). Storm spin on foot unchanged (271.6 vs 271.8). Proofs: `devReachCheck`
+0 inside-cutaway samples from trees the reach rule keeps baked (47,720 / 35,502 probes at margin 0 / 256; control 786),
+`devEdgeFastCheck` 0 of 23.9 M. Details: `docs/findings-4221-drive-regression-2026-10-03.md`.
+Mac (M1 Pro, same drive, `mac-r4221-*`): released 10-02 build 118 fps, branch with fixes off 96-119, on 137-152 (p99 ~22 ->
+17 ms), 42.20 rule 175; reach proof 0 violations (31,012 probes, control 444).

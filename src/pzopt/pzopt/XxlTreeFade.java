@@ -32,7 +32,7 @@ public final class XxlTreeFade {
       if (player == null || treeSquare == null) {
          return false;
       }
-      boolean hit = player.getVehicle() != null && withinDistance(treeSquare, VEHICLE_RADIUS) || insideRoom(treeSquare, player) || closeToRoom(treeSquare, player);
+      boolean hit = player.getVehicle() != null && Config.DEV_XXL_VEHICLE_FADE && withinDistance(treeSquare, VEHICLE_RADIUS) || insideRoom(treeSquare, player) || closeToRoom(treeSquare, player);
       if (Config.DEV_XXL_TREE_LOG) {
          devCalls++;
          if (hit) {

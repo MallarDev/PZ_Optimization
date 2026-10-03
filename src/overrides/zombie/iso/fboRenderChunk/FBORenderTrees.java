@@ -45,6 +45,46 @@ public final class FBORenderTrees extends GenericDrawer {
       return (FBORenderTrees)s_pool.alloc();
    }
 
+   public static long pzoptPerFrameBatches, pzoptPerFrameTrees, pzoptPerFrameStencilTrees; // pzopt: bake counters (render thread)
+
+   // pzopt: devReachCheck. Occlusion queries (render thread) round the inside passes of the see-through trees that
+   // treeCutawayReach would keep in the bake; any sample = it would have dropped a visible pixel.
+   public static long pzoptReachProbes, pzoptReachViolations, pzoptReachViolationSamples, pzoptReachOutsideSamples;
+   private static final java.util.ArrayDeque<Integer> pzoptQueryPool = new java.util.ArrayDeque<>();
+   private static final java.util.ArrayDeque<Integer> pzoptQueryPending = new java.util.ArrayDeque<>();
+   private static int pzoptQueryOpen;
+
+   private static void pzoptProbeBegin() {
+      Integer id = pzoptQueryPool.poll();
+      pzoptQueryOpen = id == null ? org.lwjgl.opengl.GL15.glGenQueries() : id;
+      org.lwjgl.opengl.GL15.glBeginQuery(org.lwjgl.opengl.GL15.GL_SAMPLES_PASSED, pzoptQueryOpen);
+   }
+
+   private static void pzoptProbeEnd(boolean outside) {
+      org.lwjgl.opengl.GL15.glEndQuery(org.lwjgl.opengl.GL15.GL_SAMPLES_PASSED);
+      pzoptQueryPending.add(outside ? -pzoptQueryOpen : pzoptQueryOpen);
+      if (!outside) pzoptReachProbes++;
+   }
+
+   private static void pzoptProbePoll() {
+      while (!pzoptQueryPending.isEmpty()) {
+         int key = pzoptQueryPending.peek();
+         int id = Math.abs(key);
+         if (org.lwjgl.opengl.GL15.glGetQueryObjecti(id, org.lwjgl.opengl.GL15.GL_QUERY_RESULT_AVAILABLE) == 0) {
+            return;
+         }
+         pzoptQueryPending.poll();
+         int samples = org.lwjgl.opengl.GL15.glGetQueryObjecti(id, org.lwjgl.opengl.GL15.GL_QUERY_RESULT);
+         if (key < 0) {
+            pzoptReachOutsideSamples += samples;
+         } else if (samples > 0) {
+            pzoptReachViolations++;
+            pzoptReachViolationSamples += samples;
+         }
+         pzoptQueryPool.add(id);
+      }
+   }
+
    public void render() {
       boolean bRenderToChunkTexture = FBORenderChunkManager.instance.renderThreadCurrent != null;
       if (bRenderToChunkTexture) {
@@ -54,8 +94,15 @@ public final class FBORenderTrees extends GenericDrawer {
          this.pushProjectionMatrix();
       }
 
+      if (pzopt.Config.DEV_REACH_CHECK) pzoptProbePoll(); // pzopt: devReachCheck
+      if (pzopt.Config.DEV_STENCIL_PROBE && !bRenderToChunkTexture && this.pzoptProbeY >= 0) pzopt.StencilProbe.readNow("c-trees", this.pzoptProbeX, this.pzoptProbeY, this.pzoptProbeH); // pzopt: devStencilProbe
+      if (!bRenderToChunkTexture) { // pzopt: bake counters, the trees drawn per frame
+         pzoptPerFrameBatches++; // pzopt
+         pzoptPerFrameTrees += this.trees.size(); // pzopt
+      } // pzopt
       for (int i = 0; i < this.trees.size(); i++) {
          FBORenderTrees.Tree tree = this.trees.get(i);
+         if (!bRenderToChunkTexture && tree.useStencil) pzoptPerFrameStencilTrees++; // pzopt: bake counters
          this.renderTree(tree);
       }
 
@@ -135,17 +182,26 @@ public final class FBORenderTrees extends GenericDrawer {
          GL11.glDisable(2960);
       }
 
-      this.renderTreeTextures(tree, false);
+      if (tree.pzoptProbe) pzoptProbeBegin(); // pzopt: devReachCheck, sanity: the outside pass's samples
+      if (!tree.useStencil || (this.pzoptPassMask & 1) != 0) this.renderTreeTextures(tree, false); // pzopt: devTreePassCycle
       vbor.flush();
+      if (tree.pzoptProbe) pzoptProbeEnd(true); // pzopt: devReachCheck
       if (tree.useStencil) {
          GL11.glStencilFunc(514, 128, 128);
+         if (this.pzoptScissor != null && !bRenderToChunkTexture) { // pzopt: treeCutawayScissor
+            GL11.glEnable(GL11.GL_SCISSOR_TEST); // pzopt
+            GL11.glScissor(this.pzoptScissor[0], this.pzoptScissor[1], this.pzoptScissor[2], this.pzoptScissor[3]); // pzopt
+         } // pzopt
+         if (tree.pzoptProbe) pzoptProbeBegin(); // pzopt: devReachCheck, every sample its inside passes draw
          float a = tree.a;
          tree.a = Math.min(tree.a, tree.fadeAlpha);
-         this.renderTreeTextures(tree, false);
+         if ((this.pzoptPassMask & 2) != 0) this.renderTreeTextures(tree, false); // pzopt: devTreePassCycle
          vbor.flush();
          tree.a = a;
-         this.renderTreeTextures(tree, true);
+         if ((this.pzoptPassMask & 4) != 0) this.renderTreeTextures(tree, true); // pzopt: devTreePassCycle
          vbor.flush();
+         if (tree.pzoptProbe) pzoptProbeEnd(false); // pzopt: devReachCheck
+         if (this.pzoptScissor != null && !bRenderToChunkTexture) GL11.glDisable(GL11.GL_SCISSOR_TEST); // pzopt: treeCutawayScissor
          GL11.glStencilFunc(519, 255, 255);
       }
 
@@ -407,6 +463,54 @@ public final class FBORenderTrees extends GenericDrawer {
       this.playerX = IsoCamera.frameState.camCharacterX;
       this.playerY = IsoCamera.frameState.camCharacterY;
       this.playerZ = IsoCamera.frameState.camCharacterZ;
+      this.pzoptPassMask = pzoptPassMaskNow(); // pzopt: devTreePassCycle, decided on the game thread for this batch
+      this.pzoptScissor = this.pzoptScissorBox(); // pzopt: treeCutawayScissor
+      this.pzoptProbeY = -1; // pzopt: devStencilProbe
+      if (pzopt.Config.DEV_STENCIL_PROBE && !zombie.iso.IsoWorld.instance.currentCell.getStencilAreas().isEmpty()) { // pzopt
+         zombie.iso.IsoCell.StencilArea a = zombie.iso.IsoWorld.instance.currentCell.getStencilAreas().get(0); // pzopt
+         this.pzoptProbeX = (a.stencilX1() + a.stencilX2()) / 2; // pzopt
+         this.pzoptProbeY = (a.stencilY1() + a.stencilY2()) / 2; // pzopt
+         this.pzoptProbeH = IsoCamera.getOffscreenHeight(IsoCamera.frameState.playerIndex); // pzopt
+      } // pzopt
+   }
+
+   private int pzoptProbeX, pzoptProbeY = -1, pzoptProbeH; // pzopt: devStencilProbe
+
+   private int[] pzoptScissor; // pzopt: treeCutawayScissor, GL x, y, w, h of the cutaway's marked box in the offscreen buffer, or null
+
+   /** pzopt: treeCutawayScissor. The inside passes of a see-through tree draw only where the stencil mask marked. */
+   private int[] pzoptScissorBox() {
+      boolean on = pzopt.Config.DEV_TREE_PASS_CYCLE.length == 0 ? pzopt.Config.TREE_CUTAWAY_SCISSOR : (this.pzoptPassMask & 8) != 0;
+      if (!on || !pzopt.Overrides.enabled() || zombie.characters.IsoPlayer.numPlayers != 1) {
+         return null;
+      }
+      int[] boxes = pzopt.CutawayMask.frameBoxes();
+      if (boxes == null) {
+         return null;
+      }
+      int x1 = Integer.MAX_VALUE, y1 = Integer.MAX_VALUE, x2 = Integer.MIN_VALUE, y2 = Integer.MIN_VALUE;
+      for (int i = 0; i < boxes.length; i += 4) {
+         x1 = Math.min(x1, boxes[i]);
+         y1 = Math.min(y1, boxes[i + 1]);
+         x2 = Math.max(x2, boxes[i + 2]);
+         y2 = Math.max(y2, boxes[i + 3]);
+      }
+      int h = IsoCamera.getOffscreenHeight(IsoCamera.frameState.playerIndex);
+      x1 = Math.max(0, x1);
+      int glY1 = Math.max(0, h - y2);
+      int glY2 = h - y1;
+      return x2 <= x1 || glY2 <= glY1 ? new int[]{0, 0, 0, 0} : new int[]{x1, glY1, x2 - x1, glY2 - glY1};
+   }
+
+   private int pzoptPassMask = 7; // pzopt: devTreePassCycle (bit 0 outside the cutaway, 1 inside faded, 2 inside outline)
+
+   /** pzopt: devTreePassCycle, the stencil-tree pass mask of this moment (7 = all three passes, stock). */
+   public static int pzoptPassMaskNow() {
+      int[] cycle = pzopt.Config.DEV_TREE_PASS_CYCLE;
+      if (cycle.length == 0) {
+         return 7;
+      }
+      return cycle[(int)(System.currentTimeMillis() / Math.max(1, pzopt.Config.DEV_TREE_PASS_ALTERNATE) % cycle.length)];
    }
 
    public void addTree(
@@ -460,6 +564,7 @@ public final class FBORenderTrees extends GenericDrawer {
       } // pzopt
 
       tree.useStencil = bUseStencil;
+      tree.pzoptProbe = bUseStencil && pzopt.Config.DEV_REACH_CHECK && FBORenderCell.instance.pzoptReachWouldBake(x, y, z); // pzopt: devReachCheck
       tree.fadeAlpha = fadeAlpha;
       tree.transparent = transparent;
       tree.cutawayAlpha = cutawayAlpha;
@@ -542,6 +647,7 @@ public final class FBORenderTrees extends GenericDrawer {
       float a;
       boolean objectRenderEffects;
       boolean useStencil;
+      boolean pzoptProbe; // pzopt: devReachCheck, treeCutawayReach would have kept this see-through tree in the bake
       float fadeAlpha;
       float oreX1;
       float oreY1;

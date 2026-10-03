@@ -292,6 +292,7 @@ public final class FBORenderCell {
       }
 
       this.cell.drawStencilMask();
+      if (pzopt.Config.DEV_STENCIL_PROBE) this.pzoptStencilProbe("a-afterMask"); // pzopt: devStencilProbe
       long lastPlayerWindowPeekingRoomId = this.cell.playerWindowPeekingRoomId[playerIndex];
 
       for (int i = 0; i < IsoPlayer.numPlayers; i++) {
@@ -1164,19 +1165,30 @@ public final class FBORenderCell {
 
    private void checkChunksWithTrees(int playerIndex) {
       FBORenderCell.PerPlayerData perPlayerData1 = this.perPlayerData[playerIndex];
+      long pzoptNowMs = this.pzoptTreeLingerUntil.isEmpty() ? 0L : System.currentTimeMillis(); // pzopt: treeRebakeLazy
 
       for (int i = 0; i < perPlayerData1.onScreenChunks.size(); i++) {
          IsoChunk c = perPlayerData1.onScreenChunks.get(i);
          if (0 >= c.minLevel && 0 <= c.maxLevel) {
             FBORenderLevels renderLevels = c.getRenderLevels(playerIndex);
             if (renderLevels.isOnScreen(0)) {
+               if (pzoptNowMs != 0L) { // pzopt: treeRebakeLazy, trees back from the cutaway re-bake in once their linger ran out
+                  Long pzoptUntil = this.pzoptTreeLingerUntil.get(renderLevels); // pzopt
+                  if (pzoptUntil != null && pzoptNowMs >= pzoptUntil) { // pzopt
+                     this.pzoptTreeLingerUntil.remove(renderLevels); // pzopt
+                     pzoptTreeLingerRebakes++; // pzopt
+                     renderLevels.invalidateLevel(0, 4096L); // pzopt
+                  } // pzopt
+               } // pzopt
                boolean bInStencilRect = renderLevels.calculateInStencilRect(0, this.cell);
                if (!bInStencilRect && renderLevels.inStencilRect) {
+                  pzoptStencilRectLeaves++; // pzopt: bake counters
                   renderLevels.inStencilRect = false;
                   renderLevels.invalidateLevel(0, 4096L);
                } else {
                   renderLevels.inStencilRect = bInStencilRect;
                   if (this.checkTreeTranslucency(playerIndex, renderLevels)) {
+                     pzoptTreeLevelInvalidations++; // pzopt: bake counters
                      renderLevels.invalidateLevel(0, 4096L);
                   }
                }
@@ -1211,19 +1223,199 @@ public final class FBORenderCell {
       } // pzopt
    }
 
+   /**
+    * pzopt: treeRebakeLazy. While driving 42.21 makes every tree in the cutaway around the player see-through; each one
+    * leaving the bake re-bakes its chunk texture and every neighbour holding a copy of it (tree pass), and stock re-dirtied
+    * them again when the fade started, when the cutaway let go mid-fade and when the fade ended. Only leaving the bake
+    * re-bakes at once now; a tree whose fade ended stays per frame (drawn as the stock game draws every tree) until its
+    * level re-bakes for another reason or treeRebakeLingerMs passes, so the trees of one chunk come back in one bake and
+    * a chunk the car left behind usually never re-bakes for them. Counters: treeRebakesSkipped / treeLingers /
+    * treeLingerRebakes in the bake counters.
+    */
+   private final java.util.IdentityHashMap<FBORenderLevels, Long> pzoptTreeLingerUntil = new java.util.IdentityHashMap<>();
+   private static long pzoptTreeRebakesSkipped, pzoptTreeLingers, pzoptTreeLingerRebakes;
+
+   private void pzoptTreeLinger(FBORenderLevels renderLevels, IsoTree tree, int playerIndex) {
+      pzoptTreeLingers++;
+      if (this.pzoptTreeLingerUntil.size() > 2048) { // bounded: chunks left behind keep their entry until seen again; flush them all
+         for (FBORenderLevels levels : this.pzoptTreeLingerUntil.keySet()) {
+            levels.invalidateLevel(0, 4096L);
+         }
+         this.pzoptTreeLingerUntil.clear();
+      }
+      Long until = System.currentTimeMillis() + pzopt.Config.TREE_REBAKE_LINGER_MS;
+      this.pzoptTreeLingerUntil.putIfAbsent(renderLevels, until);
+      IsoGridSquare renderSquare = tree.getRenderSquare();
+      if (renderSquare != null && renderSquare != tree.getSquare() && renderSquare.chunk != null) {
+         this.pzoptTreeLingerUntil.putIfAbsent(renderSquare.chunk.getRenderLevels(playerIndex), until);
+      }
+   }
+
+   /** pzopt: a generous screen box of the tree's sprites (offscreen pixels) against the cutaway's marked boxes, grown by margin. */
+   static boolean pzoptTreeTouchesMask(IsoTree tree, int[] boxes, int margin) {
+      IsoGridSquare square = tree.square;
+      float sx = square.cachedScreenX - IsoCamera.frameState.offX;
+      float sy = square.cachedScreenY - IsoCamera.frameState.offY;
+      int w = 128 * Core.tileScale / 2, h = 256 * Core.tileScale / 2;
+      zombie.core.textures.Texture t = tree.sprite == null ? null : tree.sprite.getTextureForCurrentFrame(tree.getDir(), tree);
+      if (t != null) {
+         w = Math.max(w, t.getWidthOrig());
+         h = Math.max(h, t.getHeightOrig());
+      }
+      if (tree.attachedAnimSprite != null && !tree.attachedAnimSprite.isEmpty()) {
+         zombie.core.textures.Texture t2 = tree.attachedAnimSprite.get(0).parentSprite.getTextureForCurrentFrame(tree.getDir(), tree);
+         if (t2 != null) {
+            w = Math.max(w, t2.getWidthOrig());
+            h = Math.max(h, t2.getHeightOrig());
+         }
+      }
+      float x1 = sx - w / 2.0F - 64 * Core.tileScale - margin, x2 = sx + w / 2.0F + 64 * Core.tileScale + margin;
+      float y1 = sy - h - margin, y2 = sy + 96 * Core.tileScale + margin;
+      for (int i = 0; i < boxes.length; i += 4) {
+         if (x2 > boxes[i] && x1 < boxes[i + 2] && y2 > boxes[i + 1] && y1 < boxes[i + 3]) {
+            return true;
+         }
+      }
+      return false;
+   }
+
+   /**
+    * pzopt: treeCutawayReach. 42.21 makes a tree see-through when its base square lies in the cutaway's stencil
+    * rectangle (2048 px square around the player), and while driving every such tree; but the stencil only marks the
+    * mask texture's texels above alpha 0.1, an ellipse over 21 % of that square (pzopt.CutawayMask). A see-through tree
+    * whose sprite stays clear of the ellipse draws only its outside pass, i.e. exactly as an opaque tree, so it stays
+    * in the bake: no re-bake of its chunk and neighbours, no per-frame draw at world resolution. A tree leaves the bake
+    * when its sprite box comes within treeCutawayReachPx of the ellipse (a few frames of driving ahead of the bake);
+    * kept in the bake, its fade is stepped here exactly as IsoTree.render steps it, so it has the stock fade when it
+    * reaches the ellipse. Per-tree memory: pzoptTreesOut (needs per frame at its last check or bake).
+    */
+   private final java.util.Set<IsoTree> pzoptTreesOut = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+   private int[] pzoptReachBoxesCached;
+   private int pzoptReachBoxesFrame = -1;
+   private static long pzoptTreeReachLeaves, pzoptTreeReachTicks;
+
+   /** pzopt: devReachCheck, would treeCutawayReach keep the tree drawn at x, y, z in the bake (game thread, IsoTree.render's addTree)? */
+   boolean pzoptReachWouldBake(float x, float y, float z) {
+      IsoGridSquare square = this.cell.getGridSquare(PZMath.fastfloor(x), PZMath.fastfloor(y), PZMath.fastfloor(z));
+      IsoTree tree = square == null ? null : square.getTree();
+      if (tree == null) {
+         return false;
+      }
+      int playerIndex = IsoCamera.frameState.playerIndex;
+      boolean aiming = IsoPlayer.getPlayer(playerIndex).isAnyAimKeyDown() || pzopt.Config.DRIVE_TREE_CUTAWAY && IsoPlayer.getPlayer(playerIndex).getVehicle() != null;
+      return !this.pzoptTreeNeedsPerFrame(tree, aiming);
+   }
+
+   /** pzopt: devStencilProbe, queue a stencil read at the cutaway's centre (game thread). */
+   void pzoptStencilProbe(String point) {
+      java.util.List<IsoCell.StencilArea> areas = this.cell.getStencilAreas();
+      if (areas.isEmpty()) {
+         return;
+      }
+      IsoCell.StencilArea a = areas.get(0);
+      pzopt.StencilProbe.queue(point, (a.stencilX1() + a.stencilX2()) / 2, (a.stencilY1() + a.stencilY2()) / 2, IsoCamera.getOffscreenHeight(IsoCamera.frameState.playerIndex));
+   }
+
+   private boolean pzoptReachOn() {
+      return !pzopt.Config.DEV_REACH_CHECK && pzopt.Config.TREE_CUTAWAY_REACH && pzopt.Config.TREE_REBAKE_LAZY && pzopt.Config.TREES_IN_CHUNK_TEXTURE && pzopt.Overrides.enabled()
+         && !Core.getInstance().getOptionDoWindSpriteEffects();
+   }
+
+   private int[] pzoptReachBoxes() {
+      int frame = IsoWorld.instance.getFrameNo();
+      if (frame != this.pzoptReachBoxesFrame) {
+         this.pzoptReachBoxesFrame = frame;
+         this.pzoptReachBoxesCached = pzopt.CutawayMask.frameBoxes();
+      }
+      return this.pzoptReachBoxesCached;
+   }
+
+   private boolean pzoptTreeNeedsPerFrame(IsoTree tree, boolean aiming) {
+      if (this.pzoptXxlCutaway(tree)) {
+         return true;
+      }
+      if (!(tree.fadeAlpha < 1.0F) && !this.pzoptTreeRule(tree, aiming)) {
+         return false;
+      }
+      int[] boxes = this.pzoptReachBoxes();
+      return boxes == null || pzoptTreeTouchesMask(tree, boxes, pzopt.Config.TREE_CUTAWAY_REACH_PX * Core.tileScale / 2);
+   }
+
+   private boolean pzoptTreeNeedsPerFrameAtBake(IsoTree tree) {
+      int playerIndex = IsoCamera.frameState.playerIndex;
+      boolean aiming = IsoPlayer.getPlayer(playerIndex).isAnyAimKeyDown() || pzopt.Config.DRIVE_TREE_CUTAWAY && IsoPlayer.getPlayer(playerIndex).getVehicle() != null;
+      boolean need = this.pzoptTreeNeedsPerFrame(tree, aiming);
+      if (need) {
+         this.pzoptTreesOut.add(tree);
+      } else {
+         this.pzoptTreesOut.remove(tree);
+      }
+      return need;
+   }
+
+   /** IsoTree.render's fade step (fboRenderChunk branch) for a tree drawn from the bake, which IsoTree.render never sees. */
+   private void pzoptTickBakedTree(IsoTree tree, int playerIndex) {
+      ObjectRenderLayer layer = tree.getRenderInfo(playerIndex).layer;
+      if (layer != ObjectRenderLayer.MinusFloor && layer != ObjectRenderLayer.MinusFloorSE) {
+         return; // drawn per frame: IsoTree.render steps it
+      }
+      float maxAlpha = tree.getTargetAlpha(playerIndex);
+      if (!tree.renderFlag && !(tree.fadeAlpha < maxAlpha)) {
+         return; // IsoTree.render's bUseStencil is false: no step
+      }
+      pzoptTreeReachTicks++;
+      float alphaStep = 0.045F * GameTime.getInstance().getThirtyFPSMultiplier();
+      float minAlpha = DebugOptions.instance.terrain.renderTiles.forceFullAlpha.getValue() ? 1.0F : 0.05F;
+      if (tree.renderFlag && tree.fadeAlpha > minAlpha) {
+         tree.fadeAlpha -= alphaStep;
+         if (tree.fadeAlpha < minAlpha) {
+            tree.fadeAlpha = minAlpha;
+         }
+      }
+      if (!tree.renderFlag && tree.fadeAlpha < maxAlpha) {
+         tree.fadeAlpha += alphaStep;
+         if (tree.fadeAlpha > maxAlpha) {
+            tree.fadeAlpha = maxAlpha;
+         }
+      }
+   }
+
+   /** A dirty level's baked trees: their see-through flag as the per-frame path would set it, then the fade step. */
+   private void pzoptReachDirtyTick(int playerIndex, FBORenderLevels renderLevels) {
+      boolean aiming = IsoPlayer.getPlayer(playerIndex).isAnyAimKeyDown() || pzopt.Config.DRIVE_TREE_CUTAWAY && IsoPlayer.getPlayer(playerIndex).getVehicle() != null;
+      ArrayList<IsoGridSquare> squares = renderLevels.treeSquares;
+      for (int i = 0; i < squares.size(); i++) {
+         IsoGridSquare square = squares.get(i);
+         IsoTree tree = square.chunk == null ? null : square.getTree();
+         if (tree == null || this.isTreeRenderedEveryFrame(tree)) {
+            continue;
+         }
+         ObjectRenderLayer layer = tree.getRenderInfo(playerIndex).layer;
+         if (layer == ObjectRenderLayer.MinusFloor || layer == ObjectRenderLayer.MinusFloorSE) {
+            tree.renderFlag = this.pzoptIsTranslucentTree(tree, aiming);
+            this.pzoptTickBakedTree(tree, playerIndex);
+         }
+      }
+   }
+
    private boolean checkTreeTranslucency(int playerIndex, FBORenderLevels renderLevels) {
       if (Core.getInstance().getOptionDoWindSpriteEffects()) {
          return false;
       }
 
       float zoom = Core.getInstance().getZoom(playerIndex);
+      boolean pzoptReach = this.pzoptReachOn(); // pzopt: treeCutawayReach
+      if (pzoptReach && renderLevels.isDirty(0, zoom)) { // pzopt: the bake pending decides; the baked trees keep fading as IsoTree.render would fade them
+         this.pzoptReachDirtyTick(playerIndex, renderLevels); // pzopt
+      } // pzopt
       if (renderLevels.isDirty(0, zoom)) {
          return false;
       }
 
       ArrayList<IsoGridSquare> squares = renderLevels.treeSquares;
       boolean bChanged = false;
-      boolean pzoptAiming = IsoPlayer.getPlayer(IsoCamera.frameState.playerIndex).isAnyAimKeyDown() || IsoPlayer.getPlayer(IsoCamera.frameState.playerIndex).getVehicle() != null; // pzopt: hoisted out of the tree loop (42.21: in a vehicle counts as aiming)
+      boolean pzoptAiming = IsoPlayer.getPlayer(IsoCamera.frameState.playerIndex).isAnyAimKeyDown() || pzopt.Config.DRIVE_TREE_CUTAWAY && IsoPlayer.getPlayer(IsoCamera.frameState.playerIndex).getVehicle() != null; // pzopt: hoisted out of the tree loop (42.21: in a vehicle counts as aiming)
+      boolean pzoptLazy = pzopt.Config.TREE_REBAKE_LAZY && pzopt.Config.TREES_IN_CHUNK_TEXTURE && pzopt.Overrides.enabled(); // pzopt: treeRebakeLazy
 
       for (int i = 0; i < squares.size(); i++) {
          IsoGridSquare square = squares.get(i);
@@ -1247,17 +1439,52 @@ public final class FBORenderCell {
             }
             if (tree != null && !this.isTreeRenderedEveryFrame(tree)) {
                boolean bChanged2 = false;
+               boolean pzoptWasFlag = tree.renderFlag; // pzopt: treeRebakeLazy
+               boolean pzoptWasFaded = tree.wasFaded; // pzopt
+               boolean pzoptWasOut = pzoptWasFlag || pzoptWasFaded; // pzopt: drawn per frame (out of the bake) before this check
                if (tree.fadeAlpha < 1.0F != tree.wasFaded) {
                   tree.wasFaded = tree.fadeAlpha < 1.0F;
-                  bChanged = true;
+                  bChanged = bChanged || !pzoptLazy; // pzopt: treeRebakeLazy decides below
                   bChanged2 = true;
                }
 
                if (this.pzoptIsTranslucentTree(tree, pzoptAiming) != tree.renderFlag) { // pzopt: aim key read once per chunk, not per tree
                   tree.renderFlag = !tree.renderFlag;
-                  bChanged = true;
+                  if (tree.renderFlag) pzoptTreeFlipsOn++; else pzoptTreeFlipsOff++; // pzopt: bake counters
+                  bChanged = bChanged || !pzoptLazy; // pzopt: treeRebakeLazy decides below
                   bChanged2 = true;
                }
+
+               if (pzoptReach) { // pzopt: treeCutawayReach, only a tree whose sprite reaches the marked cutaway leaves the bake
+                  this.pzoptTickBakedTree(tree, playerIndex); // pzopt: kept in the bake, it fades as IsoTree.render would fade it
+                  boolean pzoptNeed = this.pzoptTreeNeedsPerFrame(tree, pzoptAiming); // pzopt
+                  if (pzoptNeed == this.pzoptTreesOut.contains(tree)) { // pzopt: the bake would hold the same
+                     if (bChanged2) pzoptTreeRebakesSkipped++; // pzopt
+                     continue; // pzopt
+                  } // pzopt
+                  if (!pzoptNeed) { // pzopt: back in the bake: lazily (treeRebakeLazy)
+                     this.pzoptTreesOut.remove(tree); // pzopt
+                     this.pzoptTreeLinger(renderLevels, tree, playerIndex); // pzopt
+                     continue; // pzopt
+                  } // pzopt
+                  this.pzoptTreesOut.add(tree); // pzopt
+                  pzoptTreeReachLeaves++; // pzopt
+                  bChanged = true; // pzopt: leaves the bake now
+                  bChanged2 = true; // pzopt
+               } else // pzopt: treeCutawayReach
+               if (bChanged2 && pzoptLazy) { // pzopt: treeRebakeLazy
+                  boolean pzoptOut = tree.renderFlag || tree.wasFaded; // pzopt
+                  boolean pzoptBoth = tree.renderFlag != pzoptWasFlag && tree.wasFaded != pzoptWasFaded; // pzopt: fade end and cutaway in one check: the bake may hold it, re-bake
+                  if (pzoptOut == pzoptWasOut && !pzoptBoth) { // pzopt: fade start, or the cutaway let go while still fading: the bake would hold the same
+                     pzoptTreeRebakesSkipped++; // pzopt
+                     continue; // pzopt
+                  } // pzopt
+                  if (!pzoptOut && !pzoptBoth) { // pzopt: back to bakeable: stays per frame until its level re-bakes anyway, or treeRebakeLingerMs passes
+                     this.pzoptTreeLinger(renderLevels, tree, playerIndex); // pzopt
+                     continue; // pzopt
+                  } // pzopt
+                  bChanged = true; // pzopt: leaves the bake now (the cutaway caught it)
+               } // pzopt
 
                if (bChanged2) {
                   IsoGridSquare renderSquare = tree.getRenderSquare();
@@ -1735,6 +1962,7 @@ public final class FBORenderCell {
       pzopt.GpuSections.end("attach"); // pzopt: GPU section
       IsoChunkMap chunkMap = IsoWorld.instance.currentCell.getChunkMap(playerIndex);
 
+      if (pzopt.Config.DEV_STENCIL_PROBE) this.pzoptStencilProbe("b-zloop"); // pzopt: devStencilProbe
       pzopt.GpuSections.begin("zloop"); // pzopt: GPU section (per-level translucent / water / splashes / shadows)
       for (int z = chunkMap.minHeight; z <= chunkMap.maxHeight; z++) {
          SpriteRenderer.instance.beginProfile(translucentFloorObjectsProbe);
@@ -1829,7 +2057,7 @@ public final class FBORenderCell {
 
          try {
             if (!pzopt.ResumeShot.noTranslucent) { // pzopt: resumeShot capture (floors, buildings): no translucent objects (per-frame trees)
-            pzopt.GpuSections.begin("translucent"); /* pzopt: GPU section */ this.renderTranslucentObjects(playerIndex, z, floorRenderShader, wallRenderShader, currentTimeMillis); pzopt.GpuSections.end("translucent");
+            String pzoptTs = pzopt.Config.DEV_TREE_PASS_CYCLE.length == 0 ? "translucent" : "translucent.m" + FBORenderTrees.pzoptPassMaskNow(); pzopt.GpuSections.begin(pzoptTs); /* pzopt: GPU section (devTreePassCycle tags it with the pass mask) */ this.renderTranslucentObjects(playerIndex, z, floorRenderShader, wallRenderShader, currentTimeMillis); pzopt.GpuSections.end(pzoptTs);
             }
          } catch (Throwable var22) {
             if (var34 != null) {
@@ -2190,6 +2418,9 @@ public final class FBORenderCell {
                pzopt.LightDirt.baked(c, level, frameNo); // pzopt: the accumulated light changes of this level are on screen
                if (pzopt.BakeScheduler.ON) pzopt.BakeScheduler.get(playerIndex).baked(c, level); // pzopt: bakeScheduler, its wait restarts
             }
+            if (!this.pzoptTreeLingerUntil.isEmpty() && level == renderLevels.getMinLevel(level) && level == renderLevels.getMinLevel(0)) { // pzopt: treeRebakeLazy, the lingering trees bake in with this bake
+               this.pzoptTreeLingerUntil.remove(renderLevels); // pzopt
+            } // pzopt
             if (level == renderLevels.getMinLevel(level) && pzoptRebakeMs > 0) {
                this.pzoptLastBakeMs.put(FBORenderChunkManager.instance.renderChunk, currentTimeMillis);
                if (this.pzoptLastBakeMs.size() > 4096) {
@@ -2974,7 +3205,7 @@ public final class FBORenderCell {
             return false;
          }
       } else {
-         if (this.isTranslucentTree(object) || this.isTreeRenderedEveryFrame(object)) {
+         if ((object instanceof IsoTree pzoptTree && this.pzoptReachOn() ? this.pzoptTreeNeedsPerFrameAtBake(pzoptTree) : this.isTranslucentTree(object)) || this.isTreeRenderedEveryFrame(object)) { // pzopt: treeCutawayReach
             return false;
          }
 
@@ -2985,7 +3216,7 @@ public final class FBORenderCell {
 
       if (object.getObjectRenderEffectsToApply() != null) {
          return false;
-      } else if (object instanceof IsoTree isoTree && isoTree.fadeAlpha < 1.0F) {
+      } else if (object instanceof IsoTree isoTree && isoTree.fadeAlpha < 1.0F && !this.pzoptReachOn()) { // pzopt: treeCutawayReach, its need above covers the fade
          return false;
       } else {
          IsoMannequin mannequin = (IsoMannequin)Type.tryCastTo(object, IsoMannequin.class);
@@ -3170,7 +3401,7 @@ public final class FBORenderCell {
             return true;
          }
       } else {
-         if (this.isTranslucentTree(object) || this.isTreeRenderedEveryFrame(object)) {
+         if ((object instanceof IsoTree pzoptTree && this.pzoptReachOn() ? this.pzoptTreeNeedsPerFrameAtBake(pzoptTree) : this.isTranslucentTree(object)) || this.isTreeRenderedEveryFrame(object)) { // pzopt: treeCutawayReach
             return true;
          }
 
@@ -3181,7 +3412,7 @@ public final class FBORenderCell {
 
       if (object.getObjectRenderEffectsToApply() != null) {
          return true;
-      } else if (object instanceof IsoTree isoTree && isoTree.fadeAlpha < 1.0F) {
+      } else if (object instanceof IsoTree isoTree && isoTree.fadeAlpha < 1.0F && !this.pzoptReachOn()) { // pzopt: treeCutawayReach, its need above covers the fade
          return true;
       } else {
          boolean bTranslucent = object instanceof IsoWindow;
@@ -3250,10 +3481,11 @@ public final class FBORenderCell {
       if (tree.square == null || tree.square.z >= 1000 || tree.isHighlighted() || tree.isAnimating()) {
          return false;
       }
-      if (tree.getObjectRenderEffects() != null || tree.getObjectRenderEffectsToApply() != null || tree.fadeAlpha < 1.0F) {
+      boolean reach = this.pzoptReachOn(); // treeCutawayReach
+      if (tree.getObjectRenderEffects() != null || tree.getObjectRenderEffectsToApply() != null || tree.fadeAlpha < 1.0F && !reach) {
          return false;
       }
-      return !this.isTreeRenderedEveryFrame(tree) && !this.pzoptIsTranslucentTree(tree, aiming);
+      return !this.isTreeRenderedEveryFrame(tree) && !(reach ? this.pzoptTreeNeedsPerFrame(tree, aiming) : this.pzoptIsTranslucentTree(tree, aiming));
    }
 
    private final pzopt.TreeBake.Rect pzoptTreeRect = new pzopt.TreeBake.Rect();
@@ -3376,7 +3608,7 @@ public final class FBORenderCell {
       float scale = rc.highRes ? 2.0F : 1.0F;
       float goX = FBORenderChunkManager.instance.getXOffset();
       float yoff = FBORenderChunkManager.instance.getYOffset();
-      boolean aiming = IsoPlayer.getPlayer(playerIndex).isAnyAimKeyDown() || IsoPlayer.getPlayer(playerIndex).getVehicle() != null; // pzopt: as isTranslucentTree (42.21)
+      boolean aiming = IsoPlayer.getPlayer(playerIndex).isAnyAimKeyDown() || pzopt.Config.DRIVE_TREE_CUTAWAY && IsoPlayer.getPlayer(playerIndex).getVehicle() != null; // pzopt: as isTranslucentTree (42.21)
       int camX = PZMath.fastfloor(IsoCamera.frameState.camCharacterX);
       int camY = PZMath.fastfloor(IsoCamera.frameState.camCharacterY);
       int tileScale = Core.tileScale;
@@ -3678,13 +3910,18 @@ public final class FBORenderCell {
          return false;
       } else {
          int playerIndex = IsoCamera.frameState.playerIndex;
-         boolean isAiming = IsoPlayer.getPlayer(playerIndex).isAnyAimKeyDown() || IsoPlayer.getPlayer(playerIndex).getVehicle() != null;
+         boolean isAiming = IsoPlayer.getPlayer(playerIndex).isAnyAimKeyDown() || pzopt.Config.DRIVE_TREE_CUTAWAY && IsoPlayer.getPlayer(playerIndex).getVehicle() != null; // pzopt: driveTreeCutaway
          return this.pzoptIsTranslucentTree(object, isAiming);
       }
    }
 
    /** pzopt: isTranslucentTree with the aim-key state supplied by the caller (checkTreeTranslucency reads it once per chunk). */
    private boolean pzoptIsTranslucentTree(IsoObject object, boolean isAiming) {
+      return this.pzoptXxlCutaway(object) || this.pzoptTreeRule(object, isAiming);
+   }
+
+   /** pzopt: 42.21's XXL fade (driving, in or near rooms) that a baked tree would miss. */
+   private boolean pzoptXxlCutaway(IsoObject object) {
       if (pzopt.Config.TREES_IN_CHUNK_TEXTURE // pzopt: an XXL tree that 42.21's IsoTree.render would fade (driving, in or near rooms) must draw per frame, not from the bake
          && object.sprite != null // pzopt
          && object.sprite.name != null // pzopt
@@ -3692,6 +3929,11 @@ public final class FBORenderCell {
          && pzopt.XxlTreeFade.cutaway(object.square, IsoPlayer.getPlayer(IsoCamera.frameState.playerIndex))) { // pzopt
          return true; // pzopt
       }
+      return false;
+   }
+
+   /** pzopt: the stock isTranslucentTree test (aim / south-east of the player, base square inside the stencil rectangle). */
+   private boolean pzoptTreeRule(IsoObject object, boolean isAiming) {
       {
          IsoGridSquare square = object.square;
          square.IsOnScreen();
@@ -5145,8 +5387,15 @@ public final class FBORenderCell {
       return "bakes=" + pzoptBakesCumulative + " deferred=" + pzoptDeferredTotal + " lightingRebakesHeld=" + pzoptLightingRebakesHeld + " strongNow=" + pzoptStrongRebakes
             + " strongPastBudget=" + pzoptStrongHeld + " strongMarks=" + pzopt.LightDirt.strongMarks + " globalLightEvents=" + pzopt.LightDirt.globalEvents
             + " flushed=" + pzoptLightingFlushed + " budgetedRebakes=" + pzoptRebakesTotal + " rebakesHeld=" + pzoptRebakesHeld + " creationsDeferred=" + pzoptCreatesStarved
-            + " strongBudgetCuts=" + pzoptStrongBudgetCuts + " dupSquaresDropped=" + pzoptDupSquaresDropped;
+            + " strongBudgetCuts=" + pzoptStrongBudgetCuts + " dupSquaresDropped=" + pzoptDupSquaresDropped
+            + " treeFlipsOn=" + pzoptTreeFlipsOn + " treeFlipsOff=" + pzoptTreeFlipsOff + " treeLevelInvalidations=" + pzoptTreeLevelInvalidations
+            + " stencilRectLeaves=" + pzoptStencilRectLeaves + " treeNeighboursInvalidated=" + pzopt.TreeBake.neighboursInvalidated
+            + " treeRebakesSkipped=" + pzoptTreeRebakesSkipped + " treeLingers=" + pzoptTreeLingers + " treeLingerRebakes=" + pzoptTreeLingerRebakes
+            + " reachProbes=" + FBORenderTrees.pzoptReachProbes + " reachViolations=" + FBORenderTrees.pzoptReachViolations + " reachViolationSamples=" + FBORenderTrees.pzoptReachViolationSamples + " reachOutsideSamples=" + FBORenderTrees.pzoptReachOutsideSamples
+            + " treeReachLeaves=" + pzoptTreeReachLeaves + " treeReachTicks=" + pzoptTreeReachTicks
+            + " perFrameTreeBatches=" + FBORenderTrees.pzoptPerFrameBatches + " perFrameTrees=" + FBORenderTrees.pzoptPerFrameTrees + " perFrameStencilTrees=" + FBORenderTrees.pzoptPerFrameStencilTrees;
    }
+   private static long pzoptTreeFlipsOn, pzoptTreeFlipsOff, pzoptTreeLevelInvalidations, pzoptStencilRectLeaves; // pzopt: bake counters
    public static long pzoptBakesCumulative; // pzopt: never reset; the harness zoom trace reads the per-frame delta
    public static long pzoptDeferredCumulative; // pzopt: never reset; deferred (budgeted / held) levels
    private static final long[] pzoptBakeFlags = new long[16];

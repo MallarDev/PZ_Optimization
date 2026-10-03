@@ -5740,3 +5740,51 @@ code is per texel too) and the texture re-bakes as with `treeAppend` off. Forest
   `TREE_NO_SKY`, and the views `TREE_DEBUG_OWN` / `TREE_DEBUG_OWNID` / `TREE_DEBUG_D0` that replace the raw sun term);
   `devHdrFrameLog=true` writes one line per HDR composite (`pzopt-hdrframe.out`: epoch ms, bloom / aux / light map state,
   the map's uploads and the last upload's sun mean and squares read).
+
+## The 42.21 drive regression: the tree cutaway while driving (2026-10-03; `docs/findings-4221-drive-regression-2026-10-03.md`)
+
+42.21 counts a player in a vehicle as aiming in `isTranslucentTree`, so every tree whose base lies in the cutaway square
+round the car turns see-through; with baked trees each one re-baked its chunk texture and the neighbours holding its copy
+up to four times and was drawn per frame in three passes (120 km/h drive 500 -> 305 fps on the desktop).
+
+### zombie.iso.fboRenderChunk.FBORenderCell
+
+- `checkTreeTranslucency` (`treeRebakeLazy`): the tree's fade / see-through flags are updated as before, but its level
+  is re-dirtied only when the tree leaves the bake (out of it = see-through or fading) or comes back; coming back is
+  recorded per level with a deadline (`treeRebakeLingerMs`, default 0) and re-dirtied by `checkChunksWithTrees` when it
+  runs out, unless the level baked meanwhile (the bake clears it). A tree whose see-through flag and fade end in the same
+  check re-dirties at once.
+- `treeCutawayReach`: `isTranslucentTree` split into `pzoptXxlCutaway` (42.21's XXL fade) and `pzoptTreeRule` (the stock
+  test). A tree needs per-frame drawing when the XXL fade applies, or when it is see-through / fading and a generous box
+  of its sprites comes within `treeCutawayReachPx` of the cutaway mask's marked box (`pzopt.CutawayMask`); the bake's
+  layer decisions (`isObjectRenderLayer_MinusFloor` and its translucent counterpart: the tree case and the fade case)
+  and the tree pass (`pzoptTreeBakes`) use that need instead of the stock test while the key is on; a weak per-tree set
+  remembers the need at the last check or bake and the transitions re-dirty as above. A tree kept in the bake gets
+  `IsoTree.render`'s fade step (fboRenderChunk branch, same constants) from `checkTreeTranslucency`, also for a dirty level
+  (`pzoptReachDirtyTick` sets its see-through flag first), and only while its render layer is a baked one.
+- `driveTreeCutaway` (default false since 2026-10-03, maintainer's decision; true = 42.21): the vehicle term of the aim flag in `isTranslucentTree`, `checkTreeTranslucency`
+  and the tree pass; false = 42.20's rule.
+- Dev rigs: `devTreePassCycle` names the `translucent` GPU section by pass mask; `devReachCheck`; `devStencilProbe` round
+  `drawStencilMask` and before the per-level loop; bake counters for the tree transitions.
+
+### zombie.iso.fboRenderChunk.FBORenderTrees
+
+- `renderTree`: with `treeCutawayScissor` the inside passes of a see-through tree (stencil EQUAL 128) run under a scissor
+  box = the union of the frame's marked mask boxes, flipped to GL coordinates of the offscreen buffer (one player only);
+  `devTreePassCycle` can skip each of the three passes; `devReachCheck` wraps the passes of a tree the reach rule would
+  have kept baked in `GL_SAMPLES_PASSED` queries (polled without waiting at the next batch).
+- `addTree` / `render`: per-frame tree counters; the probe flag.
+
+### zombie.iso.IsoMovingObject
+
+- `separate`: with `edgeTestFast` the neighbour test asks `pzopt.EdgeFast.isBlockedTo(current, sq)`, 42.21's
+  `IsoGridSquare.isBlockedTo` written out without its predicate objects (same result: `devEdgeFastCheck`, 23.9 M calls,
+  0 different). `pzopt.SeparateMask.blocked` (the batched separation) asks it too.
+
+### pzopt classes (no game class changed for these)
+
+- `pzopt.EdgeFast`: `edgeTestFast` / `devEdgeFastCheck`.
+- `pzopt.CutawayMask`: the marked box of each cutaway mask texture (PNG read once, alpha > 25/255, one-texel guard),
+  placed on the frame's `IsoCell.StencilArea`s.
+- `pzopt.StencilProbe`: `devStencilProbe`'s reads.
+- `pzopt.XxlTreeFade`: `devXxlVehicleFade` (dev) turns 42.21's XXL fade while driving off.
