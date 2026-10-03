@@ -491,6 +491,7 @@ PzoptOptionClasses = {
     pplTorchCanSee = { "pzopt.PixelLight" },
     pplTorchNearChunk = { "pzopt.PixelLight" },
     pplVariants = { "pzopt.PixelLight" },
+    pplWallEdge = { "pzopt.PixelLight" },
     pplWetSpecular = { "pzopt.PixelLight" },
     pplWrapPct = { "pzopt.PixelLight" },
     preloadAnimSets = { "pzopt.BootAsync" },

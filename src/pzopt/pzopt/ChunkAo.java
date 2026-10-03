@@ -954,12 +954,12 @@ public final class ChunkAo {
       return b;
    }
 
-   private static boolean edgeW(IsoGridSquare sq) {
+   static boolean edgeW(IsoGridSquare sq) {
       return sq.has(IsoFlagType.cutW) || sq.has(IsoFlagType.WallW) || sq.has(IsoFlagType.WallNW) || sq.has(IsoFlagType.DoorWallW)
          || sq.has(IsoFlagType.WindowW) || sq.has(IsoFlagType.WallWTrans);
    }
 
-   private static boolean edgeN(IsoGridSquare sq) {
+   static boolean edgeN(IsoGridSquare sq) {
       return sq.has(IsoFlagType.cutN) || sq.has(IsoFlagType.WallN) || sq.has(IsoFlagType.WallNW) || sq.has(IsoFlagType.DoorWallN)
          || sq.has(IsoFlagType.WindowN) || sq.has(IsoFlagType.WallNTrans);
    }

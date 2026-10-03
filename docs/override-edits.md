@@ -5835,3 +5835,13 @@ objects, covered by the opaque glass). Default: unchanged.
 The glass program and the chassis-frame capture run only for the car's world draw (`ModelCamera.instance ==
 VehicleModelCamera.instance`): the sun shadow pass draws the same car from the sun into its atlas, and with sun shadows on the
 glass was drawn there too (wasted) and the occupant was placed from the sun camera's frame.
+
+## Window tiles as a dark column (`pplWallEdge`, 2026-10-03; `pzopt.PixelLight`, no override; docs/findings-window-column-2026-10-03.md)
+
+- pixelLight blended a wall pixel with the square behind its wall wherever the native shares the corner colours across it:
+  windows by day, door frames. Every window tile's wall face took half the room's light (a full-height grey column).
+- `pplWallEdge` (default on): the pack sets bits 0 / 1 of the connection texture's g byte for a square whose west / north
+  edge holds a wall (`ChunkAo.edgeW` / `edgeN`, now package-private) and is connected across it (such a square is not simple);
+  the shader drops that connection and the diagonal for points above the floor on the wall's side. Floors unchanged.
+  Rig: `--source-save Sandbox/2026-10-02_10-30-09 --shot-at 2` + `harness/wall-column.py` (Jev).
+

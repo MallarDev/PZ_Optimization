@@ -1035,7 +1035,14 @@ public final class PixelLight {
             // shader's one fetch knows both the light and the torch visibility there. (A vertical gradient does not count: walls
             // fetch their own texel.)
             // (not simple: 192 torch visible, 64 hidden, so the edge path reads the visibility from the same four fetches)
-            int simple = conn != 255 ? (tvis == 255 ? 192 : 64) : tvis == 255 ? 255 : 0;
+            // pplWallEdge: a wall on the square's west / north edge that the corners connect across (a window by day, a door
+            // frame): bit 0 / 1 of g, and the square is not simple, so the shader's edge path sees it
+            int wallEdge = 0;
+            if (Config.PPL_WALL_EDGE && sq != null && !above && !px.lite) {
+               if ((conn & 4) != 0 && ChunkAo.edgeW(sq)) wallEdge |= 1;
+               if ((conn & 8) != 0 && ChunkAo.edgeN(sq)) wallEdge |= 2;
+            }
+            int simple = conn != 255 || wallEdge != 0 ? (tvis == 255 ? 192 : 64) : tvis == 255 ? 255 : 0;
             if (sq != null && !above) { // (no square: no pixels; above the top: the level below's)
                allSat &= (info & 0xFF) >= 252 && (info >> 8 & 0xFF) >= 252 && (info >> 16 & 0xFF) >= 252;
                if (px.torchFilter ? allHidden && tvis != 0 : true) { // pplTorchNearChunk: once a square decided it, the rest are not asked (the test has no side effects)
@@ -1050,13 +1057,13 @@ public final class PixelLight {
             }
             int cell8 = (y * 8 + x) * 4;
             if (Config.DEV_PPL_PROBE > 0 && sq != null && !above) {
-               probePacked.put(probeKey(sq.x, sq.y, z), (long)(info & 0xFFFFFF | simple << 24) * 31L + (conn | tvis << 8 | grad << 16) * 17L
+               probePacked.put(probeKey(sq.x, sq.y, z), (long)(info & 0xFFFFFF | simple << 24) * 31L + (conn | (tvis & 0x80 | wallEdge) << 8 | grad << 16) * 17L
                      + (grad == 0 ? 0x808080 : wallDelta(v0, v1, v2, v3, t0, t1, t2, t3)));
             }
             b.putInt(base + cell8, info & 0xFFFFFF | simple << 24); // base light; a: a simple square (the shader's one-fetch path)
             // a: outdoors (>= 128: wet in rain) and, in bit 6, visible to the player (pplSeenEdge): 0 / 64 indoors, 128 / 255 outdoors
             int outdoor = (sq != null && sq.isOutside() ? 128 : 0) | (visible != 0 ? (sq.isOutside() ? 127 : 64) : 0);
-            b.putInt(base + 256 + cell8, conn | tvis << 8 | grad << 16 | outdoor << 24); // connectivity bits, torch visibility, vertical gradient, outdoors + visible
+            b.putInt(base + 256 + cell8, conn | (tvis & 0x80 | wallEdge) << 8 | grad << 16 | outdoor << 24); // connectivity bits, torch visibility (bit 7) + wall edges W / N (bits 0, 1), vertical gradient, outdoors + visible
             b.putInt(base + 512 + cell8, grad == 0 ? 0x808080 : wallDelta(v0, v1, v2, v3, t0, t1, t2, t3)); // top corners' mean - bottom corners' mean, 0.5 = none
          }
       }
@@ -2584,6 +2591,16 @@ public final class PixelLight {
       "      int bx = dir.x > 0 ? 1 : 4, by = dir.y > 0 ? 2 : 8;",
       "      int bxy = dir.x > 0 ? (dir.y > 0 ? 16 : 128) : (dir.y > 0 ? 32 : 64);",
       "      bool cx = (conn & bx) != 0, cy = (conn & by) != 0, cxy = (conn & bxy) != 0;",
+      // pplWallEdge: above the floor, on the side of a wall on the square's west / north edge, the square behind the wall
+      // is not blended in even where the native shares its light (a window by day: the wall face around it took half the
+      // room's light, a grey column down every window tile, 2026-10-03)
+      "#ifdef PPL_WALL_EDGE",
+      "      int we = int(cc.g * 255.0 + 0.5);",
+      "      if (fz > 0.02) {",
+      "         if ((we & 1) != 0 && dir.x < 0) { cx = false; cxy = false; }",
+      "         if ((we & 2) != 0 && dir.y < 0) { cy = false; cxy = false; }",
+      "      }",
+      "#endif",
       // the neighbours' squares, the own one where not connected (a diagonal falls back to the connected side); four
       // independent fetches accumulated at once (chaining the values kept four texels alive: registers)
       "      ivec2 s10 = cx ? s + ivec2(dir.x, 0) : s, s01 = cy ? s + ivec2(0, dir.y) : s;",
@@ -2975,7 +2992,7 @@ public final class PixelLight {
 
    /** The game's chunkShader.frag (DIFFUSE x vertex colour, depth = chunkDepth + the texture's depth) with the light multiplied in. */
    private static final String TINT = (Config.DEV_PPL_TINT ? "#define PPL_TINT\n" : "") + (Config.PPL_TEXEL_POS ? "#define PPL_TEXEL\n#define PPL_NSPAN " + Config.PPL_NORMAL_SPAN + "\n" : "")
-      + (Config.PPL_TEXEL_HEIGHT ? "#define PPL_TEXEL_Z\n" + (Config.PPL_FLOOR_SNAP ? "#define PPL_FLOOR_SNAP\n" : "") : "") + (Config.PPL_SEEN_EDGE ? "#define PPL_SEEN_EDGE\n" : "") + Relief.defines(); // the defines every chunk program gets
+      + (Config.PPL_TEXEL_HEIGHT ? "#define PPL_TEXEL_Z\n" + (Config.PPL_FLOOR_SNAP ? "#define PPL_FLOOR_SNAP\n" : "") : "") + (Config.PPL_SEEN_EDGE ? "#define PPL_SEEN_EDGE\n" : "") + (Config.PPL_WALL_EDGE ? "#define PPL_WALL_EDGE\n" : "") + Relief.defines(); // the defines every chunk program gets
    private static final String CHUNK_FRAG = "#version 420\n" + (Config.DEV_PPL_VIEW != 0 ? "#define PPL_DEV\n" : "") + TINT + CHUNK_FRAG_BODY; // dev views compiled in only when asked: they keep values alive to the end (registers)
    /** The same without the dynamic lights (chunk textures no light reaches): 32 registers, full occupancy on the 890M (64 with). */
    private static final String CHUNK_BASE_FRAG = "#version 420\n#define PPL_BASE\n" + CHUNK_FRAG_BODY;
