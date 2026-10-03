@@ -256,7 +256,7 @@ the header) and a YouTube URL for the showcase video.
 zoom 1) while the render size is forced 60 <-> 100 % every second, with FSR 1.0 (`flip-dr-card-fsr1`) and with taau
 (`flip-dr-card-taau`), 1:1 RGBA devCapture crops shown 2x with each frame's render size, and under them the frame rate per
 quarter second of the desktop's heavy-GPU-load runs `dr-sq-off4` / `dr-sq-model10-taau`; the right half the desktop and flip
-numbers; the trees card lost its "New!" heading with it, and `26-clear-audio.gif` left the page (7,926 characters otherwise).
+numbers; the trees card lost its "New!" heading with it, and `26-clear-audio.gif` left the page (7,926 characters otherwise). `54` the "New! People in cars" card (`harness/occupant-card-gif.py`; 2026-10-03, `docs/findings-car-occupant-2026-10-03.md`): the left half plays the same 60 km/h drive twice (runs `occ-card-off` / `occ-card-impostor`, car glass on, zoom 0.5, in-game 30 fps devCapture crops of the car) cut at the same capture frame, the empty cabin above and the driver below; the right half the GPU cost parked and driving and the drive's frame rate from the occ-cost / occ-final runs; the "Dynamic resolution" card lost its "New!" heading with it, and `27-ambient-occlusion.gif` left the page.
 
 ### Animated thumbnail
 

@@ -27,7 +27,9 @@ No need to run the installer again: the main menu shows PZ OPTIMIZATION UPDATE w
 [url=https://github.com/xD3I/PZ_Optimization#readme][img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/00-showcase-thumbnail.gif[/img][/url]
 [i]Uncapped at 5120x2160, the in-game overlay (F9 / L3 + R3) live at the bottom; video on the repository page.[/i]
 
-[h1]New! Dynamic resolution[/h1]
+[h1]New! People in cars[/h1]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/54-people-in-cars.gif[/img]
+
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/53-dynamic-resolution.gif[/img]
 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/52-driving-trees.gif[/img]
@@ -75,8 +77,6 @@ No need to run the installer again: the main menu shows PZ OPTIMIZATION UPDATE w
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/30-smooth-operator-driving.gif[/img]
 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/29-enhancements-tab.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/27-ambient-occlusion.gif[/img]
 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/25-power-efficiency.jpg[/img]
 
