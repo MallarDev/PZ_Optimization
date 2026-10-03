@@ -936,6 +936,14 @@ local ENHANCEMENT_SECTIONS = {
             { key = "carGlassRainPct", label = "Car glass: raindrops (%)",
               choices = { "0", "50", "100" }, note = { ["100"] = "default", ["0"] = "none" },
               tip = "Drops beading on the windows of cars standing out in the rain, each a tiny lens that catches the sky and the glints." },
+            { key = "carOccupant", label = "Car glass: the people inside",
+              choices = { "impostor", "proxy", "box", "off" }, note = { ["impostor"] = "default", ["off"] = "empty cars" },
+              tip = "Who sits in a car shows through its glass. The game never draws a seated character (cars look empty whoever drives them), though it animates them. impostor: the game's own model of the driver and passengers, hands on the wheel, in their clothes, drawn into a small picture of their own before the cars and looked up by the glass wherever it shows the cabin; redrawn when they move (turning the wheel up to 60 times a second, still a few times a second), between that the glass moves the last picture with the car: about a thousandth of a millisecond a frame parked, a few thousandths driving on a fast GPU. proxy: a simple body (head, torso, arms, legs) in their skin, hair and clothing colours, worked out by the glass itself (nothing extra drawn; cruder). box: the first release's dark torso shape. Applies on the next launch." },
+            { key = "carOccupantOcclusion", label = "Car glass: seats hide the people inside",
+              tip = "Off (default): the people inside show wherever the glass shows the cabin, over the seats in front of them (a cutaway: from the game's high camera angle the roof and the seats would otherwise hide most of a driver). On: the seats, headrests and floor hide them where they stand between them and the glass. Applies on the next launch." },
+            { key = "carOccupantLightPct", label = "Car glass: light on the people inside (%)",
+              choices = { "60", "80", "100", "120" }, note = { ["80"] = "default" },
+              tip = "How bright the people inside the car are, against how the game lights them outside (the roof shades them). Applies on the next launch." },
         },
     },
     {
@@ -1067,7 +1075,7 @@ local ENHANCEMENT_SECTIONS = {
 
 -- The Enhancements tab's keys apply as soon as Apply is pressed (Java: Config's live reload, pzopt.Enhancements), except
 -- the two HDR output switches: on Linux they pick the window the game is started with.
-local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true,
+local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true, carOccupant = true, carOccupantOcclusion = true, carOccupantLightPct = true,
     -- per-pixel lighting: read once at start-up (the chunk composite shader is patched when the game loads it)
     pixelLight = true, pplAnalytic = true, pplPointLights = true, pplNormals = true, pplWrapPct = true, pplSmooth = true,
     pplWetSpecular = true, pplSpecPct = true, pplShadows = true,
@@ -1592,6 +1600,9 @@ local EFFECTS = {
     carGlassInteriorPct = {},
     carGlassSunPct = {},
     carGlassRainPct = {},
+    carOccupant = { render = 1 },
+    carOccupantOcclusion = {},
+    carOccupantLightPct = {},
     bloodWet = { gpu = 1, cpu = 1 },
     bloodWetMinutes = { gpu = 1 },
     bloodReflectPct = {},

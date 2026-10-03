@@ -595,6 +595,7 @@ public final class TextureDraw {
             pzopt.RenderScale.requestedViewport(this.a, this.b, this.c, this.d); // pzopt: upscaler, a screen rect restore inside the scaled world pass is scaled too
             break;
          case DrawModel:
+            pzopt.CarOccupant.markDrawModel(); // pzopt: carOccupant, dev timing (the slot init wait of an occupant's draw)
             if (this.drawer != null) {
                if (this.future != null) {
                   ProfileArea var13 = GameProfiler.getInstance().profile("Wait");
@@ -618,6 +619,9 @@ public final class TextureDraw {
                   }
                }
 
+               if (pzopt.CarOccupant.capture(this)) { // pzopt: carOccupant, a seated character drawn into its car's impostor tile instead of the world
+                  break; // pzopt
+               } // pzopt
                int pzoptMotionId = this.b > 0 && pzopt.RenderScale.inWorldPass() ? this.b : 0; // pzopt: upscaler, object motion vectors
                if (pzoptMotionId > 0) {
                   pzopt.ObjectMotion.beginStencil(pzoptMotionId);

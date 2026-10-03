@@ -5813,3 +5813,25 @@ The vertical sizes / origins the upscaler scales (`WViewport.w`, the particles' 
 `displaySize.y`, fog `screenInfo.y` / camera top, the aiming cursor's background height) take `RenderScale`'s vertical
 factor (`viewPxY`, `scaledPxY`, `visBlurPxY`, `cursorBackgroundScaleY`), which differs from the horizontal one only
 with `dynResAxes=x` (horizontal-only scaling).
+
+## The people inside a car (2026-10-03; `pzopt.CarOccupant`, `pzopt.CarGlass`; write-up docs/findings-car-occupant-2026-10-03.md)
+
+### zombie.core.textures.TextureDraw
+
+`DrawModel` in `render()`: first `pzopt.CarOccupant.markDrawModel()` (dev timing of an occupant's slot-init wait, nothing
+outside an occupant pass); after the slot's init future is waited for, `pzopt.CarOccupant.capture(this)`: while an occupant pass
+is open (its Begin drawer queued by `CarOccupant.queue` ahead of the moving objects), a seated character's model is drawn into its
+car's impostor tile with the pass's camera (the world view, projection zoomed onto the cabin, the seat placed in the glass's
+chassis frame) and the world draw is skipped (`break`). Every other DrawModel goes on as before.
+
+### zombie.characters.IsoGameCharacter
+
+`render(...)`: the stock early return for a character seated in a vehicle without the seat script's `showPassenger` also
+passes when `pzopt.CarOccupant.showStock(this)` (`carOccupant=stock`, a dev A/B of the stock path: the model among the moving
+objects, covered by the opaque glass). Default: unchanged.
+
+### pzopt.CarGlass (not an override; for the record)
+
+The glass program and the chassis-frame capture run only for the car's world draw (`ModelCamera.instance ==
+VehicleModelCamera.instance`): the sun shadow pass draws the same car from the sun into its atlas, and with sun shadows on the
+glass was drawn there too (wasted) and the occupant was placed from the sun camera's frame.

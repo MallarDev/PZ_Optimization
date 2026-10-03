@@ -564,6 +564,17 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   glass program (build.sh's `pzopt_glass_*` copies) redraws only the window triangles. Trap: glass code inlined into the stock vehicle
   shader made every car fragment ~4x slower (registers). Drive cost ~+15 us GPU. Rig `car_rig=N`; in-run variant cycles
   `devCarGlassAlternate` + `devCarGlassCycle`; `scripts/test.sh` links the glass programs headless (`/tmp/glslcheck`).
+- The people inside a car (2026-10-03, `docs/findings-car-occupant-2026-10-03.md`, worktree `~/pzopt-wt/occupant` branch
+  `car-occupant`, with car glass, `carOccupant=impostor` default, next launch): stock never draws a seated character; each occupant
+  is drawn by the game's own character path into an offscreen impostor tile before the cars (world projection zoomed onto the cabin,
+  the seat in the glass's chassis frame G) and the glass maps its chassis points into the tile (cutaway over the seats by default,
+  `carOccupantOcclusion` for the physical result). Tiles are reused: redrawn when a bone moves (≤ 60 Hz), at least 4 Hz, at once on a
+  6° turn / zoom / seat change; between, the glass reprojects through the old tile's G → NDC rows. Cost parked +1.3 us GPU, driving
+  ~+2-5 us (every-frame drawing was +22-33 us). Traps: stock's inVehicle seat transform puts the model at the rear of the car; the sun
+  shadow pass draws cars from the sun (glass now only for `VehicleModelCamera`); `Transform.getRotation` is unnormalised. Rigs
+  `car_rig_seat=true [car_rig_spin=D] [car_rig_p2=split|npc car_rig_p2_car=same|other car_rig_p2_count=N]`, dev views 12-18,
+  `devCarOccupantDump`, `harness/carglass/occframes.py` / `occcost.py`. Several people / cars / split screen work (tiles per car and
+  view, 4 cars a view, the rest the proxy): split screen driver + passenger 1.2 us, six occupied cars 1.6 us.
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

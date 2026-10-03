@@ -205,7 +205,7 @@ public final class CarGlass {
          "  // the skin's glass map: 1-6 the stock window zones 7-12, 7 glass painted outside them, 8 a mirror; 0 not glass",
          "  float cls = floor(texture2D(pzGlassClass, texCoords).r * 255.0 + 0.5);",
          "  float z = cls - 1.0;",
-         "  if (pzGlassA.z > 9.5) { // dev views 10 (every texel by its class: window red, extra glass green, mirror cyan, unmarked blue, other zones grey + zone colour), 11 (the diffuse, glass tinted red)",
+         "  if (pzGlassA.z > 9.5 && pzGlassA.z < 11.5) { // dev views 10 (every texel by its class: window red, extra glass green, mirror cyan, unmarked blue, other zones grey + zone colour), 11 (the diffuse, glass tinted red)",
          "    vec4 mk = texture2D(TextureMask, texCoords);",
          "    if (pzGlassA.z > 10.5) { vec3 d = texture2D(Texture0, texCoords).rgb; gl_FragColor = vec4(cls > 0.5 ? mix(d, cls > 7.5 ? vec3(0.0, 1.0, 1.0) : (cls > 6.5 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)), 0.6) : d, 1.0); return; }",
          "    gl_FragColor = vec4(cls > 7.5 ? vec3(0.0, 1.0, 1.0) : (cls > 6.5 ? vec3(0.1, 1.0, 0.1) : (cls > 0.5 ? vec3(1.0, 0.1, 0.1) : (mk.a < 0.5 ? vec3(0.1, 0.3, 1.0) : mix(vec3(0.5), mk.rgb, 0.5)))), 1.0);",
@@ -284,7 +284,7 @@ public final class CarGlass {
          "// depth -> w | spare",
          "uniform vec4 pzGlassFr[9];",
          "// per car (CarGlass.C_*), one upload a draw",
-         "uniform vec4 pzGlassCar[42];",
+         "uniform vec4 pzGlassCar[" + CarGlass.CAR + "];",
          "#define pzGlassA pzGlassFr[0]",
          "#define pzGlassSunC pzGlassFr[1]",
          "#define pzGlassSkyZ pzGlassFr[2]",
@@ -307,7 +307,17 @@ public final class CarGlass {
          "#define pzGlassO pzGlassCar[11]",
          "#define pzGlassTex pzGlassCar[12]",
          "#define pzGlassClip mat4(pzGlassCar[13], pzGlassCar[14], pzGlassCar[15], pzGlassCar[16])",
-         "// 17-22 seats, 23-27 lamps, 28-32 lamp colours, 33-38 the windows' flags (damage 1, damage 2, removed, blood), 39-40 blood masks, 41 lit + alpha",
+         "// 17-22 seats, 23-27 lamps, 28-32 lamp colours, 33-38 the windows' flags (damage 1, damage 2, removed, blood), 39-40 blood masks, 41 lit + alpha,",
+         "// 42-43 the occupants' impostor tile (CarOccupant: the cabin's NDC rect min xy, 1 / size; its atlas uv rect)",
+         "#define pzGlassOcc0 pzGlassCar[42]",
+         "#define pzGlassOcc1 pzGlassCar[43]",
+         "#define pzGlassOcc2 pzGlassCar[44] // x: the occupant's seat origin's depth in the tile",
+         "#define pzGlassOcc3 pzGlassCar[45] // xyz: that seat origin in G",
+         "#define pzGlassOcc4 pzGlassCar[46] // G -> the tile's world NDC x (a row)",
+         "#define pzGlassOcc5 pzGlassCar[47] // y",
+         "// 48-53 each seat's occupant colours for the capsule proxy (packed 8-bit RGB): top, legs, skin, hair",
+         "uniform sampler2D pzOccC; // the occupants drawn by the game (CarOccupant), premultiplied",
+         "uniform sampler2D pzOccD; // their depth (the world view's plain projected depth)",
          "uniform sampler2D pzGlassWorldT; // the world colour as drawn so far (the pixel march / carGlassLiveReads)",
          "uniform sampler2D pzGlassWorldD; // the world depth",
          "uniform sampler2D pzGlassProbeT; // the cars' reflection probes (octahedral tiles, alpha = a surface was hit)",
@@ -450,15 +460,63 @@ public final class CarGlass {
          "    if (t > 0.0 && t < pzHitT) { pzHitT = t; pzHitK = k; pzHitN = normalize(oc + d * t); }",
          "  }",
          "}",
+         "// a capsule (Quilez): the ray's entry distance, -1 for a miss",
+         "float pzGlassCapT(vec3 ro, vec3 rd, vec3 pa, vec3 pb, float ra) {",
+         "  vec3 ba = pb - pa, oa = ro - pa;",
+         "  float baba = dot(ba, ba), bard = dot(ba, rd), baoa = dot(ba, oa), rdoa = dot(rd, oa), oaoa = dot(oa, oa);",
+         "  float a = baba - bard * bard, b = baba * rdoa - baoa * bard, c = baba * oaoa - baoa * baoa - ra * ra * baba;",
+         "  float h = b * b - a * c;",
+         "  if (h < 0.0) return -1.0;",
+         "  float t = (-b - sqrt(h)) / a;",
+         "  float y = baoa + t * bard;",
+         "  if (y > 0.0 && y < baba) return t;",
+         "  vec3 oc = y <= 0.0 ? oa : ro - pb;",
+         "  b = dot(rd, oc); c = dot(oc, oc) - ra * ra; h = b * b - c;",
+         "  return h > 0.0 ? -b - sqrt(h) : -1.0;",
+         "}",
+         "void pzGlassCap(vec3 o, vec3 d, vec3 pa, vec3 pb, float r, float k) {",
+         "  float t = pzGlassCapT(o, d, pa, pb, r);",
+         "  if (t > 0.0 && t < pzHitT) {",
+         "    vec3 h = o + d * t, ba = pb - pa;",
+         "    pzHitT = t; pzHitK = k;",
+         "    pzHitN = normalize(h - (pa + ba * clamp(dot(h - pa, ba) / dot(ba, ba), 0.0, 1.0)));",
+         "  }",
+         "}",
+         "vec3 pzGlassUnpack(float c) { return vec3(floor(c / 65536.0), mod(floor(c / 256.0), 256.0), mod(c, 256.0)) / 255.0; }",
+         "float pzHitSeat, pzPerT, pzPerK, pzPerSeat; vec3 pzPerN;",
+         "// the capsule proxy of a seated occupant (seat point q = the hip, fw = the chassis axis the seats face): torso, head, arms",
+         "// (hands on the wheel in the front seats, in the lap behind), thighs; materials 6 top, 7 legs, 8 skin, 9 hair",
+         "void pzGlassPerson(vec3 p, vec3 d, vec3 q, float fw, bool front, float seat) {",
+         "  // (its own hit: the cabin's seats only hide it with carOccupantOcclusion)",
+         "  float t0 = pzHitT, k0 = pzHitK; vec3 n0 = pzHitN;",
+         "  pzHitT = pzPerT;",
+         "  // (proportions measured on the game's own seated model through its impostor tile: feet 0.44 below the hip point, the",
+         "  // crown 0.56 above, the feet 0.57 forward)",
+         "  pzGlassCap(p, d, q + vec3(0.0, 0.02, -0.08 * fw), q + vec3(0.0, 0.30, -0.06 * fw), 0.14, 6.0);",
+         "  pzGlassCap(p, d, q + vec3(0.0, 0.44, -0.03 * fw), q + vec3(0.0, 0.47, -0.04 * fw), 0.095, 8.0);",
+         "  vec3 hand = front ? vec3(0.15, 0.24, 0.38 * fw) : vec3(0.10, 0.02, 0.26 * fw);",
+         "  for (int s = 0; s < 2; s++) {",
+         "    float sx = s == 0 ? 1.0 : -1.0;",
+         "    vec3 sh = q + vec3(0.17 * sx, 0.28, -0.06 * fw), el = q + vec3(0.19 * sx, 0.09, 0.13 * fw);",
+         "    pzGlassCap(p, d, sh, el, 0.05, 6.0);",
+         "    pzGlassCap(p, d, el, q + vec3(hand.x * sx, hand.y, hand.z), 0.04, 8.0);",
+         "    vec3 kn = q + vec3(0.10 * sx, 0.02, 0.40 * fw);",
+         "    pzGlassCap(p, d, q + vec3(0.09 * sx, -0.04, -0.02 * fw), kn, 0.075, 7.0);",
+         "    pzGlassCap(p, d, kn, q + vec3(0.10 * sx, -0.40, 0.54 * fw), 0.055, 7.0);",
+         "  }",
+         "  if (pzHitT < pzPerT) { pzPerT = pzHitT; pzPerK = pzHitK; pzPerN = pzHitN; pzPerSeat = seat; }",
+         "  pzHitT = t0; pzHitK = k0; pzHitN = n0;",
+         "}",
          "// what the glass lets through: the cabin (linear radiance), see = 1 when the ray leaves through the far glass",
          "vec3 pzGlassCabin(vec3 p, vec3 d, vec3 lit, out float see) {",
          "  vec3 inv = vec3(1.0) / (d + vec3(1e-6));",
-         "  pzHitT = 1e6; pzHitK = 0.0; pzHitN = vec3(0.0, 1.0, 0.0);",
+         "  pzHitT = 1e6; pzHitK = 0.0; pzHitN = vec3(0.0, 1.0, 0.0); pzHitSeat = -1.0; pzPerT = 1e6; pzPerSeat = -1.0;",
          "  float fw = pzGlassV.w;",
          "  for (int i = 0; i < 6; i++) {",
          "    if (float(i) >= pzGlassK.y) break;",
          "    vec4 s = pzGlassCar[17 + i];",
          "    vec3 q = s.xyz;",
+         "    if (s.w > 3.5) pzGlassPerson(p, d, q, fw, q.z * fw > pzGlassCab1.w * fw - 1.0, float(i)); // (before the seat's box test: its own hit)",
          "    // the seat's bounding box first (most rays miss most seats)",
          "    vec3 b0 = (q + vec3(-0.25, -0.17, -0.39) - p) * inv, b1 = (q + vec3(0.25, 0.68, 0.39) - p) * inv;",
          "    vec3 bn = pzG3min(b0, b1), bf = pzG3max(b0, b1);",
@@ -467,7 +525,7 @@ public final class CarGlass {
          "    pzGlassBox(p, d, inv, q + vec3(-0.24, -0.16, min(-0.26 * fw, 0.24 * fw)), q + vec3(0.24, 0.0, max(-0.26 * fw, 0.24 * fw)), 1.0);",
          "    pzGlassBox(p, d, inv, q + vec3(-0.24, 0.0, min(-0.38 * fw, -0.24 * fw)), q + vec3(0.24, 0.50, max(-0.38 * fw, -0.24 * fw)), 1.0);",
          "    pzGlassBox(p, d, inv, q + vec3(-0.13, 0.53, min(-0.38 * fw, -0.27 * fw)), q + vec3(0.13, 0.67, max(-0.38 * fw, -0.27 * fw)), 1.0);",
-         "    if (s.w > 1.5) {",
+         "    if (s.w > 1.5 && s.w < 2.5) {",
          "      pzGlassBox(p, d, inv, q + vec3(-0.19, 0.0, min(-0.25 * fw, -0.04 * fw)), q + vec3(0.19, 0.45, max(-0.25 * fw, -0.04 * fw)), 2.0);",
          "      pzGlassBall(p, d, q + vec3(0.0, 0.60, -0.12 * fw), 0.10, 3.0);",
          "    }",
@@ -480,17 +538,26 @@ public final class CarGlass {
          "  see = 0.0;",
          "  if (pzHitT >= tx) {",
          "    vec3 e = p + d * tx;",
-         "    if ((tx == tf.x || tx == tf.z) && e.y > pzGlassCab0.w) { see = 1.0; return vec3(0.0); }",
+         "    if ((tx == tf.x || tx == tf.z) && e.y > pzGlassCab0.w && pzPerT > 1e5) { see = 1.0; return vec3(0.0); }",
          "    pzHitT = tx; pzHitK = 5.0;",
          "    pzHitN = tx == tf.x ? vec3(-sign(d.x), 0.0, 0.0) : (tx == tf.y ? vec3(0.0, -sign(d.y), 0.0) : vec3(0.0, 0.0, -sign(d.z)));",
          "  }",
+         "  if (pzPerT < 1e5 && (pzGlassFr[8].z < 0.5 || pzPerT < pzHitT)) { pzHitT = pzPerT; pzHitK = pzPerK; pzHitN = pzPerN; pzHitSeat = pzPerSeat; see = 0.0; }",
          "  vec3 h = p + d * pzHitT;",
          "  vec3 alb = pzGlassInt.rgb;",
          "  if (pzHitK > 1.5) alb = vec3(0.045, 0.045, 0.05);",
          "  if (pzHitK > 2.5) alb = vec3(0.30, 0.20, 0.15);",
          "  if (pzHitK > 3.5) alb = vec3(0.025);",
          "  if (pzHitK > 4.5) alb = pzGlassInt.rgb * 0.55;",
+         "  if (pzHitK > 5.5) {",
+         "    vec4 pal = vec4(0.0); float qy = 0.0;",
+         "    for (int j = 0; j < 6; j++) if (float(j) == pzHitSeat) { pal = pzGlassCar[48 + j]; qy = pzGlassCar[17 + j].y; }",
+         "    float m = pzHitK > 8.5 ? pal.w : pzHitK > 7.5 ? pal.z : pzHitK > 6.5 ? pal.y : pal.x;",
+         "    alb = pzGlassLin(pzGlassUnpack(m)) * pzGlassFr[8].y;",
+         "    if (pzHitK > 7.5 && pzHitK < 8.5 && (pzHitN.y > 0.45 || dot(pzHitN, vec3(0.0, 0.0, fw)) < -0.4) && h.y > qy + 0.44) alb = pzGlassLin(pzGlassUnpack(pal.w)) * pzGlassFr[8].y; // the head's crown and back: hair",
+         "  }",
          "  float hgt = clamp((h.y - pzGlassCab0.y) / max(pzGlassCab1.y - pzGlassCab0.y, 0.1), 0.0, 1.0);",
+         "  if (pzHitK > 5.5) return alb * lit * (0.45 + 0.55 * hgt) * (0.7 + 0.3 * clamp(dot(pzHitN, pzGlassUp.xyz), 0.0, 1.0)); // the proxy body: lit like the impostor's occupant",
          "  float top = 0.55 + 0.45 * dot(pzHitN, pzGlassUp.xyz);",
          "  return alb * lit * (0.25 + 0.75 * hgt) * top * pzGlassInt.w;",
          "}",
@@ -543,6 +610,7 @@ public final class CarGlass {
          "  float see;",
          "  vec3 tint = mix(vec3(1.0), vec3(0.80, 0.87, 0.85), pzGlassT.y);",
          "  vec3 inside;",
+         "  pzHitT = 1e6;",
          "  if (pzGlassMirror > 0.5) { see = 0.0; inside = vec3(0.0); }",
          "  else if (pzGlassK.z > 0.5 && mod(floor(pzGlassFr[8].x / 16.0), 2.0) < 0.5) inside = pzGlassCabin(pzGP, V, lit, see);",
          "  else { see = 0.0; inside = pzGlassInt.rgb * lit * 0.5 * pzGlassInt.w; }",
@@ -551,6 +619,40 @@ public final class CarGlass {
          "    vec3 back = horizon * pzGlassSkyR.w;",
          "    if (pzGlassTex.x == 0.0 && pzGlassK.w >= 0.0) { vec4 pb = pzGlassProbe(pzGlassWorld(V)); back = mix(back, pzGlassLin(pb.rgb), pb.a); }",
          "    inside = pzGlassScene(px, back) * tint * pzGlassT.x;",
+         "  }",
+         "  // the occupants (CarOccupant): the game's own model of each, drawn into a tile with the world view's projection; the",
+         "  // texel's chassis position through the same projection is where the tile shows what lies behind it on the view ray,",
+         "  // the depth difference over the projection's depth per unit along the ray is how far behind: in front of the cabin's",
+         "  // hit (seats, headrests, dashboard), the occupant is what the glass lets through",
+         "  vec3 occDbg = vec3(0.0);",
+         "  vec3 occDbg2 = vec3(0.0, 1.0, 0.0);",
+         "  if (pzGlassOcc0.z > 0.0 && pzGlassMirror < 0.5) {",
+         "    vec4 cl = pzGlassClip * vec4(pzGP, 1.0);",
+         "    vec2 ndc = vec2(dot(pzGlassOcc4, vec4(pzGP, 1.0)), dot(pzGlassOcc5, vec4(pzGP, 1.0))); // where the tile drew this chassis point",
+         "    vec2 ouv = (ndc - pzGlassOcc0.xy) * pzGlassOcc0.zw;",
+         "    occDbg = vec3(0.25, 0.0, 0.25);",
+         "    occDbg2 = pzGlassA.z > 14.5 ? vec3(cl.xy / cl.w * 0.5 + 0.5, 0.0) : pzGlassA.z > 13.5 ? vec3(ndc * 0.5 + 0.5, 0.0) : vec3(clamp(ouv.x, 0.0, 1.0), clamp(ouv.y, 0.0, 1.0), 0.5);",
+         "    if (ouv.x > 0.0 && ouv.y > 0.0 && ouv.x < 1.0 && ouv.y < 1.0) {",
+         "      vec2 au = pzGlassOcc1.xy + ouv * pzGlassOcc1.zw;",
+         "      vec4 oc = texture2D(pzOccC, au);",
+         "      occDbg = vec3(0.0, 0.0, 0.3);",
+         "      if (oc.a > 0.004) {",
+         "        float od = texture2D(pzOccD, au).r;",
+         "        float k = 0.5 * (pzGlassClip * vec4(V, 0.0)).z;",
+         "        float ot = dot(pzGlassOcc3.xyz - pzGP, V) + (od - pzGlassOcc2.x) / k; // along the view: the glass to the seat's origin, then the occupant's surface from its origin (the tile's own depths)",
+         "        occDbg = vec3(1.0, 0.0, 0.0);",
+         "        if (pzGlassA.z > 16.5) occDbg2 = oc.rgb / oc.a; // 17: the tile's occupant wherever it covers the glass (no depth test)",
+         "        if (pzGlassA.z > 15.5 && pzGlassA.z < 16.5) occDbg2 = vec3(clamp(ot * 0.5 + 0.5, 0.0, 1.0), clamp(pzHitT * 0.5, 0.0, 1.0), od < 0.99999 ? 1.0 : 0.0); // 16: the occupant's distance behind the glass (red, 0.5 = 0, 1 square a step of 0.5), the cabin hit's (green)",
+         "        if (od < 0.99999 && (pzGlassOcc2.y < 0.5 || ot > -0.05 && ot < pzHitT)) { // (carOccupantOcclusion: the cabin's seats in front hide it)",
+         "          vec3 hp = pzGP + V * ot;",
+         "          float hg = clamp((hp.y - pzGlassCab0.y) / max(pzGlassCab1.y - pzGlassCab0.y, 0.1), 0.0, 1.0);",
+         "          vec3 ol = pzGlassLin(oc.rgb / oc.a) * pzGlassFr[8].y * (0.45 + 0.55 * hg);",
+         "          inside = mix(inside, ol, clamp(oc.a, 0.0, 1.0));",
+         "          if (see > 0.5) see = 1.0 - clamp(oc.a, 0.0, 1.0);",
+         "          occDbg = pzGlassEnc(ol);",
+         "        }",
+         "      }",
+         "    }",
          "  }",
          "  vec3 R = reflect(V, N);",
          "  vec3 w = pzGlassWorld(R);",
@@ -614,7 +716,10 @@ public final class CarGlass {
          "    else if (view < 6.5) o = vec3(F * 4.0);",
          "    else if (view < 7.5) { vec4 pr = pzGlassK.w >= 0.0 ? pzGlassProbe(w) : vec4(1.0, 0.0, 1.0, 1.0); o = mix(vec3(1.0, 0.0, 1.0), pr.rgb, pr.a); }",
          "    else if (view < 8.5) o = pzGlassEnc(spec);",
-         "    else o = vec3(see, drop, pzGlassK.w >= 0.0 ? 1.0 : 0.0);",
+         "    else if (view < 9.5) o = vec3(see, drop, pzGlassK.w >= 0.0 ? 1.0 : 0.0);",
+         "    else if (view > 17.5) o = vec3(pzPerT < 1e5 ? 1.0 : 0.0, pzHitK > 5.5 ? 1.0 : 0.0, float(pzGlassK.y) / 6.0); // 18: the proxy body hit (red), the cabin shading it (green), seats (blue)",
+         "    else if (view > 12.5) o = occDbg2; // 13: the texel's tile uv (red, green; yellow / black clamped outside), 14: its world NDC (green: no tile)",
+         "    else o = occDbg; // 12: the occupant tile (dark blue in the tile, magenta outside it, red behind the cabin's hit, the occupant where it shows)",
          "    return o;",
          "  }",
          "  return mix(stock, o, pzGlassA.x * (1.0 - cover));",
@@ -633,6 +738,7 @@ public final class CarGlass {
       float skyCos = 1F, skySin = 0F, groundK = 0.25F, seconds, rain, view;
       float screenW, screenH, pxScale = 1F;
       int ox, oy;
+      int player; // the view this frame state draws
       float d0;
       final Ssr.View iso = new Ssr.View();
       int np; // probes marched this frame
@@ -703,6 +809,7 @@ public final class CarGlass {
       return ph == 0;
    }
 
+   static final String[] VIEW_LIST = Config.DEV_CAR_GLASS_VIEW_LIST.isEmpty() ? null : Config.DEV_CAR_GLASS_VIEW_LIST.split(",");
    static volatile int cycleSkip;
    private static final float A32 = 32F, A16 = 16F;
 
@@ -722,13 +829,15 @@ public final class CarGlass {
       f.on = alternateOn();
       f.skip = CYCLE != null ? cycleSkip : Config.DEV_CAR_GLASS_SKIP;
       f.view = Config.DEV_CAR_GLASS_VIEW;
+      f.player = playerIndex;
       if (Config.DEV_CAR_GLASS_VIEW_CYCLE > 0) {
          long now = System.currentTimeMillis();
          if (viewT0 == 0L) {
             viewT0 = now;
             Log.info("car glass: dev view cycle every " + Config.DEV_CAR_GLASS_VIEW_CYCLE + " ms from epoch_ms " + now + " (view 0 first)");
          }
-         f.view = (float)(((now - viewT0) / Config.DEV_CAR_GLASS_VIEW_CYCLE) % 10);
+         long k = (now - viewT0) / Config.DEV_CAR_GLASS_VIEW_CYCLE;
+         f.view = VIEW_LIST != null ? Float.parseFloat(VIEW_LIST[(int)(k % VIEW_LIST.length)].trim()) : (float)(k % 10);
       }
       if (++frames % 1200L == 120L) {
          Log.info(stats());
@@ -757,6 +866,20 @@ public final class CarGlass {
       if (sec) {
          GpuSections.end("carGlassProbe");
       }
+      try {
+         CarOccupant.queue(f, playerIndex); // the occupants into their impostor tiles, before every moving object
+      } catch (Throwable t) {
+         Log.warn("car occupant: queue failed: " + t);
+      }
+   }
+
+   /** The world viewport's size (render thread; cached: asked once, again on probe frames). */
+   static float viewportW() {
+      return VP[2] > 0F ? VP[2] : Core.getInstance().getOffscreenWidth(0);
+   }
+
+   static float viewportH() {
+      return VP[3] > 0F ? VP[3] : Core.getInstance().getOffscreenHeight(0);
    }
 
    private static void sky(Frame f) {
@@ -1153,9 +1276,9 @@ public final class CarGlass {
    // ------------------------------------------------------------------------------------------------ per draw (render thread)
 
    // per-frame array pzGlassFr (uploaded once a frame per program) and per-car array pzGlassCar (one upload a draw)
-   static final int FR = 9, CAR = 42;
+   static final int FR = 9, CAR = 54;
    private static final int C_V = 0, C_E = 1, C_S = 2, C_UP = 3, C_SUN = 4, C_CAB0 = 5, C_CAB1 = 6, C_INT = 7, C_RAIN = 8, C_K = 9, C_PC = 10, C_O = 11,
-      C_TEX = 12, C_CLIP = 13, C_SEAT = 17, C_L = 23, C_LC = 28, C_WIN = 33, C_BLOOD = 39, C_LIT = 41;
+      C_TEX = 12, C_CLIP = 13, C_SEAT = 17, C_L = 23, C_LC = 28, C_WIN = 33, C_BLOOD = 39, C_LIT = 41, C_OCC = 42, C_PAL = 48;
    private static final int U_A = 0, U_M = 1, U_FR = 2, U_CAR = 3;
    private static final String[] UNIFORMS = {"pzGlassFr", "pzGlassM", "pzGlassFr", "pzGlassCar"};
    private static final java.util.HashMap<Integer, int[]> LOCATIONS = new java.util.HashMap<>();
@@ -1172,8 +1295,8 @@ public final class CarGlass {
          LOCATIONS.put(prog, l);
          if (l[U_A] >= 0) {
             String[] samplers = {"TextureMask", "TextureDamage1Overlay", "TextureDamage1Shell", "TextureDamage2Overlay", "TextureDamage2Shell", "TextureReflectionA",
-               "TextureReflectionB", "pzGlassWorldT", "pzGlassWorldD", "pzGlassProbeT", "pzGlassClass"};
-            int[] units = {2, 4, 5, 6, 7, 8, 9, WORLD_UNIT, WORLD_DEPTH_UNIT, PROBE_UNIT, CLASS_UNIT};
+               "TextureReflectionB", "pzGlassWorldT", "pzGlassWorldD", "pzGlassProbeT", "pzGlassClass", "pzOccC", "pzOccD"};
+            int[] units = {2, 4, 5, 6, 7, 8, 9, WORLD_UNIT, WORLD_DEPTH_UNIT, PROBE_UNIT, CLASS_UNIT, CarOccupant.COLOR_UNIT, CarOccupant.DEPTH_UNIT};
             for (int i = 0; i < samplers.length; i++) {
                int loc = GL20.glGetUniformLocation(prog, samplers[i]);
                if (loc >= 0) {
@@ -1190,10 +1313,11 @@ public final class CarGlass {
    private static final Matrix3f A_INV = new Matrix3f(), W = new Matrix3f();
    static final Matrix3f ISO = new Matrix3f().rotateX(0.5235988F).rotateY(2.3561945F);
    private static final Vector3f V3 = new Vector3f();
+   private static final org.joml.Vector4f V4A = new org.joml.Vector4f();
    private static final FloatBuffer M16 = BufferUtils.createFloatBuffer(16), FRB = BufferUtils.createFloatBuffer(FR * 4), CARB = BufferUtils.createFloatBuffer(CAR * 4);
    private static final float[] C = new float[CAR * 4];
    private static final org.joml.Quaternionf Q = new org.joml.Quaternionf();
-   private static long lastDiagNs;
+   private static long lastDiagNs, lastOccDiagNs, lastPalNs;
 
    private static final java.util.HashMap<String, Shader> GLASS = new java.util.HashMap<>();
 
@@ -1207,6 +1331,10 @@ public final class CarGlass {
       if (!active() || f == null || !f.on || effect == null || vmi == null || inst.modelInstance != vmi || !(slot.object instanceof BaseVehicle v)
             || !f.probeIndex.containsKey(v)) {
          return null;
+      }
+      if (zombie.core.skinnedmodel.ModelCamera.instance != VehicleModelCamera.instance) {
+         sunViewSkips++;
+         return null; // the same car drawn from another camera (the sun into the shadow atlas): no glass there
       }
       if (glassMap(vmi) == null) {
          return null; // this skin's glass map is being built (a few frames once per skin): the stock windows meanwhile
@@ -1236,7 +1364,7 @@ public final class CarGlass {
       return Config.CAR_GLASS_COMPACT;
    }
 
-   static long drawNs;
+   static long drawNs, sunViewSkips;
 
    /**
     * Render thread, Model.pzoptDrawGlass (the glass program bound, the matrix stacks holding the mesh's model view): this
@@ -1296,6 +1424,9 @@ public final class CarGlass {
       TMP.set(MESH_TO_G).invert();
       G_TO_EYE.set(MV).mul(TMP);
       CLIP.set(P).mul(G_TO_EYE);
+      if (CarOccupant.impostor() && hasOccupant(v)) {
+         CarOccupant.chassis(v, G_TO_EYE); // the occupants' seats are placed in this frame next frame
+      }
       // eye <- G (scaled rotation, mirrored for vehicles); world GL directions -> G through the iso camera's rotation
       G_TO_EYE.get3x3(A_INV);
       float scale = (float)Math.cbrt(Math.abs(A_INV.determinant()));
@@ -1326,9 +1457,44 @@ public final class CarGlass {
       }
       put(C_RAIN, Math.min(1F, rain), 0F, Math.min(1F, Math.abs(v.getCurrentSpeedKmHour()) / 80F), 0F);
       CabinData cd = cabinData(script);
+      // the occupants: the game's models through the impostor tile (seat 3: no proxy), the torso box / head ball (2), none (1)
+      CarOccupant.Tile occ = (skip() & (2048 | 1024)) != 0 ? null : CarOccupant.tileFor(v, f.serial, f.player);
+      float occupied = occ != null ? 3F : CarOccupant.seatProxy();
+      if (occ != null) {
+         CarOccupant.bindAtlas();
+         put(C_OCC, occ.minX, occ.minY, occ.invW, occ.invH);
+         // the tile drawn this frame or a few frames ago: G -> its world NDC then
+         put(C_OCC + 4, occ.rx[0], occ.rx[1], occ.rx[2], occ.rx[3]);
+         put(C_OCC + 5, occ.ry[0], occ.ry[1], occ.ry[2], occ.ry[3]);
+         put(C_OCC + 1, occ.u0, occ.v0, occ.du, occ.dv);
+         put(C_OCC + 2, occ.seatDepth, Config.CAR_OCCUPANT_OCCLUSION ? 1F : 0F, 0F, 0F);
+         put(C_OCC + 3, 0F, 0F, 0F, 0F);
+         for (int si = 0; si < cd.n; si++) {
+            if (cd.index[si] == occ.seat) {
+               // the model's origin: the script's inside position (the cabin's seat point is that + the hip height)
+               put(C_OCC + 3, cd.seat[si * 3], cd.seat[si * 3 + 1] - Config.CAR_GLASS_SEAT_HIP_PCT / 100F + Config.DEV_CAR_OCCUPANT_Y_PCT / 100F, cd.seat[si * 3 + 2], 1F);
+            }
+         }
+      } else {
+         put(C_OCC, 0F, 0F, 0F, 0F);
+         put(C_OCC + 1, 0F, 0F, 0F, 0F);
+         put(C_OCC + 2, 0F, 0F, 0F, 0F);
+         put(C_OCC + 3, 0F, 0F, 0F, 0F);
+         put(C_OCC + 4, 0F, 0F, 0F, 0F);
+         put(C_OCC + 5, 0F, 0F, 0F, 0F);
+      }
       for (int i = 0; i < 6; i++) {
          if (i < cd.n) {
-            put(C_SEAT + i, cd.seat[i * 3], cd.seat[i * 3 + 1], cd.seat[i * 3 + 2], v.getCharacter(cd.index[i]) != null ? 2F : 1F);
+            zombie.characters.IsoGameCharacter sc = v.getCharacter(cd.index[i]);
+            put(C_SEAT + i, cd.seat[i * 3], cd.seat[i * 3 + 1], cd.seat[i * 3 + 2], sc != null ? occupied : 1F);
+            if (sc != null && occupied > 3.5F) {
+               float[] pal = CarOccupant.palette(sc);
+               put(C_PAL + i, pal[0], pal[1], pal[2], pal[3]);
+               if (Config.INSTRUMENT && System.nanoTime() - lastPalNs > 3_000_000_000L) {
+                  lastPalNs = System.nanoTime();
+                  Log.info(String.format(java.util.Locale.ROOT, "car occupant: proxy colours seat %d: top %06x legs %06x skin %06x hair %06x%s", cd.index[i], (int)pal[0], (int)pal[1], (int)pal[2], (int)pal[3], pal[5] > 0.5F ? "" : " (pending)"));
+               }
+            }
          } else {
             put(C_SEAT + i, 0F, 0F, 0F, 0F);
          }
@@ -1406,11 +1572,60 @@ public final class CarGlass {
       CARB.flip();
       GL20.glUniform4fv(l[U_CAR], CARB);
       draws++;
+      if (occ != null && Config.INSTRUMENT && System.nanoTime() - lastOccDiagNs > 2_000_000_000L) {
+         lastOccDiagNs = System.nanoTime();
+            org.joml.Vector4f o4 = CLIP.transform(new org.joml.Vector4f(0F, 0F, 0F, 1F));
+            for (int si = 0; si < cd.n; si++) {
+               if (v.getCharacter(cd.index[si]) != null) {
+                  org.joml.Vector4f sq = CLIP.transform(new org.joml.Vector4f(cd.seat[si * 3], cd.seat[si * 3 + 1], cd.seat[si * 3 + 2], 1F));
+                  float sw = (sq.z * 0.5F + 0.5F) + (inst.modelInstance != null ? inst.modelInstance.targetDepth : 0.5F) - 0.5F;
+                  float ow = (CarOccupant.lastSeatClip[2] * 0.5F + 0.5F) + (inst.modelInstance != null ? inst.modelInstance.targetDepth : 0.5F) - occ.td;
+                  float tx = (CarOccupant.lastSeatClip[0] + 1F) / 2F / occ.invW + occ.minX, ty = (CarOccupant.lastSeatClip[1] + 1F) / 2F / occ.invH + occ.minY;
+                  float cz = (ow - (inst.modelInstance != null ? inst.modelInstance.targetDepth : 0.5F)) * 2F; // the model's origin, the car draw's clip z
+                  org.joml.Vector4f mg = new Matrix4f(CLIP).invert().transform(new org.joml.Vector4f(tx, ty, cz, 1F));
+                  Log.info(String.format(java.util.Locale.ROOT, "car occupant: seat %d (G %.3f %.3f %.3f): the glass's ndc %.4f %.4f depth %.5f; the model's seat origin ndc %.4f %.4f depth %.5f = G %.3f %.3f %.3f",
+                        cd.index[si], cd.seat[si * 3], cd.seat[si * 3 + 1], cd.seat[si * 3 + 2], sq.x, sq.y, sw, tx, ty, ow, mg.x / mg.w, mg.y / mg.w, mg.z / mg.w));
+               }
+            }
+            if (CarOccupant.devCentroid[2] > 0F) {
+               float ccz = (CarOccupant.devCentroid[2] - occ.td) * 2F; // the centroid's clip z (the occupants' terms = the car's without its targetDepth)
+               org.joml.Vector4f cg = new Matrix4f(CLIP).invert().transform(new org.joml.Vector4f(CarOccupant.devCentroid[0], CarOccupant.devCentroid[1], ccz, 1F));
+               Log.info(String.format(java.util.Locale.ROOT, "car occupant: the drawn occupant's centroid is at G %.3f %.3f %.3f", cg.x / cg.w, cg.y / cg.w, cg.z / cg.w));
+               if (CarOccupant.devSampleN > 0) {
+                  Matrix4f inv = new Matrix4f(CLIP).invert();
+                  int n = CarOccupant.devSampleN;
+                  float[] ys = new float[n], zs = new float[n];
+                  for (int si = 0; si < n; si++) {
+                     org.joml.Vector4f g = inv.transform(new org.joml.Vector4f(CarOccupant.DEV_SAMPLES[si * 3], CarOccupant.DEV_SAMPLES[si * 3 + 1], (CarOccupant.DEV_SAMPLES[si * 3 + 2] - occ.td) * 2F, 1F));
+                     ys[si] = g.y / g.w;
+                     zs[si] = g.z / g.w;
+                  }
+                  java.util.Arrays.sort(ys);
+                  java.util.Arrays.sort(zs);
+                  Log.info(String.format(java.util.Locale.ROOT, "car occupant: the drawn occupant's G height p2 %.3f p50 %.3f p98 %.3f max %.3f; along z p2 %.3f p50 %.3f p98 %.3f (%d texels)", ys[n / 50], ys[n / 2], ys[n * 49 / 50], ys[n - 1], zs[n / 50], zs[n / 2], zs[n * 49 / 50], n));
+               }
+            }
+            org.joml.Vector4f kv = CLIP.transform(new org.joml.Vector4f(C[C_V * 4], C[C_V * 4 + 1], C[C_V * 4 + 2], 0F));
+            Log.info(String.format(java.util.Locale.ROOT, "car occupant: k (window depth per G unit along the view) %.6f, view G (%.3f %.3f %.3f), clip of V %.4f %.4f; G origin window depth %.5f",
+                  0.5F * kv.z, C[C_V * 4], C[C_V * 4 + 1], C[C_V * 4 + 2], kv.x, kv.y, (o4.z * 0.5F + 0.5F) + (inst.modelInstance != null ? inst.modelInstance.targetDepth : 0.5F) - 0.5F));
+            Log.info("car occupant: viewport " + VP[0] + "," + VP[1] + " " + VP[2] + "x" + VP[3] + ", G origin px " + ((o4.x * 0.5F + 0.5F) * VP[2] + VP[0]) + "," + ((o4.y * 0.5F + 0.5F) * VP[3] + VP[1]) + " targetDepth " + (inst.modelInstance != null ? inst.modelInstance.targetDepth : -1F) + " occupants' " + occ.td);
+            Log.info(String.format(java.util.Locale.ROOT, "car occupant: glass G origin ndc %.4f %.4f z %.5f w %.4f; tile ndc rect %.4f..%.4f, %.4f..%.4f; P %s MV %s",
+                  o4.x / o4.w, o4.y / o4.w, o4.z, o4.w, occ.minX, occ.minX + 1F / occ.invW, occ.minY, occ.minY + 1F / occ.invH, P.toString(new java.text.DecimalFormat("0.0000")), MV.toString(new java.text.DecimalFormat("0.0000"))));
+         }
       if (Config.INSTRUMENT && System.nanoTime() - lastDiagNs > 10_000_000_000L) {
          lastDiagNs = System.nanoTime();
          Log.info(String.format(java.util.Locale.ROOT, "car glass: %s scale %.3f view G (%.3f %.3f %.3f) up G (%.3f %.3f %.3f) ground %.3f comY %.3f z %.3f tile %s seats %d",
                script.getName(), scale, C[0], C[1], C[2], upx, upy, upz, ground, slot.centerOfMassY, slot.z, tile, cd.n));
       }
+   }
+
+   private static boolean hasOccupant(BaseVehicle v) {
+      for (int i = 0, n = v.getMaxPassengers(); i < n; i++) {
+         if (v.getCharacter(i) != null) {
+            return true;
+         }
+      }
+      return false;
    }
 
    /** 1 = the fragment unit takes the vertex unit's per-panel environment (carGlassVertexEnv; dev skip bit 512 turns it off). */
@@ -1444,7 +1659,7 @@ public final class CarGlass {
       FRB.put(VP[0]).put(VP[1]).put(VP[2]).put(VP[3]);
       FRB.put(Config.CAR_GLASS_TRANSMIT_PCT / 100F).put(Config.CAR_GLASS_TINT_PCT / 100F).put(Config.CAR_GLASS_LAMP_ROUGH_PCT / 100F).put(Config.CAR_GLASS_REFLECT_PCT / 100F);
       FRB.put((float)(-1.0 / PixelLight.DEPTH_PER_XY)).put((float)(f.d0 / PixelLight.DEPTH_PER_XY)).put(0F).put(0F);
-      FRB.put(skip()).put(0F).put(0F).put(0F);
+      FRB.put(skip()).put(Config.CAR_OCCUPANT_LIGHT_PCT / 100F).put(Config.CAR_OCCUPANT_OCCLUSION ? 1F : 0F).put(0F);
       FRB.flip();
       GL20.glUniform4fv(loc, FRB);
    }
@@ -1462,7 +1677,7 @@ public final class CarGlass {
    private static final java.util.HashMap<VehicleScript, CabinData> CABINS = new java.util.HashMap<>();
 
    /** The cabin of a vehicle script (G): the body box narrowed by the doors, the seats from the script's inside positions. */
-   private static CabinData cabinData(VehicleScript script) {
+   static CabinData cabinData(VehicleScript script) {
       CabinData cd = CABINS.get(script);
       if (cd != null) {
          return cd;

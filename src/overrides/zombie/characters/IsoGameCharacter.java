@@ -6430,7 +6430,7 @@ public abstract class IsoGameCharacter
    public void render(float x, float y, float z, ColorInfo col, boolean bDoChild, boolean bWallLightingPass, Shader shader) {
       if (this.getDoRender()) {
          if (!this.isAlphaAndTargetZero()) {
-            if (!this.isSeatedInVehicle() || this.getVehicle().showPassenger(this)) {
+            if (!this.isSeatedInVehicle() || this.getVehicle().showPassenger(this) || pzopt.CarOccupant.showStock(this)) { // pzopt: carOccupant=stock, the showPassenger path forced (A/B)
                if (!this.isSpriteInvisible()) {
                   if (!this.isAlphaZero()) {
                      if (!this.useParts && this.def == null) {
