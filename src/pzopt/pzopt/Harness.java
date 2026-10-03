@@ -653,6 +653,9 @@ public final class Harness {
                if ("translucent".equals(HarnessFlags.get("find", ""))) {
                   findTranslucent(p); // dev: which Translucent-flagged tiles bake near the player (gas canopy lights)
                }
+               if (!HarnessFlags.get("clear_wall", "").isBlank()) {
+                  clearWallObjects(HarnessFlags.get("clear_wall", "")); // dev: mirrors card, the wall decorations off a square before place_tile
+               }
                if (!HarnessFlags.get("place_tile", "").isBlank()) {
                   placeTiles(HarnessFlags.get("place_tile", "")); // dev: tiles added to the bench save copy (glassTilesPerFrame rig)
                }
@@ -1853,6 +1856,26 @@ public final class Harness {
             + " (" + spriteNames(cell.getGridSquare(best[6], best[7], 0)) + ")"
             + ", standing at " + best[0] + "," + best[1] + " facing " + best[2] + ", " + spawned + " zombies behind at " + best[3] + "," + best[4]);
       return best;
+   }
+
+   /** clear_wall=x,y[,z]/... (2026-10-04): removes every wall decoration (MoveType WallObject) from each square, e.g. a picture
+    * where a placed mirror goes (two decorations on one wall slot do not happen in play; overlapped, one draws over the other). */
+   private static void clearWallObjects(String spec) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      for (String part : spec.split("/")) {
+         String[] xyz = part.trim().split(",");
+         int x = Integer.parseInt(xyz[0].trim()), y = Integer.parseInt(xyz[1].trim()), z = xyz.length > 2 ? Integer.parseInt(xyz[2].trim()) : 0;
+         zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, z);
+         if (sq == null) continue;
+         for (int i = sq.getObjects().size() - 1; i >= 0; i--) {
+            zombie.iso.IsoObject o = sq.getObjects().get(i);
+            zombie.iso.sprite.IsoSprite sp = o.getSprite();
+            if (sp != null && sp.getProperties() != null && "WallObject".equals(sp.getProperties().get("MoveType"))) {
+               Log.info("harness: clear_wall: removed " + sp.getName() + " at " + x + "," + y + "," + z);
+               sq.transmitRemoveItemFromSquare(o);
+            }
+         }
+      }
    }
 
    /**
