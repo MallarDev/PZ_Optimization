@@ -267,6 +267,7 @@ PzoptOptionClasses = {
     devSsrNoPatch = { "pzopt.Ssr" },
     devSsrSkip = { "pzopt.Ssr" },
     devSsrTiming = { "pzopt.Ssr" },
+    devSsrTrace = { "pzopt.Ssr" },
     devSsrView = { "pzopt.Ssr" },
     devStencilProbe = { "FBORenderCell", "FBORenderTrees", "pzopt.StencilProbe" },
     devSunAlternate = { "pzopt.CapsuleShadow" },

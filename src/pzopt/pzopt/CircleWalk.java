@@ -100,6 +100,14 @@ final class CircleWalk {
    }
 
    static void routeStart(IsoPlayer p) {
+      // the start square where the route begins (start= places the player after worldReady took the loaded square)
+      int[] s0 = spots.get(0);
+      if (s0[0] != (int)p.getX() || s0[1] != (int)p.getY()) {
+         Log.info(String.format(Locale.ROOT, "harness: circle: spot 0 re-centred %d,%d -> %d,%d (start=)", s0[0], s0[1], (int)p.getX(), (int)p.getY()));
+         s0[0] = (int)p.getX();
+         s0[1] = (int)p.getY();
+         arrivedNs = System.nanoTime(); // standing on its square (start= puts the player on the corner, 0.7 from the centre)
+      }
       startNs = System.nanoTime();
       lastProgressNs = startNs;
       spotEvent(p);

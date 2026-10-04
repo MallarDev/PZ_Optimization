@@ -489,6 +489,10 @@ public final class Ssr {
          long pbits = (puddleBits(puddles, ch) | wetBlood) & ~bits;
          slotOwner[slot] = ch;
          slotSize[slot] = size;
+         if (Config.DEV_SSR_TRACE && (bits != slotBits[slot] || slotOwner[slot] != ch)) {
+            traceSb.append(String.format(java.util.Locale.ROOT, " slot %d,%d water %d->%d (lists %d/%d)", ch.wx, ch.wy,
+                  slotOwner[slot] == ch ? Long.bitCount(slotBits[slot]) : -1, Long.bitCount(bits), water.size(), shore.size()));
+         }
          if ((bits != slotBits[slot] || pbits != slotPuddle[slot]) && f.uploads < f.uploadSlot.length) {
             slotBits[slot] = bits;
             slotPuddle[slot] = pbits;
@@ -502,9 +506,15 @@ public final class Ssr {
          zombie.iso.fboRenderChunk.FBORenderChunk rc = list.get(i);
          compositeChunk(f, rc.chunk, rc.depth);
       }
+      if (Config.DEV_SSR_TRACE) {
+         Log.info(String.format(java.util.Locale.ROOT, "ssr trace: game stamp %d epoch %d buffer %d near %d composite %d boxes %d uploads %d epoch_ms %d%s",
+               f.stamp, f.epoch, f.buffer, f.nearWater.size(), list.size(), f.boxes, f.uploads, System.currentTimeMillis(), traceSb));
+         traceSb.setLength(0);
+      }
       SpriteRenderer.instance.drawGeneric(f);
    }
 
+   private static final StringBuilder traceSb = new StringBuilder(); // devSsrTrace (game thread)
    private static Frame gameFrame; // game thread: the frame the moving objects drawn now add their boxes to
 
    /** Is (x, y) of level 0 a water square in the map (its chunk in its slot)? */
@@ -684,6 +694,9 @@ public final class Ssr {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, cachedColor);
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + DEPTH_UNIT);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, cachedDepth);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0 + WATER_MAP_UNIT); // again: mirrors' passes unbind unit 15 after the composite
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, mapTex);
+            org.lwjgl.opengl.GL42.glBindImageTexture(TILE_IMAGE_UNIT, tileTex, 0, false, 0, org.lwjgl.opengl.GL15.GL_READ_WRITE, GL30.GL_R32UI);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
             bound = true;
             GL20.glUseProgram(program);
@@ -717,6 +730,7 @@ public final class Ssr {
             GL30.glBindVertexArray(0); // (restoreVbos below: the ring buffer binds its own again)
             org.lwjgl.opengl.GL42.glBindImageTexture(HASH_IMAGE_UNIT, hashTex, 0, false, 0, org.lwjgl.opengl.GL15.GL_READ_WRITE, GL30.GL_R32UI);
             movingDraws++;
+            trMoving++;
             // back to the sprite renderer's state
             GL20.glUseProgram(0);
             GL11.glColorMask(true, true, true, true);
@@ -779,6 +793,12 @@ public final class Ssr {
 
    /** Render thread, ahead of the composite: resources, the rolling clear, the map uploads, the bindings. */
    private static void frameStart(Frame f) {
+      if (Config.DEV_SSR_TRACE) {
+         Log.info(String.format(java.util.Locale.ROOT, "ssr trace: render stamp %d epoch %d%s composite draws %d scatter on %d half %d water draws %d moving %d epoch_ms %d (previous: stamp %d)",
+               f.stamp, f.epoch, f == renderFrameLast ? " REPLAY" : "", trComposite, trOn, trHalf, trWater, trMoving, System.currentTimeMillis(), renderFrameLast == null ? -1 : renderFrameLast.stamp));
+         trComposite = trOn = trHalf = trWater = trMoving = 0;
+         renderFrameLast = f;
+      }
       renderFrame = null;
       if (Config.DEV_SSR_TIMING) {
          Timing.beginComposite(f.view.on);
@@ -872,6 +892,8 @@ public final class Ssr {
       }
    }
 
+   private static Frame renderFrameLast; // devSsrTrace (render thread)
+   private static int trComposite, trOn, trHalf, trWater, trMoving;
    private static boolean scatterOn; // game thread
 
    private static final TextureDraw.GenericDrawer OFF = new TextureDraw.GenericDrawer() {
@@ -960,6 +982,11 @@ public final class Ssr {
          return;
       }
       Frame f = renderFrame;
+      if (Config.DEV_SSR_TRACE) {
+         trComposite++;
+         float tw = f == null ? 0F : switchOf(f, texd.tex1);
+         if (tw >= 1F) trOn++; else if (tw > 0F) trHalf++;
+      }
       try {
          int prog = boundProgram();
          Integer applied = appliedSerial.get(prog);
@@ -1289,6 +1316,13 @@ public final class Ssr {
                org.lwjgl.opengl.GL42.glMemoryBarrier(org.lwjgl.opengl.GL42.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
             }
          }
+         if (usePpr) {
+            // the keys' images again: passes between the composite and the water bind their own on these units (mirrors'
+            // static pass took unit 6 and left it empty: on the frames it ran the lookup read nothing and the whole water
+            // reflection blinked out, 2026-10-05 flip pool report)
+            org.lwjgl.opengl.GL42.glBindImageTexture(HASH_IMAGE_UNIT, hashTex, 0, false, 0, org.lwjgl.opengl.GL15.GL_READ_WRITE, GL30.GL_R32UI);
+            org.lwjgl.opengl.GL42.glBindImageTexture(TILE_IMAGE_UNIT, tileTex, 0, false, 0, org.lwjgl.opengl.GL15.GL_READ_WRITE, GL30.GL_R32UI);
+         }
          // (no glGet: the sprite renderer works on unit 0, restored below)
          GL13.glActiveTexture(GL13.GL_TEXTURE0 + COLOR_UNIT);
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, cachedColor);
@@ -1308,6 +1342,7 @@ public final class Ssr {
          GL20.glUniform1i(l[U_TILES], TILE_IMAGE_UNIT);
          GL20.glUniform1i(l[U_FRAME], usePpr ? pf.stamp : -1);
          draws++;
+         trWater++;
       } catch (Throwable t) {
          failed = true;
          Log.warn("ssr: reflections failed, off: " + t);
