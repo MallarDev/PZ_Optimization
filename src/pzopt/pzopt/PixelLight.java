@@ -1887,6 +1887,14 @@ public final class PixelLight {
          }
          Integer k = depth == null ? null : this.chunkIndex.get(depth);
          int lo = k == null ? -64 : (int)this.chunkRect[k * 4 + 2], hi = k == null ? 64 : (int)this.chunkRect[k * 4 + 3];
+         // pplAirFill packs every chunk's level above its top (zTop >= maxLevel + 1), so the texture's two levels are all
+         // readable: the top is the texture's own (min + 1), not min(that, the chunk's top). With the chunk's top a tree
+         // crown copied into a single-storey neighbour's texture read level 0 where its own texture (a chunk with a level 1)
+         // read level 1; the two identical crowns tie in depth row by row, and the rows the copy won drew the ground's light:
+         // dark bands and every-other-row stripes in a rectangle of the crown (2026-10-04, runs treelines-*)
+         if (k != null && Config.PPL_AIR_FILL) {
+            hi = lo + 1;
+         }
          if (st[0] >= 0 && (st[1] != lo || st[2] != hi)) {
             GL20.glUniform2i(st[0], lo, hi);
             st[1] = lo;
