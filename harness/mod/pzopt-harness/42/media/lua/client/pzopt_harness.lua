@@ -61,11 +61,196 @@ local quitAtMs = nil
 -- Screenshots/pzopt-options-<n>.png per page (1.5 s each), then quits.
 local optionsCheck = nil
 local OLD_TABS = { Optimizations = "home", Enhancements = "cat:image:0", Profiler = "cat:overlay:0" }
+local applyNav -- (set below; the read rig above it calls it)
 -- options_joy=<step>,<step>,... (2026-10-04): the tab's controller navigation without a pad: the steps call the page's
 -- own joypad handlers as the game does for a pad (focus = gain focus; down / up / left / right; a = A, never B: it leaves
 -- the screen), one every 0.6 s, logging the focused element and the page after each ("[pzopt-harness] joy: ..."); shot
 -- writes Screenshots/pzopt-joy-<n>.png. Quits when done.
 local JOY = { id = 0, player = 0 }
+-- options_read=1 (2026-10-04, "is every setting readable at 1080p"): walks every page of the PZ Optimization tab (home,
+-- each category's Overview in Simple, each subcategory in Everything, every problem, a search) and every scroll stop of it.
+-- Per page one geometry audit: READOVL lines for visible elements that overlap, READOUT lines for elements outside their
+-- column (under the sidebar or the preview, past the right edge). Per scroll stop a screenshot pzopt-read-<n>.png and one
+-- READROW line per setting whose label is fully on screen (its label rectangle in screen pixels, the text shown and the
+-- setting's label: a "..." cut shows as shown ~= full). harness/options-readability.py OCRs every label from the shots and
+-- asks Jev whether every setting is readable.
+local function readRect(el)
+    return el:getAbsoluteX(), el:getAbsoluteY(), el:getWidth(), el:getHeight()
+end
+local function readDesc(el)
+    return tostring(el.Type) .. ":" .. string.gsub(tostring(el.pzoptLabel or el.title or el.name or ""), "%s", "_")
+end
+local function readPages(S)
+    local pages = { "home" }
+    for _, g in ipairs(S.tree.groups) do
+        for _, cat in ipairs(g.cats) do
+            table.insert(pages, "cat:" .. cat.id .. ":0:simple")
+            for i = 1, #cat.subs do table.insert(pages, "cat:" .. cat.id .. ":" .. i .. ":everything") end
+        end
+    end
+    for i = 1, #S.tree.problems do table.insert(pages, "problems:" .. i) end
+    table.insert(pages, "search:shadow")
+    return pages
+end
+local function readAudit(mo, spec)
+    local S = mo.pzoptSearch
+    local panel, G = S.panel, S.G
+    local home = string.sub(spec, 1, 4) == "home"
+    local left = home and 0 or (S.sidebar:getX() + S.sidebar:getWidth())
+    local right = (S.preview:getIsVisible() and S.preview:getX()) or (panel:getWidth() - G.sbar)
+    local els = {}
+    for _, item in ipairs(S.items) do
+        if not item.hidden then
+            for _, e in ipairs(item.elems) do
+                local el = e.el
+                if el:getIsVisible() and el:getWidth() > 2 and el:getHeight() > 2 and not item.background then
+                    table.insert(els, { el = el, item = item, x = el:getX(), y = el:getY(), w = el:getWidth(), h = el:getHeight() })
+                end
+            end
+        end
+    end
+    local n = 0
+    for i = 1, #els do
+        local a = els[i]
+        if a.x < left - 1 or a.x + a.w > right + 1 then
+            print(string.format("[pzopt-harness] READOUT page=%s el=%s x=%d w=%d left=%d right=%d", spec, readDesc(a.el), a.x, a.w, left, right))
+        end
+        for j = i + 1, #els do
+            local b = els[j]
+            local ox = math.min(a.x + a.w, b.x + b.w) - math.max(a.x, b.x)
+            local oy = math.min(a.y + a.h, b.y + b.h) - math.max(a.y, b.y)
+            if ox > 1 and oy > 1 and a.item ~= b.item then
+                n = n + 1
+                if n <= 40 then
+                    print(string.format("[pzopt-harness] READOVL page=%s a=%s b=%s overlap=%dx%d at=%d,%d", spec, readDesc(a.el), readDesc(b.el), ox, oy, math.max(a.x, b.x), math.max(a.y, b.y)))
+                end
+            end
+        end
+    end
+    if not home then
+        for _, b in ipairs(S.sidebar.buttons or {}) do
+            if b.pzoptFits == false then
+                print(string.format("[pzopt-harness] READSIDE page=%s entry=%s", spec, string.gsub(tostring(b.pzoptLabel), "%s", "_")))
+            end
+        end
+    end
+    print(string.format("[pzopt-harness] READPAGE page=%s elements=%d overlaps=%d", spec, #els, n))
+end
+local function readRows(mo, spec, shot)
+    local S = mo.pzoptSearch
+    local panel = S.panel
+    local top = panel:getAbsoluteY()
+    local bottom = top + panel:getHeight()
+    local right = S.preview:getIsVisible() and S.preview:getAbsoluteX() or (panel:getAbsoluteX() + panel:getWidth())
+    local n = 0
+    for _, row in ipairs(S.keyRows) do
+        if not row.hidden and row.entry then
+            local label
+            for _, e in ipairs(row.elems) do
+                if e.el.Type == "ISLabel" and (not label or e.el:getY() < label:getY()) then label = e.el end
+            end
+            if label and label:getIsVisible() then
+                local x, y, w, h = readRect(label)
+                local more = row.labelMore or {}
+                local lineH = getTextManager():getFontHeight(UIFont.Small) + 2
+                local info = row.elems[#row.elems].el -- the line(s) under the label: a wrapped name's rest first
+                local bottomAll = y + h + #more * lineH
+                if y >= top and bottomAll <= bottom and x + w <= right then
+                    n = n + 1
+                    local shown = tostring(label.name)
+                    for _, l in ipairs(more) do shown = shown .. " " .. l end
+                    print(string.format("[pzopt-harness] READROW n=%d page=%s key=%s x=%d y=%d w=%d h=%d text=%s|shown=%s|full=%s", shot,
+                        spec, row.entry.key, x, y, w, h, tostring(label.name), shown, tostring(row.entry.label)))
+                    for i, l in ipairs(more) do
+                        print(string.format("[pzopt-harness] READCONT n=%d page=%s key=%s x=%d y=%d w=%d h=%d text=%s", shot, spec,
+                            row.entry.key, info:getAbsoluteX(), info:getAbsoluteY() + (i - 1) * lineH, getTextManager():MeasureStringX(UIFont.Small, l),
+                            lineH, l))
+                    end
+                end
+            end
+        end
+    end
+    -- the header's texts (read back by OCR too: text drawn over them, like the search hint once, makes them fail)
+    if S.panel:getYScroll() == 0 then
+        local function txt(el, text)
+            if el and el:getIsVisible() and text and text ~= "" then
+                local x, y, w, h = readRect(el)
+                print(string.format("[pzopt-harness] READTXT n=%d page=%s x=%d y=%d w=%d h=%d text=%s", shot, spec, x, y, w, h, text))
+            end
+        end
+        txt(S.viewLabel.elems[1].el, S.viewLabel.elems[1].el.name)
+        for _, v in ipairs(S.viewButtons) do txt(v.elems[1].el, v.elems[1].el.pzoptLabel) end
+        txt(S.clipsLabel, S.clipsLabel.name)
+        txt(S.status, S.status.name)
+        -- the empty strips between the search line's elements (text spilling out of one, like the search hint at 1920 x 1080
+        -- once, shows up there, not inside the next element's own rectangle)
+        local line = { S.entry, S.viewLabel.elems[1].el }
+        for _, v in ipairs(S.viewButtons) do table.insert(line, v.elems[1].el) end
+        for _, el in ipairs({ S.status, S.clips, S.clipsLabel }) do table.insert(line, el) end
+        local ey = S.entry:getAbsoluteY()
+        local onLine = {}
+        for _, el in ipairs(line) do
+            if el:getIsVisible() and math.abs(el:getAbsoluteY() - ey) < 4 then table.insert(onLine, el) end
+        end
+        table.sort(onLine, function(p, q) return p:getAbsoluteX() < q:getAbsoluteX() end)
+        for i = 1, #onLine - 1 do
+            local ax = onLine[i]:getAbsoluteX() + onLine[i]:getWidth()
+            local bx = onLine[i + 1]:getAbsoluteX()
+            if bx - ax >= 6 then
+                print(string.format("[pzopt-harness] READGAP n=%d page=%s x=%d y=%d w=%d h=%d between=%s|%s", shot, spec, ax + 2,
+                    ey + 4, bx - ax - 4, S.entry:getHeight() - 8, readDesc(onLine[i]), readDesc(onLine[i + 1])))
+            end
+        end
+    end
+    return n
+end
+local function readTick(c, ms, now)
+    local mo = ms.mainOptions
+    local S = mo.pzoptSearch
+    local r = c.read
+    if not S then
+        print("[pzopt-harness] READ: no pzoptSearch on the options screen")
+        c.readDone, c.shotMs = true, now
+        return
+    end
+    if not r.pages then
+        r.pages, r.page, r.shot, r.at = readPages(S), 0, 0, now
+        print(string.format("[pzopt-harness] READWIN x=%d y=%d w=%d h=%d screen=%dx%d pages=%d", mo:getAbsoluteX(), mo:getAbsoluteY(),
+            mo:getWidth(), mo:getHeight(), getCore():getScreenWidth(), getCore():getScreenHeight(), #r.pages))
+    end
+    if now < r.at then return end
+    if r.step == "shoot" then
+        if r.scroll == 0 then readAudit(mo, r.pages[r.page]) end -- (once the page is laid out: a search runs 120 ms late)
+        r.shot = r.shot + 1
+        local rows = readRows(mo, r.pages[r.page], r.shot)
+        getCore():TakeFullScreenshot("pzopt-read-" .. r.shot .. ".png")
+        print(string.format("[pzopt-harness] READSHOT n=%d page=%s scroll=%d rows=%d", r.shot, r.pages[r.page], r.scroll, rows))
+        r.step, r.at = "scroll", now + 450
+        return
+    end
+    if r.step == "scroll" then
+        local panel = S.panel
+        local maxScroll = math.max(0, panel:getScrollHeight() - panel:getHeight())
+        if r.scroll < maxScroll then
+            r.scroll = math.min(maxScroll, r.scroll + math.floor(panel:getHeight() * 0.8))
+            panel:setYScroll(-r.scroll)
+            r.step, r.at = "shoot", now + 450
+            return
+        end
+    end
+    r.page = r.page + 1
+    if r.page > #r.pages then
+        print("[pzopt-harness] READ: done, " .. r.shot .. " screenshots")
+        c.readDone, c.shotMs = true, now
+        return
+    end
+    local spec = r.pages[r.page]
+    applyNav(mo, spec)
+    S.panel:setYScroll(0)
+    r.scroll = 0
+    r.step, r.at = "shoot", now + (string.sub(spec, 1, 7) == "search:" and 900 or 500)
+end
+
 local function joyDescribe(mo)
     local panel = mo.pzoptPanel
     local child = panel and panel:getJoypadFocus()
@@ -93,7 +278,7 @@ local function joyStep(mo, step, n)
     end
 end
 
-local function applyNav(mo, spec)
+applyNav = function(mo, spec)
     local parts = {}
     for part in string.gmatch(spec .. ":", "([^:]*):") do table.insert(parts, part) end
     local kind = parts[1] ~= "" and parts[1] or "home"
@@ -304,6 +489,8 @@ local function optionsTick()
             print("[pzopt-harness] options: page " .. c.nav)
         end
         c.openedMs = now
+    elseif c.read and not c.readDone then
+        if now >= c.openedMs + 1500 then readTick(c, ms, now) end
     elseif c.joy and not c.joyDone then
         if now < (c.joyAt or (c.openedMs + 1500)) then return end
         local i = (c.joyIndex or 0) + 1
@@ -383,6 +570,7 @@ local function onMainMenuEnter()
             end
             optionsCheck = { tab = flags.options_tab, search = flags.options_search ~= "" and flags.options_search or nil,
                 nav = flags.options_nav ~= "" and flags.options_nav or nil, shots = shots,
+                read = (flags.options_read and flags.options_read ~= "") and {} or nil,
                 joy = (flags.options_joy and flags.options_joy ~= "") and (function()
                     local t = {}
                     for s in string.gmatch(flags.options_joy, "[^,]+") do table.insert(t, s) end

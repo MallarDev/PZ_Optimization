@@ -3299,9 +3299,20 @@ local function clipText(font, s, w)
     return s .. "..."
 end
 
+-- greedy word wrap measured with MeasureStringX (the game's WrapText sometimes left a line wider than `w`, so a wrapped
+-- setting name still came out cut with "..." at 1920 x 1080)
 local function wrapLines(font, s, w)
-    local out = {}
-    for line in string.gmatch(getTextManager():WrapText(font, s or "", w), "[^\n]+") do table.insert(out, line) end
+    local out, line = {}, ""
+    for word in string.gmatch(s or "", "%S+") do
+        local t = line == "" and word or (line .. " " .. word)
+        if line ~= "" and textW(font, t) > w then
+            table.insert(out, line)
+            line = word
+        else
+            line = t
+        end
+    end
+    if line ~= "" then table.insert(out, line) end
     return out
 end
 
@@ -3417,23 +3428,33 @@ function PzoptRowInfo:prerender() end
 function PzoptRowInfo:render()
     local row = self.row
     local p = perf()
+    local lineH = fontH(UIFont.Small) + 2
+    local y = 0
+    -- the rest of a name that did not fit on its label's line
+    for _, l in ipairs(row.labelMore or {}) do
+        self:drawText(l, 0, y + 1, C_TEXT.r, C_TEXT.g, C_TEXT.b, 1, UIFont.Small)
+        y = y + lineH
+    end
     local x = 0
-    if row.tier == 2 then x = x + drawPill(self, x, 0, "ADVANCED", C_ADV) + 6 end
-    if row.tier == 3 then x = x + drawPill(self, x, 0, "EXPERT", C_EXPERT) + 6 end
-    if rowChanged(row) then x = x + drawPill(self, x, 0, "CHANGED", C_AMBER) + 6 end
-    if not row.entry.live then x = x + drawPill(self, x, 0, "next launch", C_GREY) + 6 end
-    if p:getPzoptOptionPinnedBy(row.entry.key) ~= "" then x = x + drawPill(self, x, 0, "pinned", C_GREY) + 6 end
-    if compatReason(row.entry.key) ~= "" then x = x + drawPill(self, x, 0, "off for a mod", C_STOCK) + 6 end
+    if row.tier == 2 then x = x + drawPill(self, x, y, "ADVANCED", C_ADV) + 6 end
+    if row.tier == 3 then x = x + drawPill(self, x, y, "EXPERT", C_EXPERT) + 6 end
+    if rowChanged(row) then x = x + drawPill(self, x, y, "CHANGED", C_AMBER) + 6 end
+    if not row.entry.live then x = x + drawPill(self, x, y, "next launch", C_GREY) + 6 end
+    if p:getPzoptOptionPinnedBy(row.entry.key) ~= "" then x = x + drawPill(self, x, y, "pinned", C_GREY) + 6 end
+    if compatReason(row.entry.key) ~= "" then x = x + drawPill(self, x, y, "off for a mod", C_STOCK) + 6 end
     local right = self.width
     if (NAV.kind == "search" or NAV.kind == "problems") and row.cat then
-        local where = row.cat.title .. "  >  " .. row.sub.title
+        -- where it lives, cut to leave the tags and a few words of the description their room
+        local where = clipText(UIFont.Small, row.cat.title .. "  >  " .. row.sub.title, math.max(40, right - x - 120))
         local c = row.cat.group.c
         local ww = textW(UIFont.Small, where)
-        self:drawText(where, right - ww, 1, c.r, c.g, c.b, 1, UIFont.Small)
+        self:drawText(where, right - ww, y + 1, c.r, c.g, c.b, 1, UIFont.Small)
         right = right - ww - 16
     end
-    self:drawText(clipText(UIFont.Small, firstSentence(row.entry.tip), math.max(20, right - x)), x, 1,
-        C_GREY.r * 0.8, C_GREY.g * 0.8, C_GREY.b * 0.8, 1, UIFont.Small)
+    if right - x > 30 then
+        self:drawText(clipText(UIFont.Small, firstSentence(row.entry.tip), right - x), x, y + 1,
+            C_GREY.r * 0.8, C_GREY.g * 0.8, C_GREY.b * 0.8, 1, UIFont.Small)
+    end
 end
 
 -- A panel that only draws (headings, notes): `draw(o)` paints it.
@@ -3594,6 +3615,7 @@ function PzoptSidebar:build(target)
         b:initialise()
         b.pzoptFixed = true -- not part of the scrolled page (ensureVisible leaves the scroll alone)
         b.pzoptLabel = label
+        b.pzoptFits = textW(UIFont.Small, label) <= (self.width - 8) - 2 * pad - (count and (textW(UIFont.Small, count) + pad) or 0)
         b.prerender = function() end
         b.render = function(o)
             local sel = selected()
@@ -3781,23 +3803,45 @@ relayout = function(S)
     local w = x1 - x0
     S.crumb = crumbFor(S)
 
-    -- header: Home, the title and where we are, the clips switch; the search box and the view switch under them
+    -- header: Home, the title and where we are; under them the search box, the view switch, the status and the clips
+    -- switch. On a narrow window (1920 x 1080) the clips switch moves to the end of the title line and the status goes
+    -- when they do not fit on the search line.
+    local clipsW = S.clips:getWidth() + 8 + S.clipsLabel:getWidth()
+    local viewsW = S.viewLabel.elems[1].el:getWidth() + 10
+    for _, v in ipairs(S.viewButtons) do viewsW = viewsW + v.elems[1].el:getWidth() + 4 end
+    local status = ""
+    if kind == "search" then
+        status = S.hitCount > 0 and (S.hitCount .. " of " .. #S.searchRows .. " settings match") or "Nothing matches"
+    elseif kind == "home" then
+        status = #S.searchRows .. " settings"
+    end
+    S.status:setName(status)
+    local statusW = status ~= "" and (S.status:getWidth() + 16) or 0
+    local clipsOnTitle = G.searchW + 24 + viewsW + statusW + 24 + clipsW > w
     local y = G.m
     local tx = x0
+    local homeEl
     if not home then
-        local hb = at(S.homeButton, x0, y + math.floor((hL + 4 - BH) / 2))
-        tx = x0 + hb:getWidth() + 16
+        homeEl = at(S.homeButton, x0, y + math.floor((hL + 4 - BH) / 2))
+        tx = x0 + homeEl:getWidth() + 16
     end
-    at(S.title, tx, y, x1 - tx, hL + 4)
-    line(not home and S.homeButton.elems[1].el or nil)
+    local titleR = clipsOnTitle and (x1 - clipsW - 24) or x1
+    at(S.title, tx, y, math.max(20, titleR - tx), hL + 4)
+    if clipsOnTitle then
+        local cy = y + math.floor((hL + 4 - BH) / 2)
+        at(S.clipsLabelItem, x1 - S.clipsLabel:getWidth(), cy)
+        at(S.clipsItem, x1 - clipsW, cy)
+        line(homeEl, S.clips)
+    else
+        line(homeEl)
+    end
     y = y + hL + 4 + SP * 2
-    -- the clips switch at the right end of the search line (the controller starts on the left)
-    local clipsW = S.clips:getWidth() + 8 + S.clipsLabel:getWidth()
-    at(S.clipsLabelItem, x1 - S.clipsLabel:getWidth(), y)
-    at(S.clipsItem, x1 - clipsW, y)
-    local searchW = G.searchW
+    if not clipsOnTitle then
+        at(S.clipsLabelItem, x1 - S.clipsLabel:getWidth(), y)
+        at(S.clipsItem, x1 - clipsW, y)
+    end
     at(S.searchItem, x0, y)
-    local vx = x0 + searchW + 24
+    local vx = x0 + G.searchW + 24
     at(S.viewLabel, vx, y)
     vx = vx + S.viewLabel.elems[1].el:getWidth() + 10
     local views = {}
@@ -3806,15 +3850,9 @@ relayout = function(S)
         vx = vx + el:getWidth() + 4
         table.insert(views, el)
     end
-    local status = ""
-    if kind == "search" then
-        status = S.hitCount > 0 and (S.hitCount .. " of " .. #S.searchRows .. " settings match") or "Nothing matches"
-    elseif kind == "home" then
-        status = #S.searchRows .. " settings"
-    end
-    S.status:setName(status)
-    at(S.statusItem, vx + 16, y)
-    line(S.entry, views[1], views[2], views[3], S.clips)
+    local lineR = clipsOnTitle and x1 or (x1 - clipsW - 24)
+    if statusW > 0 and vx + statusW <= lineR then at(S.statusItem, vx + 16, y) end
+    line(S.entry, views[1], views[2], views[3], (not clipsOnTitle) and S.clips or nil)
     y = y + BH + SP * 2
     local rules = 0
     local function rule(yy)
@@ -3826,13 +3864,21 @@ relayout = function(S)
     local contentLine = #joy + 1
 
     if home then
-        -- presets
+        -- presets (wrapping to a second row on a narrow window)
         at(S.presetLabel, x0, y)
-        local px = x0 + S.presetLabel.elems[1].el:getWidth() + 16
+        local px0 = x0 + S.presetLabel.elems[1].el:getWidth() + 16
+        local px = px0
         local pl = {}
         for _, b in ipairs(S.presetButtons) do
+            local bw = b.elems[1].el:getWidth()
+            if px + bw > x1 and px > px0 then
+                line(unpack(pl))
+                pl = {}
+                px = px0
+                y = y + BH + SP
+            end
             local el = at(b, px, y)
-            px = px + el:getWidth() + 8
+            px = px + bw + 8
             table.insert(pl, el)
         end
         line(unpack(pl))
@@ -3885,8 +3931,9 @@ relayout = function(S)
         end
         line(unpack(bl))
         y = y + BH + SP
-        at(S.homeNote, x0, y, w, hS * 2 + 4)
-        y = y + hS * 2 + 4
+        local noteH = #wrapLines(UIFont.Small, S.homeNoteText, w) * hS + 4
+        at(S.homeNote, x0, y, w, noteH)
+        y = y + noteH
 
     elseif kind == "cat" then
         local cat = S.tree.catById[NAV.cat]
@@ -4096,8 +4143,14 @@ local function buildPage(self)
     local p = perf()
     local W, H = panel:getWidth(), panel:getHeight()
     local G = { m = 16, sbar = 13, hS = hS, hM = hM, hL = hL, BH = BH, SP = SP }
-    G.sideW = math.max(200, math.min(330, math.floor(W * 0.14)))
-    G.prevW = math.max(340, math.min(900, math.floor(W * 0.27)))
+    -- the sidebar as wide as its longest category name needs (with its count), within 200..330 px; the preview a
+    -- quarter of the width, at least 300 px (a 1920 x 1080 window is 1344 px wide: 1/4 is 336)
+    local longest = 0
+    for _, g in ipairs(PzoptSettingsLayout.groups) do
+        for _, c in ipairs(g.cats) do longest = math.max(longest, textW(UIFont.Small, c.title)) end
+    end
+    G.sideW = math.max(200, math.min(330, math.max(math.floor(W * 0.14), longest + textW(UIFont.Small, "000") + 48)))
+    G.prevW = math.max(300, math.min(900, math.floor(W * 0.25)))
     G.prevX = W - G.m - G.sbar - G.prevW
     G.contentX = G.m + G.sideW + GAP
     G.contentR = G.prevX - GAP
@@ -4155,10 +4208,16 @@ local function buildPage(self)
     S.title = single(drawPanel(function(o)
         o:drawText("PZ OPTIMIZATION", 0, 0, 1, 1, 1, 1, UIFont.Large)
         local x = textW(UIFont.Large, "PZ OPTIMIZATION") + 24
-        o:drawText(clipText(UIFont.Medium, S.crumb or "", math.max(20, o.width - x)), x, math.floor((hL - hM) / 2) + 2,
-            C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Medium)
+        -- where we are; left out when only a stub of it would fit (1920 x 1080: the sidebar and the heading say it too)
+        local crumb = clipText(UIFont.Medium, S.crumb or "", math.max(20, o.width - x))
+        if #crumb >= 12 or crumb == (S.crumb or "") then
+            o:drawText(crumb, x, math.floor((hL - hM) / 2) + 2, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Medium)
+        end
     end))
-    G.searchW = math.min(560, math.floor((G.contentR - G.contentX) * 0.42))
+    -- the search box takes what the view switch leaves on the search line (the text box cannot resize later)
+    local viewsW = textW(UIFont.Small, "View") + 10
+    for _, v in ipairs(VIEWS) do viewsW = viewsW + textW(UIFont.Small, v.title) + 28 + 4 end
+    G.searchW = math.max(140, math.min(560, G.contentR - G.contentX - viewsW - 24))
     local entry = ISTextEntryBox:new("", 0, 0, G.searchW, BH)
     entry:initialise()
     entry:instantiate()
@@ -4183,8 +4242,11 @@ local function buildPage(self)
     entry.render = function(o)
         ISTextEntryBox.render(o)
         if o:getText() == "" and not o:isFocused() then
-            o:drawText("Search all " .. #S.searchRows .. " settings: name, what it does, gpu, load time...", 8,
-                math.floor((o.height - hS) / 2), C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
+            -- inside the box: the long hint, else the short one, cut to fit (it ran under the view switch at 1920 x 1080)
+            local room = o.width - 16
+            local hint = "Search all " .. #S.searchRows .. " settings: name, what it does, gpu, load time..."
+            if textW(UIFont.Small, hint) > room then hint = "Search " .. #S.searchRows .. " settings..." end
+            o:drawText(clipText(UIFont.Small, hint, room), 8, math.floor((o.height - hS) / 2), C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
         end
     end
     S.entry = entry
@@ -4207,6 +4269,7 @@ local function buildPage(self)
         end)
         b:setWidth(textW(UIFont.Small, v.title) + 28)
         b:setHeight(BH)
+        b.pzoptLabel = v.title
         b.tooltip = VIEW_TIPS[id] .. " Search and Fix a problem always show every match."
         table.insert(S.viewButtons, single(b))
     end
@@ -4232,6 +4295,7 @@ local function buildPage(self)
     S.clipsItem = single(clips)
     S.rule = single(drawPanel(function(o) o:drawRect(0, 0, o.width, 1, 1, 0.35, 0.35, 0.38) end))
     S.rule2 = single(drawPanel(function(o) o:drawRect(0, 0, o.width, 1, 1, 0.35, 0.35, 0.38) end))
+    S.rule.background, S.rule2.background = true, true -- (drawn under other items: the harness's overlap audit skips them)
 
     -- home: presets, group headings, tiles, help, tools
     local _, presetLabelItem = label("Presets", C_GREY)
@@ -4263,7 +4327,8 @@ local function buildPage(self)
     end
     S.helpHeading = single(drawPanel(function(o)
         o:drawText("HELP", 0, 0, C_HELP.r, C_HELP.g, C_HELP.b, 1, UIFont.Medium)
-        o:drawText("Not sure what to change? Start from what you notice.", textW(UIFont.Medium, "HELP") + 16,
+        local x = textW(UIFont.Medium, "HELP") + 16
+        o:drawText(clipText(UIFont.Small, "Not sure what to change? Start from what you notice.", math.max(20, o.width - x)), x,
             math.floor((hM - hS) / 2), C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
     end))
     S.problemTile = single(drawButton(self, function() navigate(S, "problems") end, function(o, hot)
@@ -4285,11 +4350,15 @@ local function buildPage(self)
     local uninstall, uninstallItem = button(UNINSTALL_TITLE, nil, nil)
     setupUninstallButton(self, uninstall)
     S.toolButtons = { exportItem, importItem, uninstallItem }
+    S.homeNoteText = "Apply or Accept saves your changes to Zomboid/pzopt/options.ini. Performance settings take effect on the next "
+        .. "launch; Visuals and Tools apply at once (a few Visuals on the next launch). Settings pinned by the game folder's "
+        .. "pzopt.properties or -Dpzopt.<key> cannot be changed here."
     S.homeNote = single(drawPanel(function(o)
-        o:drawText("Apply or Accept saves your changes to Zomboid/pzopt/options.ini. Performance settings take effect on the next "
-            .. "launch; Visuals and Tools apply at once (a few Visuals on the next launch).", 0, 0, C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
-        o:drawText("Settings pinned by the game folder's pzopt.properties or -Dpzopt.<key> cannot be changed here.", 0, hS + 2,
-            C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
+        local yy = 0
+        for _, l in ipairs(wrapLines(UIFont.Small, S.homeNoteText, o.width)) do
+            o:drawText(l, 0, yy, C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
+            yy = yy + hS
+        end
     end))
 
     -- category pages: heading, footer
@@ -4298,15 +4367,18 @@ local function buildPage(self)
         if not cat then return end
         local c = cat.group.c
         o:drawText(cat.title, 0, 0, 1, 1, 1, 1, UIFont.Large)
-        o:drawText(cat.blurb, 0, hL + 4, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+        o:drawText(clipText(UIFont.Small, cat.blurb, o.width), 0, hL + 4, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
         local count = #cat.rows .. " settings in " .. #cat.subs .. " subcategories"
-        o:drawTextRight(count, o.width, math.floor((hL - hS) / 2), c.r, c.g, c.b, 1, UIFont.Small)
+        if textW(UIFont.Large, cat.title) + 24 + textW(UIFont.Small, count) <= o.width then
+            o:drawTextRight(count, o.width, math.floor((hL - hS) / 2), c.r, c.g, c.b, 1, UIFont.Small)
+        end
         if groupOff(cat.group) then
-            o:drawText("Switched off: the " .. cat.group.title .. " master switch on the home page is off, so these settings are ignored.",
-                0, hL + hS + 8, C_STOCK.r, C_STOCK.g, C_STOCK.b, 1, UIFont.Small)
+            o:drawText(clipText(UIFont.Small, "Switched off: the " .. cat.group.title .. " master switch on the home page is off, so these "
+                .. "settings are ignored.", o.width), 0, hL + hS + 8, C_STOCK.r, C_STOCK.g, C_STOCK.b, 1, UIFont.Small)
         end
     end))
     S.tabRule = single(drawPanel(function(o) o:drawRect(0, 0, o.width, 1, 1, 0.3, 0.3, 0.33) end))
+    S.tabRule.background = true
     S.moreButton = buttonItem("Show more", "Switches the view so this subcategory shows the rest of its settings.", function()
         setLevel(S, NAV.level == "simple" and "advanced" or "everything")
     end)
@@ -4325,8 +4397,8 @@ local function buildPage(self)
     -- problems
     S.probHead = single(drawPanel(function(o)
         o:drawText("Fix a problem", 0, 0, 1, 1, 1, 1, UIFont.Large)
-        o:drawText("Pick what you notice: why it happens, and the settings that help, wherever they live.", 0, hL + 4,
-            C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+        o:drawText(clipText(UIFont.Small, "Pick what you notice: why it happens, and the settings that help, wherever they live.", o.width),
+            0, hL + 4, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
     end))
     S.probWhy = single(drawPanel(function(o)
         local pr = o.problem
@@ -4342,7 +4414,7 @@ local function buildPage(self)
     end))
     -- search
     S.searchHead = single(drawPanel(function(o)
-        o:drawText(o.text or "", 0, 0, 1, 1, 1, 1, UIFont.Medium)
+        o:drawText(clipText(UIFont.Medium, o.text or "", o.width), 0, 0, 1, 1, 1, 1, UIFont.Medium)
     end))
 
     -- the settings: master switches first, then every section's entries (in tab order)
@@ -4356,13 +4428,26 @@ local function buildPage(self)
             if entry.choices then return addIntOption(self, entry, split, 0, G.ctrlW) end
             return addBoolOption(self, entry, split, 0, BH)
         end)
-        -- the labels the stock helpers right-align left of the control go to its right, left-aligned
+        -- the labels the stock helpers right-align left of the control go to its right, left-aligned; a setting's name
+        -- too long for the column (a 1920 x 1080 window) wraps: its first line stays the label, the rest goes on the
+        -- line(s) under it, above the tags (PzoptRowInfo)
         local maxLab = 0
+        local more = {}
+        local titled = false
         for _, e in ipairs(item.elems) do
             local el = e.el
             if el.Type == "ISLabel" and el:getX() < G.contentX - 1 then
                 local font = el.font or UIFont.Small
-                local name = clipText(font, el.name or "", G.contentR - G.labelX)
+                local room = G.contentR - G.labelX
+                local name = el.name or ""
+                if not titled and textW(font, name) > room then
+                    local lines = wrapLines(font, name, room)
+                    name = lines[1]
+                    for i = 2, math.min(#lines, 3) do table.insert(more, lines[i]) end
+                    if #lines > 3 then more[2] = clipText(font, more[2] .. " " .. table.concat(lines, " ", 4), room) end
+                end
+                titled = true
+                name = clipText(font, name, room)
                 el.left, el.originalX, el.name = true, G.labelX, name
                 el:setWidth(textW(font, name))
                 el:setX(G.labelX)
@@ -4374,9 +4459,13 @@ local function buildPage(self)
             end
         end
         for _, e in ipairs(item.elems) do
-            if e.el.Type ~= "ISLabel" and e.el:getX() < G.contentX - 1 then -- the curve plot
-                e.el:setX(G.labelX + maxLab + 16)
-                e.x0 = e.el:getX()
+            if e.el.Type ~= "ISLabel" and e.el:getX() < G.contentX - 1 then -- the curve plot, smaller when the column is narrow
+                local px = G.labelX + maxLab + 16
+                local size = math.max(40, math.min(e.el:getWidth(), G.contentR - px))
+                e.el:setWidth(size)
+                e.el:setHeight(size)
+                e.el:setX(px)
+                e.x0 = px
             end
         end
         local row = item
@@ -4385,12 +4474,14 @@ local function buildPage(self)
         row.tier = isMaster and 1 or tierOf(entry.key)
         row.clip = isMaster and PAGES[pageIndex].masterClip or (KEY_CLIP[entry.key] or section.clip or "drive")
         row.controlDy = 0
-        -- the line under the label
-        local info = PzoptRowInfo:new(G.labelX, self.addY - SP + 1, G.contentR - G.labelX, hS + 2, row)
+        -- the line under the label (after the rest of a wrapped name)
+        row.labelMore = more
+        local infoH = (hS + 2) * (1 + #more)
+        local info = PzoptRowInfo:new(G.labelX, self.addY - SP + 1, G.contentR - G.labelX, infoH, row)
         info:initialise()
         panel:addChild(info)
         table.insert(row.elems, { el = info, dy = info:getY() - top, x0 = G.labelX })
-        self.addY = self.addY + hS + 2 + SP
+        self.addY = self.addY + infoH + SP
         row.step = self.addY - top
         row.h = row.step
         option.pzoptProfile = section and section.profiles
@@ -4430,8 +4521,8 @@ local function buildPage(self)
         g.heading = single(drawPanel(function(o)
             o:drawText(string.upper(group.title), 0, 0, group.c.r, group.c.g, group.c.b, 1, UIFont.Medium)
             local x = textW(UIFont.Medium, string.upper(group.title)) + 16
-            o:drawText(group.count .. " settings.  " .. group.note, x, math.floor((hM - hS) / 2),
-                C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+            o:drawText(clipText(UIFont.Small, group.count .. " settings.  " .. group.note, math.max(20, o.width - x)), x,
+                math.floor((hM - hS) / 2), C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
         end))
         if g.page ~= 1 then
             local page = PAGES[g.page]
@@ -4510,6 +4601,7 @@ local function buildPage(self)
                         local text = s.blurb or (s.rows[1] and firstSentence(s.rows[1].entry.tip)) or ""
                         o:drawText(clipText(UIFont.Small, text, o.width - 32), 16, 10 + hM, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
                     end))
+                    s.card.background = true
                     s.open = buttonItem("All " .. #s.rows .. " settings  >", "Opens the " .. s.title .. " tab.",
                         function() navigate(S, "cat", c.id, index) end)
                 else
