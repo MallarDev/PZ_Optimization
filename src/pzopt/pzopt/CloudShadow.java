@@ -27,7 +27,9 @@ import zombie.iso.weather.ClimateManager;
  * at its own speed (the clouds change shape as they go), transmittance {@code T = 1 - opacity (1 - e^(-3d)) / (1 - e^-3)}.
  * The field drifts with the wind at the clouds' height and is projected along the key light from {@code cloudHeight}
  * squares up, so a cloud's shadow lands where the sun ray through it meets the ground, walls and roofs (the per-pixel world
- * position comes from the composite's depth: the mapping of {@link Ssr.View}).
+ * position comes from the composite's depth: the mapping of {@link Ssr.View}). The light direction of that projection is
+ * held while cloud shadows are drawn (taken again only while none are), so the shadows move with the wind, never with the
+ * sun.
  *
  * <p>Characters and vehicles read the same field on the CPU ({@link #transmittanceAt}): their shade and their capsule
  * shadows follow the clouds. The stock screen-space cloud overlay stays unless {@code cloudReplaceStock}.
@@ -231,6 +233,7 @@ public final class CloudShadow {
    /** This frame's cloud state: base uv of world (0, 0) and its detail uv, coverage, parallax, strength (0 = no clouds). */
    private static double driftX, driftY, detailX, detailY;
    private static double lastWorldHours = Double.NaN;
+   private static double heldLx, heldLy, heldLz = Double.NaN; // the key light direction of the projection, held while clouds are drawn
    static volatile float cover, strength, windKph;
    static volatile double parX, parY, parA, parB; // cloud uv offset from the key light's parallax, per level height
    public static volatile boolean replaceStock;
@@ -273,18 +276,24 @@ public final class CloudShadow {
       detailX = (detailX + (0.55 * vx - 0.25 * vy) * dtReal) % dPeriod;
       detailY = (detailY + (0.55 * vy + 0.25 * vx) * dtReal) % dPeriod;
 
-      // the key light (unstepped: the shadows slide with the sun instead of jumping at the static shadows' steps)
-      double[] L = SunShadow.lightBody == 0 ? Sky.sun : Sky.moon;
-      if ("arc".equals(Config.SKY_PATH)) {
-         L = new double[] {SunShadow.world[0], SunShadow.world[1], SunShadow.world[2]};
-      }
-      double lz = Math.max(0.12, L[2]);
-      parX = L[0] / lz * Config.CLOUD_HEIGHT;
-      parY = L[1] / lz * Config.CLOUD_HEIGHT;
-      parA = -L[0] / lz * 2.4494897; // per level of height the landing point moves back towards the light
-      parB = -L[1] / lz * 2.4494897;
       cover = c;
       float s = SunShadow.liveStrength;
+      // the key light the clouds are projected along: held while cloud shadows are drawn, taken anew only while none are,
+      // so the shadows on the ground only drift with the wind (the sun's motion slid them hundreds of squares a game
+      // hour near the horizon, in steps); a stale direction only shifts which part of the noise a roof shows
+      if (Double.isNaN(heldLz) || !(c > 0.01F && s > 0.004F && field != null)) {
+         double[] L = SunShadow.lightBody == 0 ? Sky.sun : Sky.moon;
+         if ("arc".equals(Config.SKY_PATH)) {
+            L = new double[] {SunShadow.world[0], SunShadow.world[1], SunShadow.world[2]};
+         }
+         heldLx = L[0];
+         heldLy = L[1];
+         heldLz = Math.max(0.12, L[2]);
+      }
+      parX = heldLx / heldLz * Config.CLOUD_HEIGHT;
+      parY = heldLy / heldLz * Config.CLOUD_HEIGHT;
+      parA = -heldLx / heldLz * 2.4494897; // per level of height the landing point moves back towards the light
+      parB = -heldLy / heldLz * 2.4494897;
       if (Config.DEV_CLOUD_ALTERNATE > 0) {
          long now = System.currentTimeMillis();
          if (toggleT0 == 0L) {

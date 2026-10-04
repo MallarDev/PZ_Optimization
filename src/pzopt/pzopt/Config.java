@@ -1129,7 +1129,7 @@ public final class Config {
    public static volatile int CLOUD_OPACITY_PCT; // how much of the sun a cloud's thick core holds back, %
    public static volatile int CLOUD_SPEED_PCT; // how fast the cloud shadows drift, % of the wind at the clouds' height
    public static volatile int CLOUD_SCALE_PCT; // cloud size, % of the default (~1 km cumulus)
-   public static final int CLOUD_HEIGHT = integer("cloudHeight", 400); // squares above the ground: the cloud shadows sit where the sun ray through the cloud lands (they move a little as the sun moves)
+   public static final int CLOUD_HEIGHT = integer("cloudHeight", 400); // squares above the ground: the cloud shadows sit where the sun ray through the cloud lands (the direction is held while clouds are drawn: they move with the wind, not the sun)
    public static final boolean CLOUD_REPLACE_STOCK = bool("cloudReplaceStock", false); // cloudShadows: the stock screen-space cloud overlay is not drawn while cloud shadows are on
    public static final int CLOUD_FIELD_SIZE = integer("cloudFieldSize", 256); // texels per side of the cloud field (tiled; both layers)
    public static final float DEV_CLOUD_COVER = Float.parseFloat(string("devCloudCover", "-1")); // dev: cloud cover 0..1 for the cloud shadows whatever the weather (-1: the climate's)

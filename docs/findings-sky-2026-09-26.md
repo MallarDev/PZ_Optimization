@@ -43,6 +43,8 @@ they do outside. Nothing re-bakes when the clouds move.
   remap, Beer-Lambert transmittance. 2.5 squares a texel (fair-weather cumulus 100-200 squares across; `cloudScalePct`).
 - Drift with the climate's wind (its angle is the compass point it blows from; 0 = SE) at 1.6 x the surface speed, in the
   game clock's real seconds (pauses, fast-forward). Projected along the key light from `cloudHeight` squares up.
+  The projection direction is held while cloud shadows are drawn and taken again only while none are (2026-10-04: following
+  the sun slid the shadows in steps, up to ~100 squares a game minute near the horizon); the shadows move with the wind only.
 - The composite reconstructs each pixel's world position from its depth (Ssr's mapping); the cloud uv is linear in
   (window x, window y, depth): two dot products. Water is patched the same way. Characters (their shade) and the capsule
   shadows read the same field on the CPU.
