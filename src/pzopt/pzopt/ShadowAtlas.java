@@ -491,8 +491,13 @@ public final class ShadowAtlas {
       "void main() {",
       "}");
 
-   /** The slot's player outline flag (private): off for the sun draw, back after. Returns the value it had. */
-   private static boolean outline(ModelSlotRenderData slot, boolean value) {
+   /**
+    * The slot's player outline flag (private): off for the sun draw, back after. Returns the value it had. (package:
+    * pzopt.Mirrors and pzopt.CarOccupant re-render slots too. With the flag on, render() adds the model's silhouette in that
+    * camera to ModelOutlines.fboA, which the frame's outline blit draws on screen, and fboA.endDrawing() binds
+    * TextureFBO.lastID, i.e. the world framebuffer, instead of the pass's own.)
+    */
+   static boolean outline(ModelSlotRenderData slot, boolean value) {
       try {
          if (!outlineTried) {
             outlineTried = true;

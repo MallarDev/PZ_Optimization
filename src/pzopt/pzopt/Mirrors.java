@@ -1693,6 +1693,7 @@ public final class Mirrors {
                      calibrated = CAMERA.calibrate(this.f);
                   }
                   float squareDepth = p.slot.squareDepth;
+                  boolean outline = ShadowAtlas.outline(p.slot, false); // the aim outline is a screen overlay: once, not per plane
                   ModelCamera.instance = CAMERA;
                   GLStateRenderThread.ScissorTest.set(true);
                   GL11.glScissor(sx, sy, sw, sh);
@@ -1702,6 +1703,7 @@ public final class Mirrors {
                      }
                   } finally {
                      p.slot.squareDepth = squareDepth;
+                     ShadowAtlas.outline(p.slot, outline);
                   }
                   modelDraws++;
                }

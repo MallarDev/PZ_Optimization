@@ -774,6 +774,7 @@ public final class CarOccupant {
       CAMERA.g.set(g);
       CAMERA.seat.set(cd.seat[si * 3], cd.seat[si * 3 + 1] - Config.CAR_GLASS_SEAT_HIP_PCT / 100F + Config.DEV_CAR_OCCUPANT_Y_PCT / 100F, cd.seat[si * 3 + 2]);
       boolean inVehicle = slot.inVehicle;
+      boolean outline = ShadowAtlas.outline(slot, false); // the aim outline is drawn on screen, not into the tile
       try {
          slot.inVehicle = false; // Model.CharacterModelCameraBegin adds nothing: the camera places the seat
          // (a model texture made in between may have bound its own framebuffer: the tile again)
@@ -798,6 +799,7 @@ public final class CarOccupant {
       } finally {
          slot.inVehicle = inVehicle;
          slot.squareDepth = sd;
+         ShadowAtlas.outline(slot, outline);
          ModelCamera.instance = cam;
       }
       return true;

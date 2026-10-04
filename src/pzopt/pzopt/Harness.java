@@ -371,6 +371,10 @@ public final class Harness {
       if (p != null && (state == SETTLE || state == RUN || state == PLAY)) {
          Scene.tick(p, nowNs); // keeps the forced weather pinned and fires the scheduled lightning
          pinZombies(); // find=winzombie / fencezombie
+         for (zombie.characters.IsoZombie z : outlined) {
+            z.setOutlineHighlight(0, true); // as CombatManager.highlightMeleeTargets each update; renderlast clears it after the render
+            z.setOutlineHighlightCol(1.0F, 0.0F, 0.0F, 1.0F);
+         }
          BloodProbe.tick(p, nowNs); // blood_fill= / blood_rate= / blood_probe=: the floor blood decal rig
          BloodProbe.spray(p, dt);
       }
@@ -671,6 +675,9 @@ public final class Harness {
                }
                if (!HarnessFlags.get("pin_zombies", "").isBlank()) {
                   pinZombiesAt(p, HarnessFlags.get("pin_zombies", "")); // dev: idle zombies held on given squares (bus shelter glass)
+               }
+               if (!HarnessFlags.get("outline_zombies", "").isBlank()) {
+                  outlineZombiesAt(p, x, y, routeZ, turnAngle, Integer.parseInt(HarnessFlags.get("outline_zombies", "0").trim())); // dev: melee aim outline rig
                }
                int upstairs = Integer.parseInt(HarnessFlags.get("upstairs", "0").trim());
                upstairsAt = Float.parseFloat(HarnessFlags.get("upstairs_at", "0").trim());
@@ -1757,6 +1764,42 @@ public final class Harness {
    }
 
    private static long pinLogNs;
+   private static final java.util.ArrayList<zombie.characters.IsoZombie> outlined = new java.util.ArrayList<>();
+
+   /**
+    * outline_zombies=N (2026-10-04, the melee aim outline repeated in the reflections): N idle zombies pinned on the squares
+    * next to the route's start (x, y, z), those towards the facing first, facing the camera, outlined red every update as
+    * the melee aim outlines its targets (Options "melee outline"); with find=mirror / find=window they stand in front of the
+    * glass. God mode on.
+    */
+   private static void outlineZombiesAt(IsoPlayer p, float x, float y, int z, float facingDeg, int n) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      p.getCheats().set(zombie.characters.CheatType.GOD_MODE, true);
+      int px = (int)Math.floor(x), py = (int)Math.floor(y);
+      double fx = Math.cos(Math.toRadians(facingDeg)), fy = Math.sin(Math.toRadians(facingDeg));
+      java.util.ArrayList<int[]> squares = new java.util.ArrayList<>();
+      for (int dy = -1; dy <= 1; dy++) {
+         for (int dx = -1; dx <= 1; dx++) {
+            zombie.iso.IsoGridSquare sq = cell.getGridSquare(px + dx, py + dy, z);
+            if ((dx != 0 || dy != 0) && sq != null && sq.isFree(false)) {
+               squares.add(new int[] {px + dx, py + dy, (int)Math.round(-1000 * (dx * fx + dy * fy) / Math.hypot(dx, dy))});
+            }
+         }
+      }
+      squares.sort(java.util.Comparator.comparingInt(s -> s[2]));
+      for (int i = 0; i < squares.size() && outlined.size() < n; i++) {
+         int[] s = squares.get(i);
+         java.util.ArrayList<zombie.characters.IsoZombie> list = zombie.Lua.LuaManager.GlobalObject.addZombiesInOutfit(s[0], s[1], z, 1, "Police", 0);
+         if (list == null) continue;
+         for (zombie.characters.IsoZombie zed : list) {
+            zed.setUseless(true);
+            pinned.add(zed);
+            pinnedAt.add(new float[]{s[0] + 0.5F, s[1] + 0.5F, 0F, 0F});
+            outlined.add(zed);
+         }
+      }
+      Log.info("harness: outline_zombies: " + outlined.size() + " outlined zombies next to " + px + "," + py + "," + z + " (" + squares.size() + " free squares)");
+   }
 
    /**
     * pin_zombies=x,y[,z]/x,y[,z]/... (2026-10-01, bus shelter report: the player and zombies behind its glass panes were
