@@ -640,7 +640,7 @@
   {
    "type": "timeseries",
    "title": "Each day's build on the desktop: fps per benchmark",
-   "description": "Each day's build (its last release) on one machine (history on: desktop RTX 4090 5120x2160, flip, dell, mac) at default settings, uncapped, route-mean fps, median of the day's runs: the 120 km/h drive east on KY-60 from the Rosewood bench save (clear, and in heavy fog with a thunderstorm), the spinning walk south through Rosewood in fog and storm, the Louisville horde (~2,000 zombies) and the riverside horde shooting. A bench starts on the first day whose harness could run it. Dashed: the stock game, the same every day. Hover a day for what it released.",
+   "description": "Each day's build (its last release) on one machine (history on: desktop RTX 4090 5120x2160, flip, dell, mac) at default settings, uncapped, route-mean fps, median of the day's runs: the 120 km/h drive east on KY-60 from the Rosewood bench save (clear, and in heavy fog with a thunderstorm), the spinning walk south through Rosewood in fog and storm, the Louisville horde (~2,000 zombies) and the riverside horde shooting. A bench starts on the first day whose harness could run it. Dashed: the stock game the day's build ran on (42.20.4 until 09-27: those builds were re-measured on a 42.20.4 copy of the game; 42.21 from 09-28, ~10 % slower than 42.20.4 by itself). Hover a day for what it released.",
    "datasource": {
     "type": "grafana-postgresql-datasource",
     "uid": "pzopt-pg"
@@ -655,7 +655,7 @@
      "rawQuery": true,
      "editorMode": "code",
      "format": "table",
-     "rawSql": "WITH d AS (SELECT substring(label from '(daily|dstorm|dspin|dlou|dhorde)-') AS b, substring(label from '(?:daily|dstorm|dspin|dlou|dhorde)-([0-9]{4}|stock)-') AS k,\n             to_char(started, 'YYYY') AS y, run, fps_mean FROM runs\n           -- laptop runs come back from the queue as <machine>-<label>\n           WHERE label ~ '^((flip|dell|mac)-)?(daily|dstorm|dspin|dlou|dhorde)-([0-9]{4}|stock)-[0-9]+$' AND machine = ${hmachine:sqlstring}\n             AND valid AND fps_mean IS NOT NULL AND run NOT IN ('')),\no AS (SELECT to_date(y || k, 'YYYYMMDD') AS day, b, percentile_cont(0.5) WITHIN GROUP (ORDER BY fps_mean) AS fps FROM d WHERE k <> 'stock' GROUP BY 1, 2),\nst AS (SELECT b, percentile_cont(0.5) WITHIN GROUP (ORDER BY fps_mean) AS fps FROM d WHERE k = 'stock' GROUP BY 1)\nSELECT o.day::timestamptz + interval '12 hours' AS time,\n  max(o.fps) FILTER (WHERE o.b = 'daily') AS \"120 km/h drive\", (SELECT fps FROM st WHERE st.b = 'daily') AS \"stock \u00b7 120 km/h drive\",\n  max(o.fps) FILTER (WHERE o.b = 'dstorm') AS \"120 km/h drive, fog + storm\", (SELECT fps FROM st WHERE st.b = 'dstorm') AS \"stock \u00b7 120 km/h drive, fog + storm\",\n  max(o.fps) FILTER (WHERE o.b = 'dspin') AS \"spin south, fog + storm\", (SELECT fps FROM st WHERE st.b = 'dspin') AS \"stock \u00b7 spin south, fog + storm\",\n  max(o.fps) FILTER (WHERE o.b = 'dlou') AS \"Louisville horde\", (SELECT fps FROM st WHERE st.b = 'dlou') AS \"stock \u00b7 Louisville horde\",\n  max(o.fps) FILTER (WHERE o.b = 'dhorde') AS \"horde shooting, riverside\", (SELECT fps FROM st WHERE st.b = 'dhorde') AS \"stock \u00b7 horde shooting, riverside\",\n  to_char(o.day, 'YYYYMMDD')::int AS \"build\",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022\",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022 \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022  \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022   \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022    \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022     \",\n  CASE WHEN o.day IN ('2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022      \",\n  CASE WHEN o.day IN ('2026-09-22', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022       \",\n  CASE WHEN o.day IN ('2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022        \"\nFROM o GROUP BY o.day ORDER BY o.day",
+     "rawSql": "WITH d AS (SELECT substring(label from '(daily|dstorm|dspin|dlou|dhorde)-') AS b, substring(label from '(?:daily|dstorm|dspin|dlou|dhorde)-([0-9]{4}|stock[0-9]*)-') AS k,\n             to_char(started, 'YYYY') AS y, run, fps_mean FROM runs\n           -- laptop runs come back from the queue as <machine>-<label>\n           WHERE label ~ '^((flip|dell|mac)-)?(daily|dstorm|dspin|dlou|dhorde)-([0-9]{4}|stock[0-9]*)-[0-9]+$' AND machine = ${hmachine:sqlstring}\n             AND valid AND fps_mean IS NOT NULL AND run NOT IN ('dhorde-0928-1-20261002-193510', 'dhorde-0928-2-20261002-194213', 'dlou-0928-1-20261002-193344', 'dlou-0928-2-20261002-194047', 'dlou-0929-1-20261002-194911', 'dhorde-0929-1-20261002-195036', 'dlou-0929-2-20261002-195608', 'dhorde-0929-2-20261002-195732', 'dlou-0930-1-20261002-200302', 'dhorde-0930-1-20261002-200424', 'dlou-0930-2-20261002-200954', 'dhorde-0930-2-20261002-201117', 'dlou-1001-1-20261002-201645', 'dhorde-1001-1-20261002-201807', 'dlou-1001-2-20261002-202331', 'dhorde-1001-2-20261002-202455', 'dlou-1002-1-20261002-203044', 'dhorde-1002-1-20261002-203206', 'dlou-1002-2-20261002-203729', 'dhorde-1002-2-20261002-203850', 'dlou-stock4221-1-20261002-204441', 'dhorde-stock4221-1-20261002-204612', 'dlou-stock4221-2-20261002-205218', 'dhorde-stock4221-2-20261002-205351', 'dhorde-0928-3-20261002-205538', 'dhorde-0928-4-20261002-205716', 'dlou-0925-1-20261002-210535', 'dhorde-0925-1-20261002-210655', 'dlou-0925-2-20261002-211433', 'dhorde-0925-2-20261002-211552', 'dlou-0926-1-20261002-212145', 'dhorde-0926-1-20261002-212415', 'dlou-0926-2-20261002-213014', 'dhorde-0926-2-20261002-213134', 'dlou-0927-1-20261002-213656', 'dhorde-0927-1-20261002-213814', 'dlou-0927-2-20261002-214329', 'dhorde-0927-2-20261002-214449', 'dhorde-0926-3-20261002-215024', 'dhorde-0926-4-20261002-215220', 'dhorde-0925-3-20261002-215405')),\no AS (SELECT to_date(y || k, 'YYYYMMDD') AS day, b, percentile_cont(0.5) WITHIN GROUP (ORDER BY fps_mean) AS fps FROM d WHERE k !~ '^stock' GROUP BY 1, 2),\nst AS (SELECT b, substring(k from 'stock(.*)') AS g, percentile_cont(0.5) WITHIN GROUP (ORDER BY fps_mean) AS fps FROM d WHERE k ~ '^stock' GROUP BY 1, 2)\nSELECT o.day::timestamptz + interval '12 hours' AS time,\n  max(o.fps) FILTER (WHERE o.b = 'daily') AS \"120 km/h drive\", (SELECT fps FROM st WHERE st.b = 'daily' AND st.g = CASE WHEN o.day >= '2026-09-28' THEN '4221' ELSE '' END) AS \"stock \u00b7 120 km/h drive\",\n  max(o.fps) FILTER (WHERE o.b = 'dstorm') AS \"120 km/h drive, fog + storm\", (SELECT fps FROM st WHERE st.b = 'dstorm' AND st.g = CASE WHEN o.day >= '2026-09-28' THEN '4221' ELSE '' END) AS \"stock \u00b7 120 km/h drive, fog + storm\",\n  max(o.fps) FILTER (WHERE o.b = 'dspin') AS \"spin south, fog + storm\", (SELECT fps FROM st WHERE st.b = 'dspin' AND st.g = CASE WHEN o.day >= '2026-09-28' THEN '4221' ELSE '' END) AS \"stock \u00b7 spin south, fog + storm\",\n  max(o.fps) FILTER (WHERE o.b = 'dlou') AS \"Louisville horde\", (SELECT fps FROM st WHERE st.b = 'dlou' AND st.g = CASE WHEN o.day >= '2026-09-28' THEN '4221' ELSE '' END) AS \"stock \u00b7 Louisville horde\",\n  max(o.fps) FILTER (WHERE o.b = 'dhorde') AS \"horde shooting, riverside\", (SELECT fps FROM st WHERE st.b = 'dhorde' AND st.g = CASE WHEN o.day >= '2026-09-28' THEN '4221' ELSE '' END) AS \"stock \u00b7 horde shooting, riverside\",\n  to_char(o.day, 'YYYYMMDD')::int AS \"build\",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022\",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022 \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022  \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022   \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-10-03') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022    \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022     \",\n  CASE WHEN o.day IN ('2026-09-22', '2026-09-23', '2026-09-24', '2026-09-26') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022      \",\n  CASE WHEN o.day IN ('2026-09-22', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022       \",\n  CASE WHEN o.day IN ('2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022        \"\nFROM o GROUP BY o.day ORDER BY o.day",
      "hide": false
     }
    ],
@@ -992,6 +992,36 @@
            },
            "20260924": {
             "text": "build b3904da"
+           },
+           "20260925": {
+            "text": "build ab4b22b"
+           },
+           "20260926": {
+            "text": "build f43331b"
+           },
+           "20260927": {
+            "text": "build 334ec7f"
+           },
+           "20260928": {
+            "text": "build aa5b92d"
+           },
+           "20260929": {
+            "text": "build b1569b7"
+           },
+           "20260930": {
+            "text": "build 0a32301"
+           },
+           "20261001": {
+            "text": "build 45fb43f"
+           },
+           "20261002": {
+            "text": "build 5f72895"
+           },
+           "20261003": {
+            "text": "build 9e9d987"
+           },
+           "20261004": {
+            "text": "build 6eac10a"
            }
           }
          }
@@ -1059,6 +1089,36 @@
            },
            "20260924": {
             "text": "Input latency: the keyboard reaches the screen a frame sooner"
+           },
+           "20260925": {
+            "text": "Options > Enhancements tab: upscaling, HDR and AO apply without a restart"
+           },
+           "20260926": {
+            "text": "Reflections on water and puddles (off by default)"
+           },
+           "20260927": {
+            "text": "Game-thread offload pass"
+           },
+           "20260928": {
+            "text": "Game update: Build 42.21 (the stock game itself ~10 % slower)"
+           },
+           "20260929": {
+            "text": "Real Blood: road splats and a wet blood film"
+           },
+           "20260930": {
+            "text": "Zero Lag UI: retained UI, same-frame input"
+           },
+           "20261001": {
+            "text": "Share settings: export and import on the options tabs"
+           },
+           "20261002": {
+            "text": "Mac Unbound: OpenGL 4.1 core, the Enhancements on a Mac"
+           },
+           "20261003": {
+            "text": "Driving through trees as fast as on Build 42.20 again"
+           },
+           "20261004": {
+            "text": "Mirrors and windows reflect the room, the street and the people (off by default)"
            }
           }
          }
@@ -1126,6 +1186,36 @@
            },
            "20260924": {
             "text": "Variable refresh (VRR) on Linux; HDR on Linux and macOS"
+           },
+           "20260925": {
+            "text": "Per-pixel lighting (off by default)"
+           },
+           "20260926": {
+            "text": "Fluid driving: cars drawn between physics steps"
+           },
+           "20260927": {
+            "text": "God rays"
+           },
+           "20260928": {
+            "text": "Foliage sway: grass, bushes and trees move in the wind"
+           },
+           "20260929": {
+            "text": "Wind sprite effects stay baked (issue #41)"
+           },
+           "20260930": {
+            "text": "Relief: the art's fine relief lit by sun, moon and torches"
+           },
+           "20261001": {
+            "text": "Mod compatibility: Java mods switch off only what they patch"
+           },
+           "20261002": {
+            "text": "Car glass: windows reflect the world, mirrors silvered"
+           },
+           "20261003": {
+            "text": "Car glass shows the people inside, on macOS too"
+           },
+           "20261004": {
+            "text": "Mirrors: the room behind the glass rebuilt from the game's tiles"
            }
           }
          }
@@ -1193,6 +1283,36 @@
            },
            "20260924": {
             "text": "Upscaler fixes, faster DLSS"
+           },
+           "20260925": {
+            "text": "Texture compression on the GPU: no menu stall after boot"
+           },
+           "20260926": {
+            "text": "Sun, moon and cloud shadows"
+           },
+           "20260927": {
+            "text": "Pixel perfect shadows: trees, characters, animals and cars"
+           },
+           "20260928": {
+            "text": "Sun glitter on water in HDR"
+           },
+           "20260929": {
+            "text": "AO: plant leaves no longer shade each other (issue #40)"
+           },
+           "20260930": {
+            "text": "Sun shadows every frame in step with the character"
+           },
+           "20261001": {
+            "text": "Console log setting for debugging other mods"
+           },
+           "20261002": {
+            "text": "You and zombies show through glass again"
+           },
+           "20261003": {
+            "text": "Dynamic resolution: the render scale follows the frame cap (off by default)"
+           },
+           "20261004": {
+            "text": "God rays: soft shafts with dust glints, glass doors let light in"
            }
           }
          }
@@ -1260,6 +1380,36 @@
            },
            "20260924": {
             "text": "Option: zombie detail follows the frame cap"
+           },
+           "20260925": {
+            "text": "DLSS: the river flows again"
+           },
+           "20260926": {
+            "text": "Darkness floor, remembered places, colour grading (off by default)"
+           },
+           "20260927": {
+            "text": "Uninstall in the game, install helper, one-line installers"
+           },
+           "20260928": {
+            "text": "Caches rebuild after a game update"
+           },
+           "20260929": {
+            "text": "Fitted depth for wall cabinets and store canopies (issue #38)"
+           },
+           "20260930": {
+            "text": "Fixed: black tiles over deep basements (#44), lamp flicker while zooming in HDR, buildings shading their own walls"
+           },
+           "20261001": {
+            "text": "Fixed: zombies not attacking cars, half-invisible zombies, striped post shadows, cars shadowing themselves"
+           },
+           "20261002": {
+            "text": "Fixed: shadows through walls and fences, cut shadow heads, a seam in pushed plants, car window flicker on AMD / Mesa"
+           },
+           "20261003": {
+            "text": "Occluded zombie outlines, light from the torch itself (off by default)"
+           },
+           "20261004": {
+            "text": "Fixed: god rays onto the street, mirror flicker while zooming"
            }
           }
          }
@@ -1327,6 +1477,24 @@
            },
            "20260924": {
             "text": "Power efficiency on hybrid CPUs"
+           },
+           "20260925": {
+            "text": "Ambient occlusion: new chunks shaded in their first bake"
+           },
+           "20260926": {
+            "text": "Sharp sprites: sprite filtering (off by default)"
+           },
+           "20260927": {
+            "text": "Fixed: roof flicker with DLSS, a crash on quit, black world with god rays on Mesa / AMD"
+           },
+           "20260928": {
+            "text": "Fixed: macOS crash with shadows, grey world with torch shadows and HDR, Steam Deck GPU clock flapping"
+           },
+           "20260929": {
+            "text": "Fixed: gas-canopy lights through roofs, blinking shelf goods, short low-sun shadows"
+           },
+           "20261003": {
+            "text": "Fixed: see-through trees at every zoom, dark window columns with per-pixel lighting"
            }
           }
          }
@@ -1394,6 +1562,12 @@
            },
            "20260924": {
             "text": "Render distance follows the view upstairs"
+           },
+           "20260925": {
+            "text": "Fixed: per-pixel lighting flash and grid lines, HDR floor flash (PR #20), zoom flicker (PR #19)"
+           },
+           "20260926": {
+            "text": "Trees lit right with every lighting feature on"
            }
           }
          }
@@ -1452,6 +1626,9 @@
            },
            "20260924": {
             "text": "Clear audio: no clipping under gunfire on stereo"
+           },
+           "20260926": {
+            "text": "Fixed: wall flicker on stairs, torch light through walls, crash damage while driving"
            }
           }
          }
@@ -1611,7 +1788,7 @@
      "maxWidth": 360
     }
    },
-   "timeFrom": "17d",
+   "timeFrom": "18d",
    "hideTimeOverride": true,
    "id": 9,
    "gridPos": {
@@ -1624,7 +1801,7 @@
   {
    "type": "timeseries",
    "title": "Each day's build on the desktop: boot and load time",
-   "description": "Boot (launch to the main menu) and load (Continue to the world ready) in seconds, median over every run of that day's build on the machine (all benchmarks load the same bench save), lower is better. Dashed: the stock game. Hover a day for what it released.",
+   "description": "Boot (launch to the main menu) and load (Continue to the world ready) in seconds, median over every run of that day's build on the machine (all benchmarks load the same bench save), lower is better. Dashed: the stock game the day's build ran on. Hover a day for what it released.",
    "datasource": {
     "type": "grafana-postgresql-datasource",
     "uid": "pzopt-pg"
@@ -1639,7 +1816,7 @@
      "rawQuery": true,
      "editorMode": "code",
      "format": "table",
-     "rawSql": "WITH d AS (SELECT substring(label from '(daily|dstorm|dspin|dlou|dhorde)-') AS b, substring(label from '(?:daily|dstorm|dspin|dlou|dhorde)-([0-9]{4}|stock)-') AS k,\n             to_char(started, 'YYYY') AS y, run, fps_mean FROM runs\n           -- laptop runs come back from the queue as <machine>-<label>\n           WHERE label ~ '^((flip|dell|mac)-)?(daily|dstorm|dspin|dlou|dhorde)-([0-9]{4}|stock)-[0-9]+$' AND machine = ${hmachine:sqlstring}\n             AND valid AND fps_mean IS NOT NULL AND run NOT IN ('')),\ne AS (SELECT run, min(t) AS t0, min(t) FILTER (WHERE text ~ 'continuing latest save') AS tc FROM events\n      WHERE run IN (SELECT run FROM d) GROUP BY run),\nlt AS (SELECT d.k, d.y, extract(epoch FROM e.tc - e.t0) AS boot,\n         extract(epoch FROM (SELECT min(x.t) FROM events x WHERE x.run = e.run AND x.t > e.tc AND x.text ~ 'world ready') - e.tc) AS load\n       FROM e JOIN d USING (run)),\no AS (SELECT to_date(y || k, 'YYYYMMDD') AS day, percentile_cont(0.5) WITHIN GROUP (ORDER BY boot) AS boot, percentile_cont(0.5) WITHIN GROUP (ORDER BY load) AS load FROM lt\n      WHERE k <> 'stock' GROUP BY 1),\nls AS (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY boot) AS boot, percentile_cont(0.5) WITHIN GROUP (ORDER BY load) AS load FROM lt WHERE k = 'stock')\nSELECT o.day::timestamptz + interval '12 hours' AS time,\n  o.boot AS \"boot\", (SELECT boot FROM ls) AS \"stock \u00b7 boot\", o.load AS \"load\", (SELECT load FROM ls) AS \"stock \u00b7 load\",\n  to_char(o.day, 'YYYYMMDD')::int AS \"build\",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022\",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022 \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022  \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022   \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022    \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022     \",\n  CASE WHEN o.day IN ('2026-09-22', '2026-09-23', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022      \",\n  CASE WHEN o.day IN ('2026-09-22', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022       \",\n  CASE WHEN o.day IN ('2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022        \"\nFROM o ORDER BY o.day",
+     "rawSql": "WITH d AS (SELECT substring(label from '(daily|dstorm|dspin|dlou|dhorde)-') AS b, substring(label from '(?:daily|dstorm|dspin|dlou|dhorde)-([0-9]{4}|stock[0-9]*)-') AS k,\n             to_char(started, 'YYYY') AS y, run, fps_mean FROM runs\n           -- laptop runs come back from the queue as <machine>-<label>\n           WHERE label ~ '^((flip|dell|mac)-)?(daily|dstorm|dspin|dlou|dhorde)-([0-9]{4}|stock[0-9]*)-[0-9]+$' AND machine = ${hmachine:sqlstring}\n             AND valid AND fps_mean IS NOT NULL AND run NOT IN ('dhorde-0928-1-20261002-193510', 'dhorde-0928-2-20261002-194213', 'dlou-0928-1-20261002-193344', 'dlou-0928-2-20261002-194047', 'dlou-0929-1-20261002-194911', 'dhorde-0929-1-20261002-195036', 'dlou-0929-2-20261002-195608', 'dhorde-0929-2-20261002-195732', 'dlou-0930-1-20261002-200302', 'dhorde-0930-1-20261002-200424', 'dlou-0930-2-20261002-200954', 'dhorde-0930-2-20261002-201117', 'dlou-1001-1-20261002-201645', 'dhorde-1001-1-20261002-201807', 'dlou-1001-2-20261002-202331', 'dhorde-1001-2-20261002-202455', 'dlou-1002-1-20261002-203044', 'dhorde-1002-1-20261002-203206', 'dlou-1002-2-20261002-203729', 'dhorde-1002-2-20261002-203850', 'dlou-stock4221-1-20261002-204441', 'dhorde-stock4221-1-20261002-204612', 'dlou-stock4221-2-20261002-205218', 'dhorde-stock4221-2-20261002-205351', 'dhorde-0928-3-20261002-205538', 'dhorde-0928-4-20261002-205716', 'dlou-0925-1-20261002-210535', 'dhorde-0925-1-20261002-210655', 'dlou-0925-2-20261002-211433', 'dhorde-0925-2-20261002-211552', 'dlou-0926-1-20261002-212145', 'dhorde-0926-1-20261002-212415', 'dlou-0926-2-20261002-213014', 'dhorde-0926-2-20261002-213134', 'dlou-0927-1-20261002-213656', 'dhorde-0927-1-20261002-213814', 'dlou-0927-2-20261002-214329', 'dhorde-0927-2-20261002-214449', 'dhorde-0926-3-20261002-215024', 'dhorde-0926-4-20261002-215220', 'dhorde-0925-3-20261002-215405')),\ne AS (SELECT run, min(t) AS t0, min(t) FILTER (WHERE text ~ 'continuing latest save') AS tc FROM events\n      WHERE run IN (SELECT run FROM d) GROUP BY run),\nlt AS (SELECT d.k, d.y, extract(epoch FROM e.tc - e.t0) AS boot,\n         extract(epoch FROM (SELECT min(x.t) FROM events x WHERE x.run = e.run AND x.t > e.tc AND x.text ~ 'world ready') - e.tc) AS load\n       FROM e JOIN d USING (run)),\no AS (SELECT to_date(y || k, 'YYYYMMDD') AS day, percentile_cont(0.5) WITHIN GROUP (ORDER BY boot) AS boot, percentile_cont(0.5) WITHIN GROUP (ORDER BY load) AS load FROM lt\n      WHERE k !~ '^stock' GROUP BY 1),\nls AS (SELECT substring(k from 'stock(.*)') AS g, percentile_cont(0.5) WITHIN GROUP (ORDER BY boot) AS boot, percentile_cont(0.5) WITHIN GROUP (ORDER BY load) AS load FROM lt\n       WHERE k ~ '^stock' GROUP BY 1)\nSELECT o.day::timestamptz + interval '12 hours' AS time,\n  o.boot AS \"boot\", (SELECT boot FROM ls WHERE ls.g = CASE WHEN o.day >= '2026-09-28' THEN '4221' ELSE '' END) AS \"stock \u00b7 boot\",\n  o.load AS \"load\", (SELECT load FROM ls WHERE ls.g = CASE WHEN o.day >= '2026-09-28' THEN '4221' ELSE '' END) AS \"stock \u00b7 load\",\n  to_char(o.day, 'YYYYMMDD')::int AS \"build\",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022\",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022 \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022  \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022   \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-10-03') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022    \",\n  CASE WHEN o.day IN ('2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022     \",\n  CASE WHEN o.day IN ('2026-09-22', '2026-09-23', '2026-09-24', '2026-09-26') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022      \",\n  CASE WHEN o.day IN ('2026-09-22', '2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022       \",\n  CASE WHEN o.day IN ('2026-09-24') THEN to_char(o.day, 'YYYYMMDD')::int END AS \"\u2022        \"\nFROM o ORDER BY o.day",
      "hide": false
     }
    ],
@@ -1808,6 +1985,36 @@
            },
            "20260924": {
             "text": "build b3904da"
+           },
+           "20260925": {
+            "text": "build ab4b22b"
+           },
+           "20260926": {
+            "text": "build f43331b"
+           },
+           "20260927": {
+            "text": "build 334ec7f"
+           },
+           "20260928": {
+            "text": "build aa5b92d"
+           },
+           "20260929": {
+            "text": "build b1569b7"
+           },
+           "20260930": {
+            "text": "build 0a32301"
+           },
+           "20261001": {
+            "text": "build 45fb43f"
+           },
+           "20261002": {
+            "text": "build 5f72895"
+           },
+           "20261003": {
+            "text": "build 9e9d987"
+           },
+           "20261004": {
+            "text": "build 6eac10a"
            }
           }
          }
@@ -1875,6 +2082,36 @@
            },
            "20260924": {
             "text": "Input latency: the keyboard reaches the screen a frame sooner"
+           },
+           "20260925": {
+            "text": "Options > Enhancements tab: upscaling, HDR and AO apply without a restart"
+           },
+           "20260926": {
+            "text": "Reflections on water and puddles (off by default)"
+           },
+           "20260927": {
+            "text": "Game-thread offload pass"
+           },
+           "20260928": {
+            "text": "Game update: Build 42.21 (the stock game itself ~10 % slower)"
+           },
+           "20260929": {
+            "text": "Real Blood: road splats and a wet blood film"
+           },
+           "20260930": {
+            "text": "Zero Lag UI: retained UI, same-frame input"
+           },
+           "20261001": {
+            "text": "Share settings: export and import on the options tabs"
+           },
+           "20261002": {
+            "text": "Mac Unbound: OpenGL 4.1 core, the Enhancements on a Mac"
+           },
+           "20261003": {
+            "text": "Driving through trees as fast as on Build 42.20 again"
+           },
+           "20261004": {
+            "text": "Mirrors and windows reflect the room, the street and the people (off by default)"
            }
           }
          }
@@ -1942,6 +2179,36 @@
            },
            "20260924": {
             "text": "Variable refresh (VRR) on Linux; HDR on Linux and macOS"
+           },
+           "20260925": {
+            "text": "Per-pixel lighting (off by default)"
+           },
+           "20260926": {
+            "text": "Fluid driving: cars drawn between physics steps"
+           },
+           "20260927": {
+            "text": "God rays"
+           },
+           "20260928": {
+            "text": "Foliage sway: grass, bushes and trees move in the wind"
+           },
+           "20260929": {
+            "text": "Wind sprite effects stay baked (issue #41)"
+           },
+           "20260930": {
+            "text": "Relief: the art's fine relief lit by sun, moon and torches"
+           },
+           "20261001": {
+            "text": "Mod compatibility: Java mods switch off only what they patch"
+           },
+           "20261002": {
+            "text": "Car glass: windows reflect the world, mirrors silvered"
+           },
+           "20261003": {
+            "text": "Car glass shows the people inside, on macOS too"
+           },
+           "20261004": {
+            "text": "Mirrors: the room behind the glass rebuilt from the game's tiles"
            }
           }
          }
@@ -2009,6 +2276,36 @@
            },
            "20260924": {
             "text": "Upscaler fixes, faster DLSS"
+           },
+           "20260925": {
+            "text": "Texture compression on the GPU: no menu stall after boot"
+           },
+           "20260926": {
+            "text": "Sun, moon and cloud shadows"
+           },
+           "20260927": {
+            "text": "Pixel perfect shadows: trees, characters, animals and cars"
+           },
+           "20260928": {
+            "text": "Sun glitter on water in HDR"
+           },
+           "20260929": {
+            "text": "AO: plant leaves no longer shade each other (issue #40)"
+           },
+           "20260930": {
+            "text": "Sun shadows every frame in step with the character"
+           },
+           "20261001": {
+            "text": "Console log setting for debugging other mods"
+           },
+           "20261002": {
+            "text": "You and zombies show through glass again"
+           },
+           "20261003": {
+            "text": "Dynamic resolution: the render scale follows the frame cap (off by default)"
+           },
+           "20261004": {
+            "text": "God rays: soft shafts with dust glints, glass doors let light in"
            }
           }
          }
@@ -2076,6 +2373,36 @@
            },
            "20260924": {
             "text": "Option: zombie detail follows the frame cap"
+           },
+           "20260925": {
+            "text": "DLSS: the river flows again"
+           },
+           "20260926": {
+            "text": "Darkness floor, remembered places, colour grading (off by default)"
+           },
+           "20260927": {
+            "text": "Uninstall in the game, install helper, one-line installers"
+           },
+           "20260928": {
+            "text": "Caches rebuild after a game update"
+           },
+           "20260929": {
+            "text": "Fitted depth for wall cabinets and store canopies (issue #38)"
+           },
+           "20260930": {
+            "text": "Fixed: black tiles over deep basements (#44), lamp flicker while zooming in HDR, buildings shading their own walls"
+           },
+           "20261001": {
+            "text": "Fixed: zombies not attacking cars, half-invisible zombies, striped post shadows, cars shadowing themselves"
+           },
+           "20261002": {
+            "text": "Fixed: shadows through walls and fences, cut shadow heads, a seam in pushed plants, car window flicker on AMD / Mesa"
+           },
+           "20261003": {
+            "text": "Occluded zombie outlines, light from the torch itself (off by default)"
+           },
+           "20261004": {
+            "text": "Fixed: god rays onto the street, mirror flicker while zooming"
            }
           }
          }
@@ -2143,6 +2470,24 @@
            },
            "20260924": {
             "text": "Power efficiency on hybrid CPUs"
+           },
+           "20260925": {
+            "text": "Ambient occlusion: new chunks shaded in their first bake"
+           },
+           "20260926": {
+            "text": "Sharp sprites: sprite filtering (off by default)"
+           },
+           "20260927": {
+            "text": "Fixed: roof flicker with DLSS, a crash on quit, black world with god rays on Mesa / AMD"
+           },
+           "20260928": {
+            "text": "Fixed: macOS crash with shadows, grey world with torch shadows and HDR, Steam Deck GPU clock flapping"
+           },
+           "20260929": {
+            "text": "Fixed: gas-canopy lights through roofs, blinking shelf goods, short low-sun shadows"
+           },
+           "20261003": {
+            "text": "Fixed: see-through trees at every zoom, dark window columns with per-pixel lighting"
            }
           }
          }
@@ -2210,6 +2555,12 @@
            },
            "20260924": {
             "text": "Render distance follows the view upstairs"
+           },
+           "20260925": {
+            "text": "Fixed: per-pixel lighting flash and grid lines, HDR floor flash (PR #20), zoom flicker (PR #19)"
+           },
+           "20260926": {
+            "text": "Trees lit right with every lighting feature on"
            }
           }
          }
@@ -2268,6 +2619,9 @@
            },
            "20260924": {
             "text": "Clear audio: no clipping under gunfire on stereo"
+           },
+           "20260926": {
+            "text": "Fixed: wall flicker on stairs, torch light through walls, crash damage while driving"
            }
           }
          }
@@ -2427,7 +2781,7 @@
      "maxWidth": 360
     }
    },
-   "timeFrom": "17d",
+   "timeFrom": "18d",
    "hideTimeOverride": true,
    "id": 10,
    "gridPos": {

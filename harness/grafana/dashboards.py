@@ -343,10 +343,14 @@ s AS (SELECT o.scene, st.runs AS st_runs, o.runs AS o_runs, greatest(st.newest, 
 -- the headline: the clear 120 km/h drive (the daily chart's main line) when it was run both ways, else the scene with most pairs
 h AS (SELECT * FROM s ORDER BY scene = 'Driving 120 km/h · uncapped' DESC, least(st_runs, o_runs) DESC, newest DESC LIMIT 1)"""
 STOCK_C, OURS_C = "#8e8e8e", "#56a64b"
-# the daily chart's benches: label prefix, line name, colour (runs <prefix>-<MMDD>-<n>, stock <prefix>-stock-<n>)
+# the daily chart's benches: label prefix, line name, colour (runs <prefix>-<MMDD>-<n>, stock <prefix>-stock<game>-<n>)
 DAILY_BENCHES = [("daily", "120 km/h drive", OURS_C), ("dstorm", "120 km/h drive, fog + storm", "#5794F2"),
                  ("dspin", "spin south, fog + storm", "#B877D9"), ("dlou", "Louisville horde", "#FF9830"),
                  ("dhorde", "horde shooting, riverside", "#F2495C")]
+# the game version each day's build ran on, as the stock label's suffix: <prefix>-stock-<n> = 42.20.4 (the builds up to
+# 09-27, run on a 42.20.4 copy of the game since the update), <prefix>-stock4221-<n> = 42.21 (stable from 2026-09-28, ~10 %
+# slower than 42.20.4 by itself): a day is drawn against the stock game it ran on
+DAILY_GAMES = [("2026-09-28", "4221")]
 
 
 RELEASE_DAYS = json.loads((Path(__file__).resolve().parent / "release-days.json").read_text())
@@ -403,11 +407,13 @@ def hero(L):
     note_cols = "".join(f",\n  CASE WHEN o.day IN ({', '.join(repr(d['day']) for d in days if len(d['notes']) > i) or 'NULL'}) "
                         f"THEN {daynum} END AS \"{'•' + ' ' * i}\"" for i in range(rows))
     med = "percentile_cont(0.5) WITHIN GROUP (ORDER BY {})"
+    # the stock label suffix of the game a day's build ran on (DAILY_GAMES), matched against st.g / ls.g
+    game = "CASE " + " ".join(f"WHEN o.day >= '{since}' THEN '{g}'" for since, g in sorted(DAILY_GAMES, reverse=True)) + " ELSE '' END"
     ctes = f"""
-WITH d AS (SELECT substring(label from '({pat})-') AS b, substring(label from '(?:{pat})-([0-9]{{4}}|stock)-') AS k,
+WITH d AS (SELECT substring(label from '({pat})-') AS b, substring(label from '(?:{pat})-([0-9]{{4}}|stock[0-9]*)-') AS k,
              to_char(started, 'YYYY') AS y, run, fps_mean FROM runs
            -- laptop runs come back from the queue as <machine>-<label>
-           WHERE label ~ '^((flip|dell|mac)-)?({pat})-([0-9]{{4}}|stock)-[0-9]+$' AND machine = ${{hmachine:sqlstring}}
+           WHERE label ~ '^((flip|dell|mac)-)?({pat})-([0-9]{{4}}|stock[0-9]*)-[0-9]+$' AND machine = ${{hmachine:sqlstring}}
              AND valid AND fps_mean IS NOT NULL AND run NOT IN ({excluded})),"""
     notes_ov = [ov("build", hidden_viz=True, mappings=release_mappings(days, None)),
                 *[ov("•" + " " * i, hidden_viz=True, mappings=release_mappings(days, i)) for i in range(rows)]]
@@ -426,10 +432,10 @@ WITH d AS (SELECT substring(label from '({pat})-') AS b, substring(label from '(
         return ts
 
     bench_cols = "".join(f",\n  max(o.fps) FILTER (WHERE o.b = '{k}') AS \"{n}\","
-                         f" (SELECT fps FROM st WHERE st.b = '{k}') AS \"stock · {n}\"" for k, n, _ in benches)
+                         f" (SELECT fps FROM st WHERE st.b = '{k}' AND st.g = {game}) AS \"stock · {n}\"" for k, n, _ in benches)
     L.add(daily_chart("Each day's build on the ${hmachine}: fps per benchmark", f"""{ctes}
-o AS (SELECT to_date(y || k, 'YYYYMMDD') AS day, b, {med.format('fps_mean')} AS fps FROM d WHERE k <> 'stock' GROUP BY 1, 2),
-st AS (SELECT b, {med.format('fps_mean')} AS fps FROM d WHERE k = 'stock' GROUP BY 1)
+o AS (SELECT to_date(y || k, 'YYYYMMDD') AS day, b, {med.format('fps_mean')} AS fps FROM d WHERE k !~ '^stock' GROUP BY 1, 2),
+st AS (SELECT b, substring(k from 'stock(.*)') AS g, {med.format('fps_mean')} AS fps FROM d WHERE k ~ '^stock' GROUP BY 1, 2)
 SELECT o.day::timestamptz + interval '12 hours' AS time{bench_cols},
   {daynum} AS "build"{note_cols}
 FROM o GROUP BY o.day ORDER BY o.day""",
@@ -437,7 +443,8 @@ FROM o GROUP BY o.day ORDER BY o.day""",
         "default settings, uncapped, route-mean fps, median of the day's runs: the 120 km/h drive east on KY-60 from the "
         "Rosewood bench save (clear, and in heavy fog with a thunderstorm), the spinning walk south through Rosewood in fog "
         "and storm, the Louisville horde (~2,000 zombies) and the riverside horde shooting. A bench starts on the first day "
-        "whose harness could run it. Dashed: the stock game, the same every day.",
+        "whose harness could run it. Dashed: the stock game the day's build ran on (42.20.4 until 09-27: those builds were "
+        "re-measured on a 42.20.4 copy of the game; 42.21 from 09-28, ~10 % slower than 42.20.4 by itself).",
         [o for k, n, c in benches for o in (ov(n, color=c, min=0), ov(f"stock · {n}", color=c, min=0, dash=True))], "none", 0), 24, 11)
     # boot and load of every run above (its load trace: pzopt-loadtrace.out lines in events)
     L.add(daily_chart("Each day's build on the ${hmachine}: boot and load time", f"""{ctes}
@@ -447,14 +454,16 @@ lt AS (SELECT d.k, d.y, extract(epoch FROM e.tc - e.t0) AS boot,
          extract(epoch FROM (SELECT min(x.t) FROM events x WHERE x.run = e.run AND x.t > e.tc AND x.text ~ 'world ready') - e.tc) AS load
        FROM e JOIN d USING (run)),
 o AS (SELECT to_date(y || k, 'YYYYMMDD') AS day, {med.format('boot')} AS boot, {med.format('load')} AS load FROM lt
-      WHERE k <> 'stock' GROUP BY 1),
-ls AS (SELECT {med.format('boot')} AS boot, {med.format('load')} AS load FROM lt WHERE k = 'stock')
+      WHERE k !~ '^stock' GROUP BY 1),
+ls AS (SELECT substring(k from 'stock(.*)') AS g, {med.format('boot')} AS boot, {med.format('load')} AS load FROM lt
+       WHERE k ~ '^stock' GROUP BY 1)
 SELECT o.day::timestamptz + interval '12 hours' AS time,
-  o.boot AS "boot", (SELECT boot FROM ls) AS "stock · boot", o.load AS "load", (SELECT load FROM ls) AS "stock · load",
+  o.boot AS "boot", (SELECT boot FROM ls WHERE ls.g = {game}) AS "stock · boot",
+  o.load AS "load", (SELECT load FROM ls WHERE ls.g = {game}) AS "stock · load",
   {daynum} AS "build"{note_cols}
 FROM o ORDER BY o.day""",
         "Boot (launch to the main menu) and load (Continue to the world ready) in seconds, median over every run of that "
-        "day's build on the machine (all benchmarks load the same bench save), lower is better. Dashed: the stock game.",
+        "day's build on the machine (all benchmarks load the same bench save), lower is better. Dashed: the stock game the day's build ran on.",
         [ov("boot", color="#FADE2A", min=0), ov("stock · boot", color="#FADE2A", min=0, dash=True),
          ov("load", color="#8AB8FF", min=0), ov("stock · load", color="#8AB8FF", min=0, dash=True)], "s", 1), 24, 8)
     # the Workshop item's public numbers (workshop_stats.py, a snapshot every 30 min from the follower)

@@ -1,5 +1,5 @@
 {
- "_doc": "What each day's build brought: the hover of the home dashboard's daily 120 km/h drive chart (dashboards.py bakes it into value mappings; regenerate and deploy after an edit). build = the commit that day's drive runs measure: the last release of the day (Europe/Berlin), before 09-21 the day's last commit, built in a detached worktree. Runs are labelled daily-<MMDD>-<n>, the stock game daily-stock-<n> (--prop enabled=false): harness/run.sh --mode drive --flag route=E:1200 --flag kmh=193 --flag zoom=max --prop instrument=true --prop uncappedFps=true --no-dashboard --launcher direct, from the worktree's own run.sh. excluded = runs whose drive telemetry (console 'harness: drive t=' lines) shows the car more than 10 tiles off the line (the pre-09-22 follower swings 7-9 at full speed without a hit) or a speed drop > 40 km/h: their fps is not the drive's.",
+ "_doc": "What each day's build brought: the hover of the home dashboard's daily 120 km/h drive chart (dashboards.py bakes it into value mappings; regenerate and deploy after an edit). build = the commit that day's drive runs measure: the last release of the day (Europe/Berlin), before 09-21 the day's last commit, built in a detached worktree. Runs are labelled daily-<MMDD>-<n>, the stock game daily-stock-<n> (--prop enabled=false): harness/run.sh --mode drive --flag route=E:1200 --flag kmh=193 --flag zoom=max --prop instrument=true --prop uncappedFps=true --no-dashboard --launcher direct, from the worktree's own run.sh. The 09-25..09-27 builds (Build 42.20.4) were re-measured on 2026-10-02 on a 42.20.4 copy of the game (/games/steamapps/common/PZ-4220, PZ_DIR); from 09-28 on the game is 42.21 and its stock runs are labelled <bench>-stock4221-<n> (dashboards.DAILY_GAMES). Optimized runs since then pass an empty -Dpzopt.userOptionsFile so the machine's options tabs (HDR, DLSS, AO, ...) cannot leak in. excluded = runs whose drive telemetry (console 'harness: drive t=' lines) shows the car more than 10 tiles off the line (the pre-09-22 follower swings 7-9 at full speed without a hit) or a speed drop > 40 km/h: their fps is not the drive's.",
  "days": [
   {
    "day": "2026-09-19",
@@ -78,7 +78,158 @@
     "Controller: smooth Optimizations tab, L3 + R3 toggles the overlay",
     "Fixed: weather and fog flashing indoors, a ragdoll crash"
    ]
+  },
+  {
+   "day": "2026-09-25",
+   "build": "ab4b22b",
+   "notes": [
+    "Options > Enhancements tab: upscaling, HDR and AO apply without a restart",
+    "Per-pixel lighting (off by default)",
+    "Texture compression on the GPU: no menu stall after boot",
+    "DLSS: the river flows again",
+    "Ambient occlusion: new chunks shaded in their first bake",
+    "Fixed: per-pixel lighting flash and grid lines, HDR floor flash (PR #20), zoom flicker (PR #19)"
+   ]
+  },
+  {
+   "day": "2026-09-26",
+   "build": "f43331b",
+   "notes": [
+    "Reflections on water and puddles (off by default)",
+    "Fluid driving: cars drawn between physics steps",
+    "Sun, moon and cloud shadows",
+    "Darkness floor, remembered places, colour grading (off by default)",
+    "Sharp sprites: sprite filtering (off by default)",
+    "Trees lit right with every lighting feature on",
+    "Fixed: wall flicker on stairs, torch light through walls, crash damage while driving"
+   ]
+  },
+  {
+   "day": "2026-09-27",
+   "build": "334ec7f",
+   "notes": [
+    "Game-thread offload pass",
+    "God rays",
+    "Pixel perfect shadows: trees, characters, animals and cars",
+    "Uninstall in the game, install helper, one-line installers",
+    "Fixed: roof flicker with DLSS, a crash on quit, black world with god rays on Mesa / AMD"
+   ]
+  },
+  {
+   "day": "2026-09-28",
+   "build": "aa5b92d",
+   "notes": [
+    "Game update: Build 42.21 (the stock game itself ~10 % slower)",
+    "Foliage sway: grass, bushes and trees move in the wind",
+    "Sun glitter on water in HDR",
+    "Caches rebuild after a game update",
+    "Fixed: macOS crash with shadows, grey world with torch shadows and HDR, Steam Deck GPU clock flapping"
+   ]
+  },
+  {
+   "day": "2026-09-29",
+   "build": "b1569b7",
+   "notes": [
+    "Real Blood: road splats and a wet blood film",
+    "Wind sprite effects stay baked (issue #41)",
+    "AO: plant leaves no longer shade each other (issue #40)",
+    "Fitted depth for wall cabinets and store canopies (issue #38)",
+    "Fixed: gas-canopy lights through roofs, blinking shelf goods, short low-sun shadows"
+   ]
+  },
+  {
+   "day": "2026-09-30",
+   "build": "0a32301",
+   "notes": [
+    "Zero Lag UI: retained UI, same-frame input",
+    "Relief: the art's fine relief lit by sun, moon and torches",
+    "Sun shadows every frame in step with the character",
+    "Fixed: black tiles over deep basements (#44), lamp flicker while zooming in HDR, buildings shading their own walls"
+   ]
+  },
+  {
+   "day": "2026-10-01",
+   "build": "45fb43f",
+   "notes": [
+    "Share settings: export and import on the options tabs",
+    "Mod compatibility: Java mods switch off only what they patch",
+    "Console log setting for debugging other mods",
+    "Fixed: zombies not attacking cars, half-invisible zombies, striped post shadows, cars shadowing themselves"
+   ]
+  },
+  {
+   "day": "2026-10-02",
+   "build": "5f72895",
+   "notes": [
+    "Mac Unbound: OpenGL 4.1 core, the Enhancements on a Mac",
+    "Car glass: windows reflect the world, mirrors silvered",
+    "You and zombies show through glass again",
+    "Fixed: shadows through walls and fences, cut shadow heads, a seam in pushed plants, car window flicker on AMD / Mesa"
+   ]
+  },
+  {
+   "day": "2026-10-03",
+   "build": "9e9d987",
+   "notes": [
+    "Driving through trees as fast as on Build 42.20 again",
+    "Car glass shows the people inside, on macOS too",
+    "Dynamic resolution: the render scale follows the frame cap (off by default)",
+    "Occluded zombie outlines, light from the torch itself (off by default)",
+    "Fixed: see-through trees at every zoom, dark window columns with per-pixel lighting"
+   ]
+  },
+  {
+   "day": "2026-10-04",
+   "build": "6eac10a",
+   "notes": [
+    "Mirrors and windows reflect the room, the street and the people (off by default)",
+    "Mirrors: the room behind the glass rebuilt from the game's tiles",
+    "God rays: soft shafts with dust glints, glass doors let light in",
+    "Fixed: god rays onto the street, mirror flicker while zooming"
+   ]
   }
  ],
- "excluded": {}
+ "excluded": {
+  "dhorde-0928-1-20261002-193510": "no showcase director was running: 0 director commands, 0 rounds fired (re-run as dhorde-0928-3/4)",
+  "dhorde-0928-2-20261002-194213": "no showcase director was running: 0 director commands, 0 rounds fired (re-run as dhorde-0928-3/4)",
+  "dlou-0928-1-20261002-193344": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0928-2-20261002-194047": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0929-1-20261002-194911": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0929-1-20261002-195036": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0929-2-20261002-195608": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0929-2-20261002-195732": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0930-1-20261002-200302": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0930-1-20261002-200424": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0930-2-20261002-200954": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0930-2-20261002-201117": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-1001-1-20261002-201645": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-1001-1-20261002-201807": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-1001-2-20261002-202331": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-1001-2-20261002-202455": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-1002-1-20261002-203044": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-1002-1-20261002-203206": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-1002-2-20261002-203729": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-1002-2-20261002-203850": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-stock4221-1-20261002-204441": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-stock4221-1-20261002-204612": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-stock4221-2-20261002-205218": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-stock4221-2-20261002-205351": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0928-3-20261002-205538": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0928-4-20261002-205716": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0925-1-20261002-210535": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0925-1-20261002-210655": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0925-2-20261002-211433": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0925-2-20261002-211552": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0926-1-20261002-212145": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0926-1-20261002-212415": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0926-2-20261002-213014": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0926-2-20261002-213134": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0927-1-20261002-213656": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0927-1-20261002-213814": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dlou-0927-2-20261002-214329": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0927-2-20261002-214449": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0926-3-20261002-215024": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0926-4-20261002-215220": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop",
+  "dhorde-0925-3-20261002-215405": "desktop CPU-bound bench measured 2026-10-02 beside an editor using ~1.8 cores at nice -4 (stock Louisville 48 -> 28 fps vs 09-24): not comparable with the 09-19..09-24 points; re-measure on an idle desktop"
+ }
 }

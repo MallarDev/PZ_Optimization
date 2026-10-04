@@ -2,7 +2,7 @@
 """Check the daily re-measure runs (labels <bench>-<MMDD>-<n> / <bench>-stock-<n>, dashboards.DAILY_BENCHES) before they
 count in the home chart.
 
-  harness/grafana/daily-drives.py [run dirs or globs...]   # default: every daily bench's runs under /tmp/pzopt-daily-* and harness/runs
+  harness/grafana/daily-drives.py [run dirs or globs...]   # default: every daily bench's runs under /tmp/pzopt-daily-*, ~/pzopt-wt/daily-* and harness/runs
 
 Bench runs (no drive lines): BAD = route not complete. Drive runs: route status, distance, the largest distance off the line and any speed drop of more than 40 km/h from above
 60 km/h, from the console's 1 Hz `harness: drive t=` lines, and the route-mean fps. BAD = not complete, > 10 tiles off
@@ -40,7 +40,7 @@ def check(rd):
 
 def main(argv):
     prefixes = ("daily", "dstorm", "dspin", "dlou", "dhorde")
-    pats = argv or [f"{root}/{p}-*" for p in prefixes for root in ("/tmp/pzopt-daily-*/harness/runs", str(REPO / "harness/runs"))]
+    pats = argv or [f"{root}/{p}-*" for p in prefixes for root in ("/tmp/pzopt-daily-*/harness/runs", str(Path.home() / "pzopt-wt/daily-*/harness/runs"), str(REPO / "harness/runs"))]
     runs = sorted({p for pat in pats for p in glob.glob(pat)}, key=lambda p: Path(p).name)
     bad = 0
     for rd in runs:
