@@ -1186,6 +1186,8 @@ public final class Config {
    public static volatile boolean GOD_RAYS_APERTURES;
    public static volatile boolean GOD_RAYS_AP_DIRECT;
    public static volatile boolean GOD_RAYS_MOTES;
+   public static volatile int GOD_RAYS_SOFT_PCT; // god rays: how soft the shafts' edges and their sunlit patches are (the penumbra widens with the distance from the window), %; 0 = cut exactly by the frame
+   public static volatile int GOD_RAYS_GLINT_PCT; // god rays: dust motes glinting in the shafts, %; 0 = none
    public static volatile String GOD_RAYS_LOCAL_METHOD; // god rays, local lights: analytic (the closed-form airlight, one quad a light) | froxel (injected into the volume with walls' shadows)
    public static volatile String GOD_RAYS_HAZE_MODE; // god rays outdoors: add (the haze's light on top) | shade (the game's fog darkened where the air is in shadow) | auto (shade in the game's fog, add in mist) // god rays: dust motes glint in the shafts through windows
    public static volatile boolean GOD_RAYS_LOCAL; // god rays: torches, headlights and lamps light the dust and the fog around them (their airlight)
@@ -1204,6 +1206,9 @@ public final class Config {
    public static final int GOD_RAYS_LOCAL_CORE_PCT = integer("godRaysLocalCorePct", 150); // god rays, local lights: the light's core radius in hundredths of a square (a point light glowed as a white-hot orb at the bulb)
    public static final boolean GOD_RAYS_UNBIND_DEPTH = bool("godRaysUnbindDepth", true); // god rays: the scene depth unbound from our sampler unit after our passes (left bound, the rest of the world's draws saw a feedback loop)
    public static final boolean GOD_RAYS_LATE_DRAW = bool("godRaysLateDraw", false); // god rays: the light volumes and local lights drawn over the finished world at the screen composite (measured: +10 us, the extra FBO switch; off)
+   public static final boolean GOD_RAYS_ROOF_RULE = bool("godRaysRoofRule", true); // god rays: a window or doorway whose outside square has a roof, a porch roof or a floor right above it lets no light in (no shaft, no sunlit patch)
+   public static final boolean GOD_RAYS_DOOR_GLASS = bool("godRaysDoorGlass", true); // god rays: closed doors with glass (a window in the door, sliding glass doors) let the light through their glass, unless curtained or barricaded
+   public static final boolean GOD_RAYS_AP_CLIP = bool("godRaysApClip", true); // god rays: a light volume ends at the first wall or the edge of the building at every height of its aperture (one wall test at the aperture's middle let the upper part of a long evening shaft through the far wall onto the street)
    public static final boolean GOD_RAYS_AP_CULL = bool("godRaysApCull", true); // god rays: light volumes only in rooms the game shows (its building cut away, the player's level)
    public static final boolean GOD_RAYS_AP_DEPTH_TEST = bool("godRaysApDepthTest", true); // god rays: the light volumes' faces depth-tested against the scene (behind a roof or wall: never shaded)
    public static final boolean GOD_RAYS_FOG_FUSE = bool("godRaysFogFuse", true); // god rays: in the game's fog the haze's shade rides the fog pass's composite (the world composite's tap is skipped)
@@ -1218,6 +1223,8 @@ public final class Config {
    public static final int DEV_GOD_RAYS_SKIP = integer("devGodRaysSkip", 0); // dev (cost attribution): 1 no god ray buffer pass (the last one stays), 2 no composite tap, 4 no volume compute, 8 no fog shade, 16 light volumes read no depth, 32 light volume pass draws nothing, 64 light volumes blend plainly
    public static final boolean DEV_GOD_RAYS_ALTERNATE_ALL = bool("devGodRaysAlternateAll", false); // dev: the alternation's off half skips every god ray pass (frame-time A/B within one run: harness/godrays/abframes.py)
    public static final boolean DEV_GOD_RAYS_TIMING = bool("devGodRaysTiming", false); // dev: GL timestamps around the volume updates and the screen pass (on / off), medians logged every 5 s
+   public static final boolean DEV_GOD_RAYS_SOFT_VIEW = bool("devGodRaysSoftView", false); // dev: the light volumes show their soft cover (red: the mean along the view column, green: the hull's stretch)
+   public static final int DEV_GOD_RAYS_AP_LOG = integer("devGodRaysApLog", 0); // dev: log every window / doorway the light volumes consider (side, light, cover) for the first N prism builds
    public static final int DEV_GOD_RAYS_VIEW = integer("devGodRaysView", 0); // dev: 1 the inscatter alone (x8), 2 the sun visibility at the surface, 3 the transmittance, 4 the room flag
    public static final String DEV_GOD_RAYS_DUMP_AT = string("devGodRaysDumpAt", ""); // dev: seconds after the world is up (comma list): colour, depth, occupancy and the frame state to ~/Zomboid/pzopt-godrays/ for harness/godrays/rig.py
    public static final float DEV_GOD_RAYS_HOUR_SPEED = Float.parseFloat(string("devGodRaysHourSpeed", "0")); // dev: game hours a real second the key light sweeps (with devSunHour; the worst case of the volume updates)
@@ -1649,6 +1656,8 @@ public final class Config {
       GOD_RAYS_AP_DIRECT = bool("godRaysApDirect", true);
       GOD_RAYS_LOCAL = bool("godRaysLocal", true);
       GOD_RAYS_MOTES = bool("godRaysMotes", true);
+      GOD_RAYS_SOFT_PCT = Math.max(0, Math.min(300, integer("godRaysSoftPct", 100)));
+      GOD_RAYS_GLINT_PCT = Math.max(0, Math.min(300, integer("godRaysGlintPct", 100)));
       GOD_RAYS_LOCAL_METHOD = string("godRaysLocalMethod", "analytic").trim().toLowerCase(java.util.Locale.ROOT);
       GOD_RAYS_HAZE_MODE = string("godRaysHazeMode", "auto").trim().toLowerCase(java.util.Locale.ROOT);
       GOD_RAYS_LOCAL_PCT = Math.max(0, Math.min(400, integer("godRaysLocalPct", 100)));

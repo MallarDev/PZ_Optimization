@@ -225,6 +225,74 @@ After: clear night 0 orbs (the one pair over the threshold is the character chan
 Found on the way: in play mode (the camera's zoom eases all the time in a car) the volume was reallocated and recomputed
 651 times in 45 s, one column at a time; its size now moves in steps of 16 cells with hysteresis (1 reallocation).
 
+## Shafts out of a window onto the street, roofed windows, doors with glass (the maintainer's report, 2026-10-04)
+
+"Windows that are under a roof should not cast god rays: in my latest save at 20:00 the east-facing window projects a god
+ray onto the street. Doors with windows should cast god rays too, with the same rule." Save `Sandbox/2026-10-02_10-30-09`
+(their session: 20:06 to ~20:45, the sun 16 deg up in the WNW, light rain setting in).
+
+Reproduced at the save's own time (20:45, rain 0.18), god rays on / off every second in one run and
+`harness/godrays/contrib.py` (mean on frame minus mean off frame, interleaved): a shaft left the house through its east
+window and crossed the yard to the street (runs `grroof-own-*`). It was the north bedroom window's light volume: the sun
+almost grazes that wall, so the beam runs east along it into the east wall. A light volume's length came from one walk
+from the aperture's middle at mid height, and that walk (1) let the ray through the east window (a window is open between
+sill and head for the light) and on outdoors, and (2) once the ray reached the floor kept testing the edges of the level
+below, i.e. none, so it ran to its 24-square cap. Every corner then went as far as its own floor allowed: at a low sun
+14 squares, through the far wall or window and onto the street. The same bug let the living room's shaft run 1.1 squares
+through an inner wall (cap 6.8 -> 5.7 squares at 20:00).
+
+![god ray contribution, the three keys off (top) and on (bottom), same build, 20:45 in the save](media/godrays-east-window-leak-off-vs-on.jpg)
+
+Fixes (all default on, launch keys):
+- `godRaysApClip`: the volume ends where the first of 6 rays through the aperture (its two ends and middle, at mid height and
+  at the head; walls are full height, so a ray from the sill meets nothing the one above it does not) meets a wall
+  at its height or leaves the building (a square without a room), measured from the aperture's middle; each far corner
+  is placed on that plane (or its floor, if nearer). `GodRays.reach`.
+- `godRaysRoofRule`: a window or doorway between a room and the outside whose outside square has a floor or a roof surface
+  one level up (a porch roof, an awning, a balcony, an upper storey) is a wall for the light, in the occupancy itself, so
+  neither a light volume nor the haze volume lets light through it. Roof pieces standing on the wall line one level up are
+  not a cover: gable walls (`walls_exterior_roofs_*`), trims (`roofs_accents_*`), rooftop furniture (the first version
+  counted them and closed 123 windows round the save, nearly all of them ordinary; now 33-51, porches and overhangs).
+- `godRaysDoorGlass`: a closed door the game lets the player see through (the `doorTrans` tiles: a window in the door,
+  glass and sliding glass doors; not curtained, not barricaded, not garage doors or fence gates) lets the light through
+  its glass. The glass of each of the 42 vanilla see-through doors was measured from the art (`harness/godrays/door-glass.py`
+  -> `pzopt.DoorGlass`: the leaf's translucent texels, alpha 60..230 away from the leaf's anti-aliased rim, as a band along
+  the edge and up the level); a mod's door gets a door-window band. The roof rule applies to doors as to windows.
+
+Checks (desktop, 5120x2160, zoom 1; `--prop devGodRaysApLog=N` logs every aperture the light volumes consider, the roof
+rule's closures and what covers them; `harness/godrays/aplog.py` prints them):
+- the leak box east of the house: 11.2 % of its pixels lit by god rays with the three keys off, 3.0-3.3 % with them on
+  (the rest is the ordinary haze over the yard); the open-air haze elsewhere differs between runs by up to 3 levels with
+  the keys either way (cloud shadows drifting), so only same-build key A/Bs count;
+- the west wall's closed glass door now casts its shaft across the living room (glass 0.27..0.73 across, 0.40..0.73 up);
+- the porch house next door: its east window under the porch roof (`roofs_30_09_33` one level up) and the porch doorway
+  are closed by the rule.
+
+## Soft shafts and dust glints (the maintainer's request, 2026-10-04)
+
+"Diffuse the god rays so they don't look as blocky and have a softer contact, add dust glint too." The light volumes were
+cut exactly by the window frame: a uniform slab with razor sides and a sunlit patch with hard edges where it landed.
+
+- `godRaysSoftPct` (100, Enhancements tab, live): across each of the volume's four sides (the frame's edges carried down
+  the light's way) the light ramps over a penumbra W either side of the hard edge, W = 0.04 + 0.07 D squares (D the
+  distance from the window's plane), and the shaft fades by exp(-0.015 D). The in-scatter along a view column is the mean
+  of that cover at 6 midpoints of the column's stretch through the soft hull; the sunlit patch takes the cover at the
+  surface (and none on the window's own wall), so its edges blur like the shaft's. The soft hull is the four sides moved
+  out by W (`pl_i + K pl0 + w0`, exact because W grows linearly with D); the drawn faces are grown by 1.5 W on the CPU
+  so they cover it, never below the floor (the faces are depth-tested against the scene).
+  Two wrong turns: growing the drawn prism and ramping from its faces dimmed the shafts' core by a third (the half-spaces
+  are built from the aperture's edges and the light's direction, so they never followed the grown corners); a dev view
+  (`devGodRaysSoftView`: red the mean cover along the column, green the soft hull's stretch) showed it.
+- `godRaysGlintPct` (100, live): the dust motes tumble: each catches the light now and then (sin^24 of its own pace,
+  1.1-3.7 rad/s) as a bright core with a soft halo for a fraction of a second, inside the beam's cover. The motes' cell
+  hash was `fract(sin(dot(cell, k)) * 43758)` on cell indices of ~1e5, which repeats along rows of cells: the specks
+  drifted as a dotted grid (in the released build too). Now pcg3d on the integer cell.
+
+![hard (top) and soft (bottom) shafts, same build, 20:00 in the save](media/godrays-soft-hard-vs-soft.jpg)
+
+Cost (desktop, 5120x2160, the maintainer's save at 20:00, GL timers `devGodRaysTiming`, ~2,000 frames each): the light
+volume pass 12.3 -> 14.3 us median; the other god ray passes unchanged.
+
 ## Black world on AMD / Windows (2026-09-27)
 
 Since this release the composite patches went in for everyone, god rays on or off, and AMD players under Windows saw

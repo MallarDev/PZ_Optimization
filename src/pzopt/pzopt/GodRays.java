@@ -80,6 +80,8 @@ public final class GodRays {
    static final float VIEW_PATH = 4.8989795F; // squares of view ray per level of height (3 across x and y, 2.449 up)
    // occupancy bits
    static final int B_FLOOR = 1, B_ROOM = 32, B_ROOF = 64;
+   static final int B_GLASS_N = 1 << 12, B_GLASS_W = 1 << 13; // the N / W edge's aperture is a closed door's glass (CPU only: the volume sees a window)
+   static final int EDGE_GLASS = 4; // edge(): the aperture is a closed door's glass
    static final int E_OPEN = 0, E_WALL = 1, E_WINDOW = 2, E_DOOR = 3;
 
    private static volatile boolean failed;
@@ -335,6 +337,7 @@ public final class GodRays {
          return out;
       }
       int top = 0;
+      int[] glassBands = null; // the door glass bands of the apertures (index: texel * 2 + (W ? 1 : 0))
       for (int lz = 0; lz < OCC_L; lz++) {
          int z = occZ0 + lz;
          if (z < c.minLevel || z > c.maxLevel) {
@@ -350,8 +353,22 @@ public final class GodRays {
                if (sq.getFloor() != null || sq.has(IsoFlagType.solidfloor)) {
                   b |= B_FLOOR;
                }
-               b |= edge(sq, true) << 1;
-               b |= edge(sq, false) << 3;
+               int en = edge(sq, true), bandN = lastGlassBand, ew = edge(sq, false), bandW = lastGlassBand;
+               b |= (en & 3) << 1 | (ew & 3) << 3;
+               if ((en & EDGE_GLASS) != 0 || (ew & EDGE_GLASS) != 0) {
+                  if (glassBands == null) {
+                     glassBands = new int[64 * OCC_L * 2];
+                  }
+                  int gi = ((lz * 8 + y) * 8 + x) * 2;
+                  if ((en & EDGE_GLASS) != 0) {
+                     b |= B_GLASS_N;
+                     glassBands[gi] = bandN;
+                  }
+                  if ((ew & EDGE_GLASS) != 0) {
+                     b |= B_GLASS_W;
+                     glassBands[gi + 1] = bandW;
+                  }
+               }
                if (sq.getRoom() != null) {
                   b |= B_ROOM | roomHash(sq.getRoom(), z) << 16;
                }
@@ -374,7 +391,8 @@ public final class GodRays {
                if (na == ap.length) {
                   ap = java.util.Arrays.copyOf(ap, na * 2);
                }
-               ap[na++] = (i & 7) | (i >> 3 & 7) << 3 | (i >> 6) << 6 | e << 12;
+               int gb = glassBands != null && (b & (e == 0 ? B_GLASS_N : B_GLASS_W)) != 0 ? glassBands[i * 2 + e] : 0;
+               ap[na++] = (i & 7) | (i >> 3 & 7) << 3 | (i >> 6) << 6 | e << 12 | gb << 16; // + a closed door's glass band
             }
          }
       }
@@ -395,8 +413,73 @@ public final class GodRays {
       return out;
    }
 
-   /** The edge's type for the light: a wall, a window (glass or an empty frame, not curtained or barricaded), an open doorway. */
+   /**
+    * The edge's type for the light: a wall, a window (glass or an empty frame, not curtained or barricaded), an open doorway,
+    * a closed door's glass (E_WINDOW | EDGE_GLASS: the window in a door; E_DOOR | EDGE_GLASS: a sliding glass door). A window
+    * or doorway between a room and the outside whose outside square is under a roof (a porch, an awning, a floor above) is a
+    * wall for the light (godRaysRoofRule).
+    */
    private static int edge(IsoGridSquare sq, boolean north) {
+      int e = edgeType(sq, north);
+      int t = e & 3;
+      if ((t == E_WINDOW || t == E_DOOR) && Config.GOD_RAYS_ROOF_RULE && outsideCovered(sq, north)) {
+         return E_WALL;
+      }
+      return e;
+   }
+
+   static long coveredApertures; // dev: windows / doorways the roof rule closed (occupancy builds)
+
+   /** The square across the edge from sq and sq itself: the one without a room, if exactly one has none, has a floor or roof right above it. */
+   private static boolean outsideCovered(IsoGridSquare sq, boolean north) {
+      IsoCell cell = IsoWorld.instance.currentCell;
+      if (cell == null) {
+         return false;
+      }
+      int x = sq.getX(), y = sq.getY(), z = sq.getZ();
+      IsoGridSquare nb = cell.getGridSquare(north ? x : x - 1, north ? y - 1 : y, z);
+      boolean roomHere = sq.getRoom() != null, roomNb = nb != null && nb.getRoom() != null;
+      if (nb == null || roomHere == roomNb) {
+         return false; // between two rooms (or two outside squares): not a way in from outside
+      }
+      IsoGridSquare out = roomHere ? nb : sq;
+      IsoGridSquare above = cell.getGridSquare(out.getX(), out.getY(), z + 1);
+      boolean covered = above != null && covers(above);
+      if (covered) {
+         coveredApertures++;
+         if (Config.DEV_GOD_RAYS_AP_LOG > 0 && coveredApertures <= 400) {
+            StringBuilder sb = new StringBuilder();
+            for (int k = 0; k < above.getObjects().size(); k++) {
+               IsoObject ob = above.getObjects().get(k);
+               sb.append(' ').append(ob != null && ob.getSprite() != null ? ob.getSprite().getName() : "?");
+            }
+            Log.info("god rays: roof rule: " + x + "," + y + "," + z + (north ? " N" : " W") + " outside " + out.getX() + "," + out.getY() + " covered by" + sb);
+         }
+      }
+      return covered;
+   }
+
+   /**
+    * Something on the square one level up that roofs the square under it: a floor (a balcony, an upper storey) or a roof
+    * surface (a porch roof, an awning, a roof slope reaching over it). Not the pieces that stand on the wall line at that
+    * level: the gable walls ("walls_exterior_roofs_"), the roof trims ("roofs_accents_"), rooftop furniture.
+    */
+   private static boolean covers(IsoGridSquare above) {
+      if (above.getFloor() != null || above.has(IsoFlagType.solidfloor)) {
+         return true;
+      }
+      zombie.util.list.PZArrayList<IsoObject> objects = above.getObjects();
+      for (int k = 0; k < objects.size(); k++) {
+         IsoObject o = objects.get(k);
+         String n = o != null && o.getSprite() != null ? o.getSprite().getName() : null;
+         if (n != null && n.startsWith("roofs_") && !n.startsWith("roofs_accents")) {
+            return true;
+         }
+      }
+      return false;
+   }
+
+   private static int edgeType(IsoGridSquare sq, boolean north) {
       if (sq.has(north ? IsoFlagType.DoorWallN : IsoFlagType.DoorWallW) || sq.has(north ? IsoFlagType.doorN : IsoFlagType.doorW)) {
          IsoObject d = sq.getDoor(north ? zombie.iso.objects.GridSquareEdgeFacingDirection.NORTH_SOUTH : zombie.iso.objects.GridSquareEdgeFacingDirection.EAST_WEST); // 42.21: edge enum (north = NORTH_SOUTH)
          if (d == null) {
@@ -404,7 +487,16 @@ public final class GodRays {
          }
          boolean open = d instanceof zombie.iso.objects.IsoDoor door ? door.IsOpen()
             : d instanceof zombie.iso.objects.IsoThumpable th && th.IsOpen();
-         return open ? E_DOOR : E_WALL;
+         if (open) {
+            return E_DOOR;
+         }
+         int g = Config.GOD_RAYS_DOOR_GLASS ? doorGlass(d) : -1;
+         if (g < 0) {
+            return E_WALL;
+         }
+         lastGlassBand = g;
+         // the volume sees glass from the floor (a glass door) as a doorway, a window in the door as a window
+         return ((g >> 8 & 15) <= 1 ? E_DOOR : E_WINDOW) | EDGE_GLASS;
       }
       if (sq.has(north ? IsoFlagType.WindowN : IsoFlagType.WindowW) || sq.has(north ? IsoFlagType.windowN : IsoFlagType.windowW)) {
          IsoWindow w = sq.getWindow(north ? zombie.iso.objects.GridSquareEdgeFacingDirection.NORTH_SOUTH : zombie.iso.objects.GridSquareEdgeFacingDirection.EAST_WEST); // 42.21: edge enum
@@ -423,6 +515,39 @@ public final class GodRays {
          return E_WALL;
       }
       return E_OPEN;
+   }
+
+   static int lastGlassBand; // edgeType's last door glass band (game thread: the occupancy build)
+   static final int DEFAULT_GLASS_BAND = 5 | 10 << 4 | 7 << 8 | 11 << 12; // a door's window the art table does not know (a mod's door): 0.33..0.67 across, 0.47..0.73 up
+
+   /**
+    * The glass band of a closed door the light goes through (DoorGlass's packed band), -1 for none: the game's "doorTrans"
+    * tiles (the doors it lets the player see through and hang a curtain in: a window in the door, glass doors), not
+    * curtained (closed), not barricaded, not a garage door or a fence gate.
+    */
+   private static int doorGlass(IsoObject d) {
+      zombie.core.properties.PropertyContainer p = d.getProperties();
+      if (p == null || !p.has(zombie.core.properties.IsoPropertyType.DOOR_TRANS) || p.has(zombie.core.properties.IsoPropertyType.GARAGE_DOOR)) {
+         return -1;
+      }
+      if (d instanceof zombie.iso.objects.IsoDoor door) {
+         if (door.isBarricaded() || door.HasCurtains() != null && !door.isCurtainOpen()) {
+            return -1;
+         }
+      } else if (d instanceof zombie.iso.objects.IsoThumpable th) {
+         IsoCurtain cu = th.HasCurtains();
+         if (th.isBarricaded() || cu != null && !cu.IsOpen()) {
+            return -1;
+         }
+      } else {
+         return -1;
+      }
+      String name = d.getSprite() != null ? d.getSprite().getName() : null;
+      if (name != null && (name.startsWith("fixtures_doors_fences") || name.startsWith("walls_logs"))) {
+         return -1; // fence gates: no room behind them
+      }
+      int b = DoorGlass.band(name);
+      return b >= 0 ? b : DEFAULT_GLASS_BAND;
    }
 
    private static boolean roof(IsoGridSquare sq) {
@@ -601,6 +726,40 @@ public final class GodRays {
       return toLight ? vis : t;
    }
 
+   /**
+    * How far a ray from (x, y, height cz levels) inside a room goes down the light's way (dx, dy) (unit, horizontal; it falls
+    * slope levels a square) on level z before a wall stops it at its height or it leaves the building (a square without a
+    * room), capped at maxT (its floor).
+    */
+   static final float SOFT_W0 = 0.04F, SOFT_K = 0.07F, SOFT_FADE = 0.015F; // the penumbra's half width at the aperture (squares) and its growth a square from it (godRaysSoftPct 100)
+
+   static float reach(float x, float y, float cz, int z, float dx, float dy, float slope, float maxT) {
+      int sx = (int)Math.floor(x), sy = (int)Math.floor(y);
+      float ix = 1F / Math.max(Math.abs(dx), 1e-5F), iy = 1F / Math.max(Math.abs(dy), 1e-5F);
+      float tx = (dx >= 0F ? 1F - (x - sx) : x - sx) * ix, ty = (dy >= 0F ? 1F - (y - sy) : y - sy) * iy;
+      for (int i = 0; i < 64; i++) {
+         float tn = Math.min(tx, ty);
+         if (tn >= maxT) {
+            return maxT;
+         }
+         float f = cz - slope * tn - z;
+         int e;
+         if (tx < ty) {
+            e = occCpu(dx >= 0F ? sx + 1 : sx, sy, z) >> 3 & 3;
+            sx += dx >= 0F ? 1 : -1;
+            tx += ix;
+         } else {
+            e = occCpu(sx, dy >= 0F ? sy + 1 : sy, z) >> 1 & 3;
+            sy += dy >= 0F ? 1 : -1;
+            ty += iy;
+         }
+         if (edgeBlocksCpu(e, f) || (occCpu(sx, sy, z) & B_ROOM) == 0) {
+            return tn;
+         }
+      }
+      return maxT;
+   }
+
    static final int PRISM_FLOATS = 30 * 4; // up to 10 triangles (the faces toward the camera, at most 5): x, y (relative to the view origin), z (levels), the prism's index
    static final int PLANE_FLOATS = 8 * 4; // 7 half-spaces (nx, ny, nz, d; squares) + (light, 0, 0, 0)
    private static float[] prisms = new float[PRISM_FLOATS * 64];
@@ -622,7 +781,7 @@ public final class GodRays {
    private static void buildPrisms(Frame f, float x0, float y0, float x1, float y1) {
       int cx0 = (int)Math.floor(x0) >> 3, cx1 = (int)Math.floor(x1) >> 3, cy0 = (int)Math.floor(y0) >> 3, cy1 = (int)Math.floor(y1) >> 3;
       int camLevel = (int)Math.floor(IsoCamera.frameState.camCharacterZ);
-      long k = ((((f.lightKey * 31L + buildSerial) * 131L + f.refX) * 7919L + f.refY) * 17L + cx0 * 3L + cy1) * 13L + camLevel;
+      long k = (((((f.lightKey * 31L + buildSerial) * 131L + f.refX) * 7919L + f.refY) * 17L + cx0 * 3L + cy1) * 13L + camLevel) * 307L + Config.GOD_RAYS_SOFT_PCT;
       if (k == prismKey) {
          return;
       }
@@ -638,6 +797,11 @@ public final class GodRays {
          return;
       }
       float dx = (float)(lx / h), dy = (float)(ly / h), slope = (float)(lz / h / LEVEL);
+      boolean apLog = prismBuilds <= Config.DEV_GOD_RAYS_AP_LOG;
+      if (apLog) {
+         Log.info(String.format(java.util.Locale.ROOT, "god rays: prism build %d light %s (%.3f, %.3f, %.3f) slope %.3f/square cam level %d chunks %d..%d x %d..%d",
+            prismBuilds, body == 0 ? "sun" : "moon", lx, ly, lz, slope, camLevel, cx0, cx1, cy0, cy1));
+      }
       int zMin = Math.max(occZ0, (int)Math.floor(f.zLo)), zMax = Math.min(occZ0 + OCC_L - 1, camLevel);
       for (int cy = cy0; cy <= cy1; cy++) {
          for (int cx = cx0; cx <= cx1; cx++) {
@@ -664,38 +828,89 @@ public final class GodRays {
                   boolean roomA = (oa & B_ROOM) != 0, roomB = (o & B_ROOM) != 0;
                   float along = north ? dy : dx; // < 0: the light is on the A side (travels A -> B)
                   boolean intoB = along < -0.05F && roomB && !roomA, intoA = along > 0.05F && roomA && !roomB;
+                  if (apLog) {
+                     int ox0 = north ? x : intoA ? x : x - 1, oy0 = north ? (intoA ? y : y - 1) : y; // the outside square (if lit)
+                     Log.info("god rays: aperture " + x + "," + y + "," + z + (north ? " N" : " W") + " type " + type + " roomA " + roomA + " roomB " + roomB
+                        + String.format(java.util.Locale.ROOT, " along %.2f", along) + (intoB ? " intoB" : intoA ? " intoA" : " skip")
+                        + " above(A) " + Integer.toHexString(north ? occCpu(x, y - 1, z + 1) : occCpu(x - 1, y, z + 1) & 0xff)
+                        + " above(B) " + Integer.toHexString(occCpu(x, y, z + 1) & 0xff) + " out " + ox0 + "," + oy0);
+                  }
                   if (!intoB && !intoA) {
                      continue;
                   }
                   // the aperture: a W edge spans y..y+1 at x, an N edge x..x+1 at y
+                  // (a closed door: its glass, measured from the art, DoorGlass)
+                  int gb = packed >>> 16;
+                  boolean glass = (o & (north ? B_GLASS_N : B_GLASS_W)) != 0 && gb != 0;
                   float m = type == E_WINDOW ? 0.1F : 0.15F;
-                  float zs = type == E_WINDOW ? 0.30F : 0.0F, zh = type == E_WINDOW ? 0.84F : 0.80F;
+                  float aLo = glass ? (gb & 15) / 15F : m, aHi = glass ? (gb >> 4 & 15) / 15F : 1F - m;
+                  float zs = glass ? (gb >> 8 & 15) / 15F : type == E_WINDOW ? 0.30F : 0.0F;
+                  float zh = glass ? (gb >> 12 & 15) / 15F : type == E_WINDOW ? 0.84F : 0.80F;
                   // the outer side's light: from just outside the aperture's middle towards the light
-                  float ox = north ? x + 0.5F : x + (intoB ? -0.02F : 0.02F), oy = north ? y + (intoB ? -0.02F : 0.02F) : y + 0.5F;
+                  float ox = north ? x + 0.5F * (aLo + aHi) : x + (intoB ? -0.02F : 0.02F), oy = north ? y + (intoB ? -0.02F : 0.02F) : y + 0.5F * (aLo + aHi);
                   float vis = walk(ox, oy, z + 0.5F * (zs + zh), dx, dy, slope, 64F, true);
                   if (vis < 0.05F) {
+                     if (apLog) {
+                        Log.info(String.format(java.util.Locale.ROOT, "god rays:   dark vis %.2f", vis));
+                     }
                      continue;
                   }
                   // how far the light goes into the room before a wall or the floor stops it (from the aperture's middle)
-                  float ix = north ? x + 0.5F : x + (intoB ? 0.02F : -0.02F), iy = north ? y + (intoB ? 0.02F : -0.02F) : y + 0.5F;
+                  float amid = 0.5F * (aLo + aHi);
+                  float amx = north ? x + amid : x, amy = north ? y : y + amid; // the aperture's middle
+                  float ix = north ? amx : x + (intoB ? 0.02F : -0.02F), iy = north ? y + (intoB ? 0.02F : -0.02F) : amy;
                   float tWall = walk(ix, iy, z + 0.5F * (zs + zh), -dx, -dy, -slope, 24F, false);
+                  float cap = Math.max(0.05F, tWall + 0.02F);
+                  if (Config.GOD_RAYS_AP_CLIP) {
+                     // the nearest wall or edge of the building that a ray through the aperture (its two ends and middle, at
+                     // mid height and at the head) meets before the floor: the middle ray alone let a low sun's upper rays
+                     // through the far wall. (Walls are full height: a ray from the sill meets nothing the one above it on the
+                     // same path does not meet first.)
+                     float near = 24F;
+                     for (int ia = 0; ia < 3; ia++) {
+                        float a = ia == 0 ? aLo : ia == 1 ? 0.5F * (aLo + aHi) : aHi;
+                        float rx = north ? x + a : ix, ry = north ? iy : y + a;
+                        float off = dx * (rx - amx) + dy * (ry - amy); // this ray's start ahead of the middle's, down the light
+                        for (int iz = 1; iz < 3; iz++) {
+                           float rz = z + zs + (zh - zs) * 0.5F * iz;
+                           float tFloor = (rz - z) / slope;
+                           float tMax = Math.min(tFloor, near + off); // past that it cannot shorten the volume
+                           float tr = reach(rx, ry, rz, z, -dx, -dy, slope, tMax);
+                           if (tr < tMax) {
+                              near = tr - off; // measured from the aperture's middle
+                           }
+                        }
+                     }
+                     cap = Math.max(0.05F, near);
+                  }
                   float[] c = new float[24]; // near corners 0-3 then far corners 4-7: x, y, z
+                  // soft edges (godRaysSoftPct): the shader ramps the light across each side over the penumbra, SOFT_W0
+                  // either side of the frame's edge at the aperture and SOFT_K more a square away from it, so the shafts
+                  // and their patches blur with the distance from the window; the drawn faces grow to cover it
+                  float w0 = SOFT_W0 * Config.GOD_RAYS_SOFT_PCT / 100F, wk = SOFT_K * Config.GOD_RAYS_SOFT_PCT / 100F;
+                  float across = north ? Math.abs(dy) : Math.abs(dx); // a square down the light's way: this far from the wall
                   for (int i = 0; i < 4; i++) {
-                     float a = (i == 0 || i == 3) ? m : 1F - m; // along the edge
+                     float a = (i == 0 || i == 3) ? aLo : aHi; // along the edge
                      float cz = z + (i < 2 ? zs : zh);
                      float qx = north ? x + a : x, qy = north ? y : y + a;
                      float tFloor = (cz - z) / slope; // squares across until it reaches the floor
-                     float t = Math.min(tFloor, Math.max(0.05F, tWall + 0.02F));
-                     c[i * 3] = qx - f.refX;
-                     c[i * 3 + 1] = qy - f.refY;
-                     c[i * 3 + 2] = cz;
-                     c[12 + i * 3] = qx - dx * t - f.refX;
-                     c[12 + i * 3 + 1] = qy - dy * t - f.refY;
-                     c[12 + i * 3 + 2] = cz - slope * t;
+                     float t = Math.min(tFloor, Config.GOD_RAYS_AP_CLIP ? Math.max(0.02F, cap + dx * (qx - amx) + dy * (qy - amy)) : cap);
+                     float sa = (i == 0 || i == 3) ? -1F : 1F, sz = i < 2 ? -1F : 1F;
+                     float wn = 1.5F * w0, wf = 1.5F * (w0 + wk * across * t); // (conservative: the faces must cover the soft hull)
+                     c[i * 3] = qx + (north ? sa * wn : 0F) - f.refX;
+                     c[i * 3 + 1] = qy + (north ? 0F : sa * wn) - f.refY;
+                     // (never under the floor: the faces are depth-tested against the scene, a face below the floor would
+                     // drop the shaft's pixels above it; the floor half-space ends the shaft there anyway)
+                     c[i * 3 + 2] = Math.max(z, cz + sz * wn / LEVEL);
+                     c[12 + i * 3] = qx + (north ? sa * wf : 0F) - dx * t - f.refX;
+                     c[12 + i * 3 + 1] = qy + (north ? 0F : sa * wf) - dy * t - f.refY;
+                     c[12 + i * 3 + 2] = Math.max(z, cz + sz * wf / LEVEL - slope * t);
                   }
-                  float amx = north ? x + 0.5F : x, amy = north ? y : y + 0.5F; // the aperture's middle
                   int before = prismCount;
-                  addPrism(c, vis, z, amx - f.refX, amy - f.refY, Math.max(0.05F, tWall + 0.02F), dx, dy, slope);
+                  addPrism(c, vis, z, amx - f.refX, amy - f.refY, cap, dx, dy, slope);
+                  if (apLog) {
+                     Log.info(String.format(java.util.Locale.ROOT, "god rays:   lit vis %.2f tWall %.2f cap %.2f glass %b across %.2f..%.2f up %.2f..%.2f prism %s", vis, tWall, cap, glass, aLo, aHi, zs, zh, prismCount > before ? "yes" : "flat"));
+                  }
                   if (prismCount > before) {
                      // the room's building: its interior shows only while the game cuts it away (else its roof or the
                      // floor above covers the light volume: culled on the CPU, see queueInner)
@@ -2309,7 +2524,8 @@ public final class GodRays {
             }
             uApd = new int[] {GL20.glGetUniformLocation(apdProg, "uMapA"), GL20.glGetUniformLocation(apdProg, "uMapB"), GL20.glGetUniformLocation(apdProg, "uVp"),
                GL20.glGetUniformLocation(apdProg, "uDepth"), GL20.glGetUniformLocation(apdProg, "uLight"), GL20.glGetUniformLocation(apdProg, "uPlanes"),
-               GL20.glGetUniformLocation(apdProg, "uC"), GL20.glGetUniformLocation(apdProg, "uS"), GL20.glGetUniformLocation(apdProg, "uOrg")};
+               GL20.glGetUniformLocation(apdProg, "uC"), GL20.glGetUniformLocation(apdProg, "uS"), GL20.glGetUniformLocation(apdProg, "uOrg"),
+               GL20.glGetUniformLocation(apdProg, "uSoft")};
             if (apVbo == 0) {
                apVbo = GL15.glGenBuffers();
             }
@@ -2402,13 +2618,15 @@ public final class GodRays {
          GL20.glUseProgram(apdProg);
          GL20.glUniform4f(uApd[0], kA, cA, kB, cB);
          GL20.glUniform4f(uApd[1], mapA[4], mapA[5], vpNow[0], vpNow[1]);
-         GL20.glUniform4f(uApd[2], vpNow[2], vpNow[3], (Config.DEV_GOD_RAYS_SKIP & 16) != 0 ? 2F : 1F, zTest ? 0.5F : 0F); // w: half a square of bias toward the camera; z 2 (dev): no depth read
+         GL20.glUniform4f(uApd[2], vpNow[2], vpNow[3], Config.DEV_GOD_RAYS_SOFT_VIEW ? 3F : (Config.DEV_GOD_RAYS_SKIP & 16) != 0 ? 2F : 1F, zTest ? 0.5F : 0F); // w: half a square of bias toward the camera; z 2 (dev): no depth read
          GL20.glUniform1i(uApd[3], DEPTH_UNIT);
          GL20.glUniform4f(uApd[4], f.lx, f.ly, f.lz, 0F);
          GL20.glUniform1i(uApd[5], PLANE_UNIT);
          GL20.glUniform4f(uApd[6], color[0], color[1], color[2], 0F);
          GL20.glUniform4f(uApd[7], f.sigmaIn * 0.6123724F * f.dustGain, f.patch, f.devOn ? 1F : 0F,
             Config.GOD_RAYS_MOTES ? (float)((System.nanoTime() / 1e9) % 10000.0) + 1F : 0F); // w: the motes' clock (0: none)
+         float soft = Config.GOD_RAYS_SOFT_PCT / 100F;
+         GL20.glUniform4f(uApd[9], SOFT_W0 * soft, SOFT_K * soft, SOFT_FADE * soft, Config.GOD_RAYS_GLINT_PCT / 100F);
          GL20.glUniform4f(uApd[8], f.prismOrgX, f.prismOrgY, f.prismOrgX + f.view.ox - (f.prismOrgY + f.view.oy), f.prismOrgX + f.view.ox + f.prismOrgY + f.view.oy); // zw: the reference square's absolute u, v
          if ((Config.DEV_GOD_RAYS_SKIP & 64) != 0) {
             GL14.glBlendFuncSeparate(GL11.GL_ONE, GL11.GL_ONE, GL11.GL_ZERO, GL11.GL_ONE); // dev: a plain additive blend (the dual-source blend's own cost)
@@ -4384,20 +4602,30 @@ public final class GodRays {
       "uniform vec4 uC;", // the light's colour x strength x phase
       "uniform vec4 uS;", // x path -> dust in-scatter, y patch gain, z on (the dev alternation), w the dust motes' clock (0: none)
       "uniform vec4 uOrg;",
+      "uniform vec4 uSoft;", // x the penumbra's half width at the aperture, y its growth a square from it (squares), z the fade a square along the beam, w the glints' gain
       WORLD_GLSL,
       "flat in vec4 pl0, pl1, pl2, pl3, pl4, pl5, pl6, pl7;",
       "layout(location = 0, index = 0) out vec4 beam;",
       "layout(location = 0, index = 1) out vec4 mul;",
+      // how much of the beam's light reaches P: across each of the four sides (the frame's edges carried down the light's
+      // way) the light ramps over the penumbra, W either side of the hard edge, W growing with the distance D from the
+      // aperture; the shaft thins out a little along its way. (The sides moved out by W are the soft hull: soft().)
+      "float ramp(vec4 pl, vec3 P, float W) { float s = dot(pl.xyz, P) + pl.w; return W < 1e-4 ? step(0.0, s) : smoothstep(-W, W, s); }",
+      "float cover(vec3 P) {",
+      "   float D = max(dot(pl0.xyz, P) + pl0.w, 0.0), W = uSoft.x + uSoft.y * D;",
+      "   return exp(-uSoft.z * D) * ramp(pl1, P, W) * ramp(pl2, P, W) * ramp(pl3, P, W) * ramp(pl4, P, W);",
+      "}",
+      "vec4 soft(vec4 pl) { return pl + uSoft.y * pl0 + vec4(0.0, 0.0, 0.0, uSoft.x); }", // a side moved out by W = x + y D
       "void main() {",
       "   if (uS.z < 0.5) { beam = vec4(0.0); mul = vec4(1.0); return; }",
       "   ivec2 p = ivec2(gl_FragCoord.xy);",
-      "   float d = uVp.z > 1.5 ? 1.0 : texelFetch(uDepth, p, 0).r;", // (z 2, dev: no depth read)
+      "   float d = uVp.z > 1.5 && uVp.z < 2.5 ? 1.0 : texelFetch(uDepth, p, 0).r;", // (z 2, dev: no depth read)
       "   vec2 px = vec2(p) + 0.5;",
       "   float u = uMapA.x * px.x + uMapA.y, v = uMapA.z * px.y + uMapA.w;",
       "   vec3 P0 = vec3((v + u) * 0.5 - uOrg.x, (v - u) * 0.5 - uOrg.y, 0.0), dP = vec3(3.0, 3.0, 2.4494897);", // (the half-spaces are relative to the prisms' reference square)
       "   float zs = d >= 0.99999 ? -1e6 : (uMapB.x * d + uMapB.y - v) * 0.125;",
       "   float zlo = -1e6, zhi = 1e6;",
-      "   vec4 PL[7] = vec4[7](pl0, pl1, pl2, pl3, pl4, pl5, pl6);",
+      "   vec4 PL[7] = vec4[7](pl0, soft(pl1), soft(pl2), soft(pl3), soft(pl4), pl5, pl6);",
       "   for (int i = 0; i < 7; i++) {",
       "      vec4 pl = PL[i];",
       "      float A = dot(pl.xyz, P0) + pl.w, B = dot(pl.xyz, dP);",
@@ -4405,23 +4633,46 @@ public final class GodRays {
       "      else if (B > 0.0) zlo = max(zlo, -A / B); else zhi = min(zhi, -A / B);",
       "   }",
       "   float vis = pl7.x;",
-      "   float path = max(zhi - max(zlo, zs), 0.0) * 8.0;",
+      "   float za = max(zlo, zs), path = 0.0;",
+      "   if (zhi > za) {", // the in-scatter along the column through the soft beam: 6 midpoints
+      "      float dz = (zhi - za) / 6.0;",
+      "      for (int k = 0; k < 6; k++) path += cover(P0 + dP * (za + (float(k) + 0.5) * dz));",
+      "      path *= dz * 8.0;",
+      "   }",
       "   float lit = 0.0;",
-      "   if (zs >= zlo && zs <= zhi && vis > 0.0) lit = vis * facingAt(uDepth, p, d, uLight.xyz);", // (a branch: the four depth taps only inside)
+      "   if (zs >= zlo && zs <= zhi && vis > 0.0) {", // (a branch: the four depth taps only inside)
+      "      vec3 Ps = P0 + dP * zs;", // the surface the shaft lands on: the patch blurs like the shaft (not on the window's own wall)
+      "      lit = vis * cover(Ps) * smoothstep(0.0, 0.12, dot(pl0.xyz, Ps) + pl0.w) * facingAt(uDepth, p, d, uLight.xyz);",
+      "   }",
       "   float ins = vis * path * uS.x;",
-      // dust motes: one speck per world (u, v) cell of 0.12 x 0.24, at a hashed height drifting slowly; it glints where
-      // it lies inside the beam in front of the surface (one hash per fragment)
+      // dust motes: one speck per world (u, v) cell of 0.12 x 0.24, at a hashed height drifting slowly, lit where it lies
+      // in the beam in front of the surface (one hash per fragment); each one tumbles, so now and then it catches the
+      // light and glints: a bright core with a soft halo for a fraction of a second, at its own pace
       "   if (uS.w > 0.0 && path > 0.0) {",
       "      vec2 cu = vec2(u - uOrg.x + uOrg.y + uOrg.z, v - uOrg.x - uOrg.y + uOrg.w) / vec2(0.12, 0.24);", // the world's own (u, v): the specks stay put across chunk crossings
       "      vec2 ci = floor(cu), cf = cu - ci;",
-      "      vec3 hh = fract(sin(vec3(dot(ci, vec2(127.1, 311.7)), dot(ci, vec2(269.5, 183.3)), dot(ci, vec2(419.2, 371.9)))) * 43758.5453);",
+      // (pcg3d of the cell: the cells' indices run to ~1e5 here, where a sin() hash repeats along rows of cells)
+      "      uvec3 hv = uvec3(ivec3(ci, 7)) * 1664525u + 1013904223u;",
+      "      hv.x += hv.y * hv.z; hv.y += hv.z * hv.x; hv.z += hv.x * hv.y; hv ^= hv >> 16u;",
+      "      hv.x += hv.y * hv.z; hv.y += hv.z * hv.x; hv.z += hv.x * hv.y;",
+      "      vec3 hh = vec3(hv >> 8u) * (1.0 / 16777216.0);",
       "      float zm = floor(zlo) + fract(hh.z + uS.w * (0.004 + 0.006 * hh.x));", // the speck's height, drifting
-      "      vec2 at = vec2(0.5) + 0.35 * sin(vec2(uS.w * 0.21, uS.w * 0.17) + hh.xy * 6.2831);",
+      "      vec2 at = vec2(0.5) + 0.35 * sin(vec2(uS.w * 0.21, uS.w * 0.17) + hh.yz * 6.2831);",
       "      float r = length((cf - at) * vec2(0.12, 0.24)) / 0.018;",
-      "      if (hh.x < 0.18 && zm > max(zlo, zs) && zm < zhi) ins += vis * uS.x * 1.6 * max(0.0, 1.0 - r * r);",
+      "      if (hh.x < 0.26 && zm > max(zlo, zs) && zm < zhi && r < 4.0) {",
+      "         float c = cover(P0 + dP * zm);",
+      "         float tw = sin(uS.w * (1.1 + 2.6 * fract(hh.y * 7.13)) + hh.z * 6.2831);",
+      "         float flash = pow(max(tw, 0.0), 24.0);",
+      "         float speck = exp(-2.5 * r * r), halo = exp(-0.45 * r * r);",
+      "         ins += vis * c * uS.x * (1.6 * speck + uSoft.w * flash * (14.0 * speck + 2.5 * halo));",
+      "      }",
       "   }",
       "   beam = vec4(sqrt(uC.rgb * ins), 0.0);",
       "   mul = vec4(vec3(sqrt(1.0 + uS.y * lit)), 1.0);",
+      "   if (uVp.z > 2.5) {", // dev (devGodRaysSoftView): red = the mean cover along the column inside the hull, green = the hull's stretch
+      "      float st = max(zhi - za, 0.0);",
+      "      beam = vec4(st > 1e-4 ? path / (st * 8.0) : 0.0, min(st, 1.0) * 0.5, 0.0, 0.0); mul = vec4(1.0);",
+      "   }",
       "}",
       "");
 
