@@ -247,6 +247,58 @@ Dev view 5 makes every pane re-march every pass frame (it paints the tiles thems
 dev view 4: the mirrored character is drawn whole; a body that seems missing is the iso geometry (a point d in front of a
 north pane shows d further along it, so standing in front of the glass puts the reflection off its side).
 
+## The room behind the glass: mirrored geometry (2026-10-04, `mirrorsGeometry`, `pzopt.MirrorGeometry`)
+
+Maintainer: "build the geometry for the cabinet mirror". The walk above left the medicine cabinet a guess: two thirds of its
+rays land where the camera cannot see (behind the bathtub, on the cut-away wall's room side). The frame holds no more, so
+the mirror's room is now rebuilt from the game's own tiles and drawn into the pane's place before the march.
+
+- **A reflection in a vertical plane = a quarter turn + the screen's left-right flip** (x <-> y swaps u = x - y for -u, keeps
+  the iso depth x + y + 2z). So an object's mirror image is the sprite of its *turned facing*, flipped, at the plane's image
+  of its square. The game links every movable's four facings (`<F>offset` properties, the sprite grids of multi-square
+  ones), so the bathtub's far side is a sprite that exists. West-wall plane: E -> N, S -> E, W -> S, N -> W, grid piece
+  (gx, gy) -> (gy, W - 1 - gx); north-wall plane: E -> S, S -> W, W -> N, N -> E, (gx, gy) -> (H - 1 - gy, gx).
+- What the plane maps onto itself keeps its own sprite, unflipped, at the mirrored square: floors and rugs, walls across the
+  plane, and objects without a turned facing that hang on a square edge (door frames, light switches, wall trims: they
+  mirror as a wall of that orientation; drawn mid-square they were up to a square off, `mw-geo3`). Walls along the plane
+  are skipped (the mirror's own wall stands behind the glass).
+- **The far wall** (the one facing the mirror, whose room side the camera never sees): the paint of the mirror's own wall (a
+  plain wall of the same orientation found along it, with its trims) at the plane's image, every texel at the wall's
+  distance; a window or a closed door in it drawn as itself 0.03 squares in front of the paint (an exterior wall's frame
+  sprite is its siding: skipped, the paint shows round the window).
+- **Distance per texel** from the tile's depth map (as the stock `tileWithDepth` shader: w = x + y + 2z + 4 d between the
+  square's far and near corner; floors the Floor preset), t = 3 / 8 (wM - w) for the pane point under the atlas texel.
+  The texels go into a geometry atlas (same tile layout as the static atlas, RGBA8 + depth, nearest t wins), drawn on
+  the render thread right before the static march, only for the panes due that pass. The march then takes the geometry
+  where it found nothing, a stand-in, or a hit more than 0.25 squares farther than the geometry (it passed behind
+  something), and keeps its own hit, the frame's real pixel, where the camera sees what the ray meets.
+- Bounds: the mirror's room only (same `IsoRoom`), within 3 h + 1.5 squares (nothing farther reaches the glass), the
+  mirror's own level; no geometry for windows or mirrors outdoors. Cost: the instances are built on the game thread only
+  for a pane due for its march (new / every 30 frames), 7-11 tiles a mirror in this house; ~32 MB of VRAM for the atlas.
+- Dev: `devMirrorsView=5` paints geometry texels cyan (`harness/mirrors/kinds.py` class `geometry`), `devMirrorsView=6`
+  shows the geometry alone, `devMirrorsLog` lists each pane's tiles once (`turned->turned/flip@x,y`), skip bit 131072 =
+  geometry off for that moment (same-run A/B: `devMirrorsAlternate=1000 devMirrorsCycle=256,131328`).
+
+**Measured** (whole-house walks, dev view 5 toggled, `mw-geo4-*` against the released build's `mw-final-after4-*`; Jev with
+`mirror-judge.py`, before = `mw-final-before-*`, stock reference `mw-final-after5-*`):
+
+| Mirror | measure | released (fc866c5) | geometry |
+|---|---|---|---|
+| medicine cabinet | guessed glass x drawn strength | 0.36 | 0.005 |
+| medicine cabinet | glass from the room geometry / the frame's floor / marched hits | - / - / - | 82 % / 12 % / 5 % |
+| wall mirror | guessed glass x drawn strength | 0.26 | 0.008 |
+| wall mirror | glass from the room geometry / the frame's floor | - | 74 % / 24 % |
+
+(The released build's weights are its guessed shares at the 50 % it draws them; the judge's `mid` column counts them at
+100 %: 0.73 / 0.52.) Jev: artifacts 1-4 stay fixed (0.87-0.96); the guess-pane artifact 0.37 "fixed": its own measure (the picture's largest flat
+region, 0.59) is unchanged, because the cabinet, in a bathroom two squares wide, mostly faces a plain painted wall with
+the tub's rim under it, which the picture now shows. Same-run A/B (`mw-geo5-*`): geometry on = the far wall's paint, the
+window in it and the tub's white rim; off = the floor seen last at half strength over the stock glass.
+
+Not done: the far wall's own interior sprite where it has one (the paint of the mirror's wall stands in for it, so a room
+with two colours of wall shows the mirror wall's), mirrored objects on the far wall (pictures, switches), overlays on
+furniture (items on a counter), lighting beyond the square's light colour (no pixel light, AO or shadows on the geometry).
+
 ## Rigs
 
 - `harness/mirrors/tiles.py` (tile definitions by property), `packsprite.py` (sprites out of the .pack files),

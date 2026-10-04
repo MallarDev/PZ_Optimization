@@ -565,6 +565,7 @@ PzoptOptionDates = {
     mirrorsModels = "2026-10-04",
     mirrorsReach = "2026-10-04",
     mirrorsRefreshBudget = "2026-10-04",
+    mirrorsStandInPct = "2026-10-04",
     mirrorsStatic = "2026-10-04",
     mirrorsStaticEvery = "2026-10-04",
     mirrorsStaticFbo = "2026-10-04",

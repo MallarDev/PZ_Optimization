@@ -973,6 +973,8 @@ local ENHANCEMENT_SECTIONS = {
             { key = "mirrorsWindowPct", label = "Mirrors: window reflection strength (%)",
               choices = { "15", "30", "50", "70" }, note = { ["30"] = "default" },
               tip = "How much of a window pane is its reflection. Real glass reflects a few percent head-on, more where the room behind it is dark; higher reads more like a shop window by day. Applies on the next launch." },
+            { key = "mirrorsGeometry", label = "Mirrors: the room behind the glass",
+              tip = "On: a wall mirror's room is rebuilt behind the glass from the game's own tiles, so the mirror shows what the camera can never see: the far side of the bathtub or the bed in front of it (the furniture's other facing, as the game draws it when you turn it), the floor behind it, and the wall across the room. Off: the reflection is made of what the camera sees, and where that is hidden (behind a table, a bathtub) the floor seen last stands in. Built once when a mirror comes on screen and kept; costs nothing while it stands. Applies on the next launch." },
             { key = "mirrorsModels", label = "Mirrors: people and cars in the reflection",
               tip = "On: characters and vehicles in front of a mirror or window are drawn once more through its plane, so the mirror shows their faces and the side of the car facing it. Off: the reflection is made of what the camera sees (cheaper; you see their backs). Applies on the next launch." },
         },
@@ -1134,7 +1136,7 @@ local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true, carOccupant = true, carOc
     -- car glass: the vehicle shaders are patched when the game loads them (only then); its strengths apply at once
     carGlass = true,
     -- mirrors: mirror tiles leave the chunk pictures at start-up; the settings are read once
-    mirrors = true, mirrorsWindows = true, mirrorsWindowPct = true, mirrorsModels = true,
+    mirrors = true, mirrorsWindows = true, mirrorsWindowPct = true, mirrorsModels = true, mirrorsGeometry = true,
     -- relief: compiled into the chunk composite programs when the game loads them
     relief = true, reliefDepthPct = true, reliefSunPct = true, reliefTorchShadowSteps = true }
 for _, section in ipairs(ENHANCEMENT_SECTIONS) do
@@ -1651,6 +1653,7 @@ local EFFECTS = {
     mirrorsWindows = { gpu = 1 },
     mirrorsWindowPct = {},
     mirrorsModels = { gpu = 1, render = 1 },
+    mirrorsGeometry = { vram = 1 },
     carGlassReflectPct = {},
     carGlassInteriorPct = {},
     carGlassSunPct = {},

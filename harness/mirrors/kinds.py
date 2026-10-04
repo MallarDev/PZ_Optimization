@@ -13,12 +13,13 @@ import argparse, json, os, re, sys
 import numpy as np
 from PIL import Image
 
-KINDS = {"floor": (0, 255, 0), "march": (0, 77, 255), "hidden_landing": (255, 255, 0), "reach_fallback": (255, 0, 0), "under_own_floor": (255, 0, 255), "occluder_standin": (255, 128, 0)}
+KINDS = {"floor": (0, 255, 0), "march": (0, 77, 255), "hidden_landing": (255, 255, 0), "reach_fallback": (255, 0, 0), "under_own_floor": (255, 0, 255), "occluder_standin": (255, 128, 0), "geometry": (0, 255, 255)}
 
 
 def classify(f):
     """Kind per pixel by hue (colour grading shifts the dev colours): 0 floor, 1 march, 2 hidden landing, 3 reach,
-    4 a marched hit under the pane's own floor, 5 a hidden landing with the landing pixel, -1 none."""
+    4 a marched hit under the pane's own floor, 5 a hidden landing with the landing pixel, 6 the room geometry
+    (pzopt.MirrorGeometry, cyan, 2026-10-04), -1 none."""
     r, g, b = f[..., 0], f[..., 1], f[..., 2]
     out = np.full(r.shape, -1, np.int8)
     out[(g > 170) & (r < 140) & (b < 110)] = 0
@@ -27,6 +28,7 @@ def classify(f):
     out[(r > 190) & (g > 90) & (g < 170) & (b < 70)] = 5
     out[(r > 190) & (g < 90) & (b < 90)] = 3
     out[(r > 190) & (g < 90) & (b > 190)] = 4
+    out[(g > 190) & (b > 190) & (r < 110)] = 6
     return out
 
 

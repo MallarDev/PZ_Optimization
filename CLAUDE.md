@@ -593,7 +593,10 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   (73 us); mapped-coherent host memory as the shader's target grew it to 300 us walking; PBO + fence readback cost 137 us of
   render thread (NVIDIA threaded driver); `glGet` every 120 frames was ~4.7 us a call on average. Rigs `find=mirror|window`
   (`find_at`, `find_dist`, runs after `place_tile`), `devMirrorsCycle` / `devMirrorsView` / `devMirrorsLog`,
-  `harness/mirrors/` (cost.py, crops.py, march_sim.py, masks.py).
+  `harness/mirrors/` (cost.py, crops.py, march_sim.py, masks.py). Since 2026-10-04 (`mirrorsGeometry`, `pzopt.MirrorGeometry`)
+  a wall mirror's room is rebuilt behind the glass from the game's tiles (furniture as the sprite of its turned facing, flipped;
+  the far wall in the mirror wall's paint; depth-map distances), taken where the march saw nothing or a stand-in: the
+  medicine cabinet's guessed glass 0.36 -> 0.005.
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

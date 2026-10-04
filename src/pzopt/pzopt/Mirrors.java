@@ -400,7 +400,7 @@ public final class Mirrors {
 
    // ------------------------------------------------------------------------------------------------ the frame (game thread)
 
-   static final int TEX = 7, MAXR = 256, MAXP = 32, MAX_BATCHES = 16;
+   static final int TEX = 8, MAXR = 256, MAXP = 32, MAX_BATCHES = 16;
 
    static final class Frame {
       final Ssr.View view = new Ssr.View();
@@ -425,6 +425,7 @@ public final class Mirrors {
       long modelSig;
       final StaticDrawer stat = new StaticDrawer();
       final ModelFlush flush = new ModelFlush();
+      final MirrorGeometry.Batch geo = new MirrorGeometry.Batch(); // the due mirrors' rooms, drawn before the march
 
       Frame() {
          for (int i = 0; i < MAX_BATCHES; i++) {
@@ -520,6 +521,8 @@ public final class Mirrors {
       // a new pane waits that long for its reflection
       boolean passFrame = frames % every == 0 || (skipNow & 256) != 0;
       f.nClear = 0;
+      f.geo.reset();
+      boolean geometry = Config.MIRRORS_GEOMETRY && (skipNow & 131072) == 0;
       for (Refl r : prev) {
          Tile known = TILES.get(r.key);
          // visibility feedback: a pane the composite drew no pixel of (under a roof, behind a building) is neither marched
@@ -548,8 +551,8 @@ public final class Mirrors {
          float iy = Math.max(0F, Math.min(vh, Math.max(qa, qb)) - Math.max(0F, Math.min(qa, qb)));
          float vis = ix * iy / area;
          boolean fresh = tl.refreshed < 0L;
-         // (dev view 5 paints the tiles themselves: re-marched every pass frame so a toggled picture is never the dev one)
-         boolean due = passFrame && (fresh || vis > tl.vis + 0.05F || Config.MIRRORS_STATIC_REUSE <= 0 || (skipNow & 256) != 0 || Config.DEV_MIRRORS_VIEW == 5
+         // (dev views 5 and 6 paint the tiles themselves: re-marched every pass frame so a toggled picture is never the dev one)
+         boolean due = passFrame && (fresh || vis > tl.vis + 0.05F || Config.MIRRORS_STATIC_REUSE <= 0 || (skipNow & 256) != 0 || Config.DEV_MIRRORS_VIEW == 5 || Config.DEV_MIRRORS_VIEW == 6
                || frames - tl.refreshed >= Config.MIRRORS_STATIC_REUSE && budget-- > 0);
          if (!due) {
             continue;
@@ -563,8 +566,13 @@ public final class Mirrors {
          }
          tl.refreshed = frames;
          tl.vis = vis;
+         int geo = geometry ? MirrorGeometry.collect(f.geo, r, tl) : 0;
          pack(f, r, f.sData, f.nS, false);
+         f.sData[f.nS * TEX * 4 + 28] = geo > 0 ? 1F : 0F;
          f.sTex[f.nS++] = r.tex;
+      }
+      if (f.geo.n > 1) {
+         MirrorGeometry.sort(f.geo);
       }
       if (frames % 1800 == 900) {
          Log.info(stats());
@@ -616,6 +624,10 @@ public final class Mirrors {
       d[o + 25] = t == null ? 1F : t.scale; // texels per px: 1, or 0.5 (a window's half-resolution march)
       d[o + 26] = t == null || t.ppu <= 0F || f.ppu <= 0F ? 1F : t.ppu / f.ppu; // tile px per px of this frame (1 unless the tile was marched at another zoom)
       d[o + 27] = t == null || t.ppv <= 0F || f.ppv <= 0F ? 1F : t.ppv / f.ppv;
+      d[o + 28] = 0F; // the pane's room geometry is in the geometry atlas (static pass only; set by beginFrame)
+      d[o + 29] = 0.25F; // a marched hit this much farther than the geometry is the ray passing behind it (squares)
+      d[o + 30] = 0F;
+      d[o + 31] = 0F;
    }
 
    // ------------------------------------------------------------------------------------------------ the static atlas (game thread)
@@ -681,6 +693,32 @@ public final class Mirrors {
       TILES.put(r.key, t);
       tileAllocs++;
       return t;
+   }
+
+   /** A reflector's lateral extent on its plane (absolute squares) and height range (levels): {lo, hi, zlo, zhi}. */
+   static void paneExtent(Refl r, float[] out) {
+      float c = r.c;
+      float lo, hi;
+      float zA, zB, zC, zD;
+      if (r.axis == 0) {
+         lo = r.u0 + c;
+         hi = r.u1 + c;
+         zA = (r.u0 + 2F * c - r.v0) / 6F;
+         zB = (r.u1 + 2F * c - r.v1) / 6F;
+         zC = (r.u0 + 2F * c - r.v1) / 6F;
+         zD = (r.u1 + 2F * c - r.v0) / 6F;
+      } else {
+         lo = c - r.u1;
+         hi = c - r.u0;
+         zA = (2F * c - r.u0 - r.v0) / 6F;
+         zB = (2F * c - r.u1 - r.v1) / 6F;
+         zC = (2F * c - r.u0 - r.v1) / 6F;
+         zD = (2F * c - r.u1 - r.v0) / 6F;
+      }
+      out[0] = lo;
+      out[1] = hi;
+      out[2] = Math.min(Math.min(zA, zB), Math.min(zC, zD));
+      out[3] = Math.max(Math.max(zA, zB), Math.max(zC, zD));
    }
 
    /** Lateral extent of a reflector on its plane (absolute squares) and its height range (levels). */
@@ -984,7 +1022,7 @@ public final class Mirrors {
    private static boolean FULL, STATIC_FBO, liveReads; // (decided once from the context's capabilities)
    private static int atlasFbo;
 
-   private static final String[] UNIFORMS = {"Data", "WorldColor", "WorldDepth", "Sprite", "Masks", "StaticTex", "LayerColor", "LayerDepth", "mapA", "mapC", "vp", "march", "layerMap", "dev", "Static", "first", "depthTest", "Glass", "GlassTex", "Vis", "visRow", "visOn"};
+   private static final String[] UNIFORMS = {"Data", "WorldColor", "WorldDepth", "Sprite", "Masks", "StaticTex", "LayerColor", "LayerDepth", "mapA", "mapC", "vp", "march", "layerMap", "dev", "Static", "first", "depthTest", "Glass", "GlassTex", "Vis", "visRow", "visOn", "GeomTex"};
 
    private static boolean ensurePrograms() {
       if (staticProg != 0) {
@@ -1033,6 +1071,7 @@ public final class Mirrors {
          GL20.glUniform1i(u[14], IMAGE_UNIT);
          GL20.glUniform1i(u[17], IMAGE_UNIT + 1);
          GL20.glUniform1i(u[18], 6);
+         GL20.glUniform1i(u[22], 15);
       }
       GL20.glUseProgram(0);
       vao = GL30.glGenVertexArrays();
@@ -1274,7 +1313,7 @@ public final class Mirrors {
    private static void restore() {
       GL30.glBindVertexArray(0);
       GL20.glUseProgram(0);
-      for (int unit : new int[] {8, 7, 6, 5, 4, 3, 2, 1}) {
+      for (int unit : new int[] {15, 14, 8, 7, 6, 5, 4, 3, 2, 1}) {
          GL13.glActiveTexture(GL13.GL_TEXTURE0 + unit);
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
       }
@@ -1313,6 +1352,14 @@ public final class Mirrors {
             }
             ensureStatic();
             mapping(this.f);
+            // the due mirrors' rooms into the geometry atlas first (its own framebuffer), read by the march below
+            boolean geo = (this.f.skip & 131072) == 0 && MirrorGeometry.draw(this.f.geo, this.f.serial, FULL);
+            if (geo) {
+               GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, worldFbo);
+               GL11.glViewport(VPI[0], VPI[1], VPI[2], VPI[3]);
+            }
+            GL13.glActiveTexture(GL13.GL_TEXTURE15);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, geo ? MirrorGeometry.texture() : 0);
             upload(this.f, 0, this.f.sData, 0, this.f.nS);
             if (STATIC_FBO) {
                fboPass(this.f);
@@ -1767,7 +1814,7 @@ public final class Mirrors {
                lateCpuNs / 1e3 / Math.max(1, lateDraws), flushCpuNs / 1e3 / Math.max(1, layerFrames))
             + String.format(java.util.Locale.ROOT, " (composite: upload %.1f, set-up %.1f, draw %.1f, restore %.1f)", lateSplit[0] / 1e3 / Math.max(1, lateDraws),
                lateSplit[1] / 1e3 / Math.max(1, lateDraws), lateSplit[2] / 1e3 / Math.max(1, lateDraws), lateSplit[3] / 1e3 / Math.max(1, lateDraws))
-            + (failed ? ", failed" : "");
+            + ", " + MirrorGeometry.stats() + (failed ? ", failed" : "");
    }
 
    // ------------------------------------------------------------------------------------------------ shaders
@@ -1845,6 +1892,7 @@ public final class Mirrors {
       boolean stat = kind != K_LATE, fbo = kind == K_STATIC_FBO;
       return String.join("\n",
          full ? "#version 430" : "#version 410 core\n#define PZ_NO_VIS",
+         stat ? "#define PZ_STATIC" : "",
          kind == K_STATIC_IMAGE ? "#extension GL_ARB_shader_image_load_store : require" : "",
          !stat && full ? "#extension GL_ARB_shader_storage_buffer_object : require" : "",
          !stat && full ? "layout(early_fragment_tests) in;" : "", // (the composite runs only where the pane is in front: the depth test first)
@@ -1862,6 +1910,7 @@ public final class Mirrors {
          kind == K_STATIC_IMAGE ? "layout(rgba8) writeonly uniform image2D Static;" : "",
          kind == K_STATIC_IMAGE ? "layout(r8) writeonly uniform image2D Glass;" : "",
          stat ? "" : "uniform sampler2D GlassTex;",
+         stat ? "uniform sampler2D GeomTex;" : "",
          "uniform vec4 mapA;", // kA, cA, kB, cB
          "uniform vec4 mapC;", // kC, cC (iso depth w = kC depth + cC), -, the longest ray (squares)
          "uniform vec4 vp;",
@@ -1960,7 +2009,26 @@ public final class Mirrors {
          "   vec2 px = px0 + pxPerT * tHit;",
          "   if (!inside(px)) return vec4(0.0, 0.0, 0.0, 1.0);",
          "   return kindOut(hitOut(texelFetch(WorldColor, ivec2(px), 0).rgb, tHit, 0.0), tf > 0.05 && tHit > tf + 0.1 ? vec3(1.0, 0.0, 1.0) : vec3(0.0, 0.3, 1.0));",
-         "}");
+         "}",
+         // the room geometry (MirrorGeometry) where the march could not see what the ray meets: no hit, a stand-in, or a hit
+         // farther than the geometry (the march passed behind something the camera cannot see round: the bathtub's far
+         // side); the march's own hit, the frame's real pixel, where the camera sees that surface. Dev view 5: cyan, 6: the
+         // geometry alone
+         "#ifdef PZ_STATIC",
+         "vec4 withGeom(vec4 r, ivec2 at) {",
+         "   vec4 g7 = texelFetch(Data, ivec2(7, inst), 0);",
+         "   if (g7.x < 0.5 || (int(dev.y) & 131072) != 0) return dev.x == 6.0 ? vec4(0.0, 0.0, 0.0, 1.0) : r;",
+         "   vec4 g = texelFetch(GeomTex, at, 0);",
+         "   float gc = floor(g.a * 255.0 + 0.5);",
+         "   if (dev.x == 6.0) return gc < 254.5 ? g : vec4(0.0, 0.0, 0.0, 1.0);",
+         "   if (gc > 254.5) return r;",
+         "   float rc = floor(r.a * 255.0 + 0.5);",
+         "   bool real = rc < 254.5 && mod(rc, 2.0) < 0.5;",
+         "   float tR = floor(rc * 0.5) / 126.0 * mapC.w, tG = floor(gc * 0.5) / 126.0 * mapC.w;",
+         "   if (real && tR <= tG + g7.y) return r;",
+         "   return dev.x == 5.0 ? vec4(0.0, 1.0, 1.0, g.a) : g;",
+         "}",
+         "#endif");
 
    private static String oldMain(boolean stat) {
       return String.join("\n",
@@ -1996,7 +2064,7 @@ public final class Mirrors {
          "   fragColor = vec4(0.0);",
          "   if (any(lessThan(lp, ivec2(0)))) return;",
          "   if ((int(dev.y) & 32) != 0) { imageStore(Static, ivec2(tile.xy) + texel, vec4(0.5, 0.5, 0.5, 0.5)); return; }", // dev: the pass without the march (the glass mask still written)
-         "   if (t6.y > 0.75) { imageStore(Static, ivec2(tile.xy) + texel, marchRay(P, pl.x, st.z, pl.z, pl.w)); return; }",
+         "   if (t6.y > 0.75) { imageStore(Static, ivec2(tile.xy) + texel, withGeom(marchRay(P, pl.x, st.z, pl.z, pl.w), ivec2(tile.xy) + texel)); return; }",
          "   if (((lp.x | lp.y) & 1) != 0) return;", // half resolution: the even px of each 2x2 marches and stores the block
          "   vec4 r2 = marchRay(P, pl.x, st.z, pl.z, pl.w);",
          "   ivec2 b = ivec2(tile.xy) + texel;",
@@ -2029,7 +2097,7 @@ public final class Mirrors {
          "   if (!hit) discard;",
          "   float fade = 1.0 - smoothstep(0.75, 1.0, tS / mapC.w);",
          "   float a = mask * st.x * st.y * fade * conf;",
-         "   if (dev.x == 1.0 || dev.x == 5.0) a = mask;",
+         "   if (dev.x == 1.0 || dev.x == 5.0 || dev.x == 6.0) a = mask;",
          "   if (dev.x == 2.0) { fragColor = vec4(mask, code < 254.5 ? 1.0 : 0.0, 0.0, 1.0); return; }",
          "   if (dev.x == 3.0) { fragColor = vec4(vec3(tS / mapC.w), mask); return; }",
          "   if (dev.x == 4.0) { fragColor = vec4(lc.rgb, mask * lc.a); return; }",
@@ -2059,7 +2127,7 @@ public final class Mirrors {
          "   if ((int(dev.y) & 32) != 0) { fragColor = vec4(0.5, 0.5, 0.5, 0.5); return; }",
          "   vec3 P = pl.x < 0.5 ? vec3(u + pl.y, pl.y, 0.0) : vec3(pl.y, pl.y - u, 0.0);",
          "   P.z = (P.x + P.y - v) / 6.0;",
-         "   fragColor = marchRay(P, pl.x, st.z, pl.z, pl.w);",
+         "   fragColor = withGeom(marchRay(P, pl.x, st.z, pl.z, pl.w), ivec2(gl_FragCoord.xy));",
          "}");
 
 }
