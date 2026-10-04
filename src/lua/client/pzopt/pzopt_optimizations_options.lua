@@ -3524,8 +3524,9 @@ local function crumbFor(S)
     return cat.group.title .. "  >  " .. cat.title .. "  >  " .. (sub and sub.title or "Overview")
 end
 
--- Shows a page: kind "home" | "cat" (cat id, sub index, 0 = Overview) | "problems". Leaves a search.
-local function navigate(S, kind, cat, sub)
+-- Shows a page: kind "home" | "cat" (cat id, sub index, 0 = Overview) | "problems". Leaves a search. The controller
+-- focus goes to the page's first control, or stays on `keep` (the sidebar entry that opened the page).
+local function navigate(S, kind, cat, sub, keep)
     NAV.kind = kind
     if cat then NAV.cat = cat end
     NAV.sub = sub or 0
@@ -3535,8 +3536,9 @@ local function navigate(S, kind, cat, sub)
     end
     S.panel:setYScroll(0)
     relayout(S)
-    if S.panel.joyfocus and S.firstJoy then
-        S.panel:setJoypadFocus(S.firstJoy, JoypadState.getMainMenuJoypad())
+    if S.panel.joyfocus then
+        local target = (keep and keep:isReallyVisible()) and keep or S.firstJoy
+        if target then S.panel:setJoypadFocus(target, JoypadState.getMainMenuJoypad()) end
     end
 end
 
@@ -3561,7 +3563,10 @@ local function runSearch(S, text)
     relayout(S)
 end
 
--- The sidebar: home, every category under its group, "Fix a problem". Fixed while the page scrolls; the mouse picks.
+-- The sidebar: home, every category under its group, "Fix a problem". Fixed while the page scrolls. Every entry is a
+-- button, for the mouse and the controller: Left from the page reaches the entry at that height, Up / Down move along
+-- the sidebar, A opens its page with the focus kept on the entry (so A, Down, A... browses the categories), Right goes
+-- back into the page (buildPage wraps the page's joypad handlers for that).
 PzoptSidebar = ISPanel:derive("PzoptSidebar")
 
 function PzoptSidebar:new(x, y, w, h, S)
@@ -3569,63 +3574,75 @@ function PzoptSidebar:new(x, y, w, h, S)
     o.S = S
     o.backgroundColor = { r = 0.04, g = 0.04, b = 0.06, a = 1 }
     o.borderColor = { r = 0.31, g = 0.31, b = 0.35, a = 1 }
-    o.hits = {}
+    o.headings = {}
+    o.buttons = {}
     return o
 end
 
 function PzoptSidebar:onMouseWheel(del) return false end
+function PzoptSidebar:onMouseDown(x, y) return true end
 
-function PzoptSidebar:render()
+-- the entries as buttons (children of the sidebar), the group headings drawn by render
+function PzoptSidebar:build(target)
     local S = self.S
     local hS = fontH(UIFont.Small)
     local rowH = hS + 10
     local pad = 12
     local y = pad
-    local hits = {}
-    local mouseY = self:isMouseOver() and self:getMouseY() or -1
-    local function item(label, count, sel, c, action)
-        local hot = mouseY >= y and mouseY < y + rowH
-        if sel then
-            self:drawRect(4, y, self.width - 8, rowH, 0.18, c.r, c.g, c.b)
-            self:drawRect(4, y, 4, rowH, 1, c.r, c.g, c.b)
-        elseif hot then
-            self:drawRect(4, y, self.width - 8, rowH, 0.07, 1, 1, 1)
+    local function item(label, count, selected, c, action)
+        local b = ISButton:new(4, y, self.width - 8, rowH, "", target, function(_, button) action(button) end)
+        b:initialise()
+        b.pzoptFixed = true -- not part of the scrolled page (ensureVisible leaves the scroll alone)
+        b.pzoptLabel = label
+        b.prerender = function() end
+        b.render = function(o)
+            local sel = selected()
+            local hot = o:isMouseOver() or o.joypadFocused
+            if sel then
+                o:drawRect(0, 0, o.width, o.height, 0.18, c.r, c.g, c.b)
+                o:drawRect(0, 0, 4, o.height, 1, c.r, c.g, c.b)
+            end
+            if hot then o:drawRect(0, 0, o.width, o.height, 0.08, 1, 1, 1) end
+            if o.joypadFocused then o:drawRectBorder(0, 0, o.width, o.height, 0.9, c.r, c.g, c.b) end
+            local countW = count and (textW(UIFont.Small, count) + pad) or 0
+            local col = (sel or hot) and C_TEXT or { r = 0.8, g = 0.8, b = 0.82 }
+            o:drawText(clipText(UIFont.Small, label, o.width - 2 * pad - countW), pad + 2, 5, col.r, col.g, col.b, 1, UIFont.Small)
+            if count then o:drawTextRight(count, o.width - pad + 4, 5, C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small) end
         end
-        local countW = count and (textW(UIFont.Small, count) + pad) or 0
-        local col = (sel or hot) and C_TEXT or { r = 0.8, g = 0.8, b = 0.82 }
-        self:drawText(clipText(UIFont.Small, label, self.width - 2 * pad - 6 - countW), pad + 6, y + 5, col.r, col.g, col.b, 1, UIFont.Small)
-        if count then self:drawTextRight(count, self.width - pad, y + 5, C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small) end
-        table.insert(hits, { y = y, h = rowH, action = action })
+        self:addChild(b)
+        table.insert(self.buttons, b)
         y = y + rowH
     end
-    item("<  Home", nil, NAV.kind == "home", C_TEXT, function() navigate(S, "home") end)
+    item("<  Home", nil, function() return NAV.kind == "home" end, C_TEXT, function() navigate(S, "home") end)
     y = y + 6
     for _, g in ipairs(S.tree.groups) do
-        self:drawText(string.upper(g.title), pad, y, g.c.r, g.c.g, g.c.b, 1, UIFont.Small)
-        if groupOff(g) then
-            self:drawTextRight("off", self.width - pad, y, C_STOCK.r, C_STOCK.g, C_STOCK.b, 1, UIFont.Small)
-        end
+        table.insert(self.headings, { y = y, g = g })
         y = y + hS + 4
         for _, cat in ipairs(g.cats) do
             local id = cat.id
-            item(cat.title, tostring(#cat.rows), NAV.kind == "cat" and NAV.cat == id, g.c, function() navigate(S, "cat", id, 0) end)
+            item(cat.title, tostring(#cat.rows), function() return NAV.kind == "cat" and NAV.cat == id end, g.c,
+                function(b) navigate(S, "cat", id, 0, b) end)
         end
         y = y + 8
     end
-    self:drawText("HELP", pad, y, C_HELP.r, C_HELP.g, C_HELP.b, 1, UIFont.Small)
+    table.insert(self.headings, { y = y, help = true })
     y = y + hS + 4
-    item("Fix a problem", nil, NAV.kind == "problems", C_HELP, function() navigate(S, "problems") end)
-    self.hits = hits
+    item("Fix a problem", nil, function() return NAV.kind == "problems" end, C_HELP, function(b) navigate(S, "problems", nil, nil, b) end)
 end
 
-function PzoptSidebar:onMouseDown(x, y)
-    for _, h in ipairs(self.hits) do
-        if y >= h.y and y < h.y + h.h then
-            h.action()
-            return true
+function PzoptSidebar:render()
+    local pad = 12
+    for _, h in ipairs(self.headings) do
+        if h.help then
+            self:drawText("HELP", pad, h.y, C_HELP.r, C_HELP.g, C_HELP.b, 1, UIFont.Small)
+        else
+            local g = h.g
+            self:drawText(string.upper(g.title), pad, h.y, g.c.r, g.c.g, g.c.b, 1, UIFont.Small)
+            if groupOff(g) then
+                self:drawTextRight("off", self.width - pad, h.y, C_STOCK.r, C_STOCK.g, C_STOCK.b, 1, UIFont.Small)
+            end
         end
     end
-    return true
 end
 
 -- ---------------------------------------------------------------------------------------------------
@@ -4039,6 +4056,10 @@ relayout = function(S)
     panel:setScrollHeight(y + 20)
     local maxScroll = math.max(0, y + 20 - panel:getHeight())
     if -panel:getYScroll() > maxScroll then panel:setYScroll(-maxScroll) end
+    -- the sidebar's entries after the page's rows (reached with Left; Up / Down stay on their side, see buildPage)
+    if not home then
+        for _, b in ipairs(S.sidebar.buttons) do line(b) end
+    end
     -- controller navigation: the rows in display order
     -- (the stock spatial navigation searches allJoypadButtons, which only insertNewLineOfButtons fills: same elements)
     for i = #panel.joypadButtonsY, 1, -1 do table.remove(panel.joypadButtonsY, i) end
@@ -4581,6 +4602,37 @@ local function buildPage(self)
     sidebar:setAnchorBottom(true)
     panel:addChild(sidebar)
     S.sidebar = sidebar
+    sidebar:build(self)
+    -- The controller between the page and the sidebar: Left / Right cross (the stock spatial search finds the entry or the
+    -- control at that height), Up / Down stay on their side (at the ends of a list the stock fallback steps to the next
+    -- row, which would jump between the two), Right from the sidebar into an empty stretch of the page goes to the page's
+    -- first control. A focused sidebar entry never scrolls the page.
+    panel.ensureVisible = function(o)
+        local child = o:getJoypadFocus()
+        if child and child.pzoptFixed then return end
+        return ISPanelJoypad.ensureVisible(o)
+    end
+    for _, dir in ipairs({ "onJoypadDirUp", "onJoypadDirDown" }) do
+        local stock = ISPanelJoypad[dir]
+        panel[dir] = function(o, joypadData)
+            local before = o:getJoypadFocus()
+            stock(o, joypadData)
+            local after = o:getJoypadFocus()
+            if before and after and before ~= after and (before.pzoptFixed == true) ~= (after.pzoptFixed == true) then
+                o:setJoypadFocus(before, joypadData)
+                o:ensureVisible()
+            end
+        end
+    end
+    local stockRight = ISPanelJoypad.onJoypadDirRight
+    panel.onJoypadDirRight = function(o, joypadData)
+        local before = o:getJoypadFocus()
+        stockRight(o, joypadData)
+        if before and before.pzoptFixed and o:getJoypadFocus() == before and S.firstJoy then
+            o:setJoypadFocus(S.firstJoy, joypadData)
+            o:ensureVisible()
+        end
+    end
     local preview = PzoptPreview:new(G.prevX, G.m, G.prevW, H - 2 * G.m, panel, S.keyRows)
     preview:initialise()
     preview:instantiate()

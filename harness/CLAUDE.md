@@ -126,7 +126,8 @@ Modes:
   (ids in `src/lua/client/pzopt/pzopt_optimizations_layout.lua`); `options_shots` writes `Screenshots/pzopt-options-<n>.png`
   per page (copy them out of `~/Zomboid/Screenshots/` after the job; the options window sits at 768,216 3584x1728 on this
   desktop); `options_joy` drives the tab's own joypad handlers without a pad (`focus`, `down`, `up`, `left`, `right`, `a`,
-  `shot` -> `pzopt-joy-<n>.png`) and logs `[pzopt-harness] joy: <step> -> <focused element> line <y> page '<breadcrumb>'`.
+  `shot` -> `pzopt-joy-<n>.png`) and logs `[pzopt-harness] joy: <step> -> <focused element> line <y> page '<breadcrumb>'` (sidebar entries tagged
+  `[sidebar]`; run `settings-sidebar-joy`: Left from the page into the sidebar, Up / Down along it, A keeps the focus there, Right back).
   Runs `settings-nav-*`. `enhancements-tab-check.sh`, `texcompress-tab-check.sh` and `preset-texcompress-check.sh` click the
   old tab names (OCR) and need updating before reuse.
   `options_tab=<tab name>` (harness Lua mod, 2026-09-24: stays on the main menu, opens Options on that tab, logs

@@ -71,7 +71,8 @@ local function joyDescribe(mo)
     local child = panel and panel:getJoypadFocus()
     local what = "none"
     if child then
-        what = tostring(child.Type) .. " '" .. tostring(child.title or child.name or (child.options and child.options[1]) or "") .. "'"
+        what = tostring(child.Type) .. " '" .. tostring(child.pzoptLabel or child.title or child.name or (child.options and child.options[1]) or "") .. "'"
+            .. (child.pzoptFixed and " [sidebar]" or "")
     end
     local S = mo.pzoptSearch
     return what .. " line " .. tostring(panel and panel.joypadIndexY) .. "/" .. tostring(panel and #panel.joypadButtonsY)
