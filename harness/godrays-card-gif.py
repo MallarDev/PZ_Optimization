@@ -1,118 +1,93 @@
 #!/usr/bin/env python3
-"""Render docs/workshop/images/41-god-rays.gif: the Workshop's "New!" card of the god rays (pzopt.GodRays) in the animated
-New! format (harness/newcard.py). Left half: god rays off, then on, in two scenes from the showcase video's matched runs
-(the lossless panes <run>/pane.mkv of harness/stitch-godrays.py: native 1918x1400 crops of the 5120x2160 picture, both
-runs on one timeline from their route starts): the sunlit room at 17:00 (runs gv-room-off / -on) and the morning fog at
-08:00 (gv-fog-off / -on). Right half: what the feature draws and what it costs (docs/findings-god-rays-2026-09-27.md).
+"""Render docs/workshop/images/58-soft-god-rays.gif: the Workshop's "New! Soft god rays" card in the animated New! format
+(harness/newcard.py). Right half: what changed and what it costs (docs/findings-god-rays-2026-09-27.md, 2026-10-04
+sections). Left half: the maintainer's save at 20:00, the living room and the closet room with the evening sun through
+their windows and the glass door, the previous release's hard shafts above and this release below (desktop runs
+grsoft-off = godRaysSoftPct=0 godRaysGlintPct=0, grsoft-on5-b11 = the defaults; in-game devCapture 1:1 crops, 20 fps, the
+same seconds after the world came up).
 
-    harness/queue.sh submit media --label godrays-card-gif --out docs/workshop/images/41-god-rays.gif \\
-        -- python3 harness/godrays-card-gif.py [--runs <dir holding the gv-* runs>]
-    (--still <png> [--scene N] [--on]: one frame, the layout check)
+    python3 harness/godrays-card-gif.py [--still <png>]
+Captures: $GR_RUNS/grsoft-off-*/capture and $GR_RUNS/grsoft-on5-b11-*/capture (default harness/runs).
 """
-import argparse
 import glob
 import os
-import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-import numpy as np
 from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from newcard import BG, INK2, OPT, STOCK, Card, font, write_gif  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "ppl"))
+import capture  # noqa: E402
+from newcard import BG, OPT, STOCK, Card, font, write_gif  # noqa: E402
 
-OUT = "docs/workshop/images/41-god-rays.gif"
+OUT = "docs/workshop/images/58-soft-god-rays.gif"
+RUNS = os.environ.get("GR_RUNS", os.path.join(HERE, "runs"))
 FPS = 10
-OFF_S, ON_S = 1.6, 2.6  # per scene: the stock look, then god rays on
-PANE_W, PANE_H, PANE_FPS = 1918, 1400, 30
+CENTRE = (560, 430)  # the shafts' middle in the 1700 x 960 capture
 
-INTRO = ("Light you can see in the air, off by default: sunbeams through every sunlit window and open doorway into a "
-         "room, with the lit patches on the floor and dust motes drifting in the shafts; shafts of light and shade in "
-         "fog and morning mist where buildings and trees block the low sun; lamps, torches and headlights glowing in "
-         "mist and rain. It follows the real sun and moon, clouds and weather.")
+INTRO = ("The shafts of sunlight through windows now have soft edges that blur the farther they get from the window, "
+         "the patches where they land fade out instead of ending in a line, and dust specks drifting in them catch the "
+         "sun now and then. A low evening sun no longer sends a shaft through a house and out of a window onto the "
+         "street; windows and doors under a roof or a porch stay out of the sun; closed doors with glass let it in.")
 ROWS = [
-    ("Sunlit windows", "into rooms, at any hour",
-     (None, "flat light"), (None, "shafts and motes"), "new"),
-    ("Fog and morning mist", "with the sun low",
-     (None, "even fog"), (None, "light and shade"), "new"),
-    ("Lamps, torches, headlights", "in fog, rain and mist",
-     (None, "no glow"), (None, "a soft halo"), "new"),
-    ("Frame time added", "RTX 4090 at 5K, fog / sunlit room",
-     (None, "-"), (None, "12 µs"), ("0.3 % at 240 fps", "worse")),
+    ("GPU time of the shafts a frame", "5120x2160, 20:00, four shafts on screen",
+     (12.3, "12.3 us"), (14.3, "14.3 us"), ("+2 us", "worse")),
+    ("Light leaking out of a house", "share of the yard east of it, 20:45",
+     (11.2, "11.2 %"), (2.9, "2.9 %"), ("haze only", "better")),
+    ("Door types that let light through glass", "a window in the door, glass doors",
+     (0, "0"), (42, "42"), ("+42", "better")),
 ]
 FOOTER = [
-    "Left: god rays off, then on, the game's own frames: a Rosewood diner at 17:00, the church lot in morning fog at 08:00.",
-    "Off by default: Options > Enhancements > God rays (strength, dust, haze, lamps), applies at once. Windows and Linux; "
-    "needs OpenGL 4.3 (not on macOS).",
+    "Left: the same seconds in the maintainer's save, the previous release's hard shafts (above) and this release (below). "
+    "Desktop, Linux, RTX 4090.",
+    "Options > Enhancements > God rays: \"soft edges\" and \"dust glints\" (0 = the old look), applied at once.",
     "Every number and the runs behind them: github.com/xD3I/PZ_Optimization, docs/findings-god-rays-2026-09-27.md.",
 ]
-SCENES = [("gv-room", "Rosewood diner, 17:00"), ("gv-fog", "Morning fog, 08:00")]
 
 
-def run_dir(root, label):
-    runs = sorted(glob.glob(os.path.join(root, label + "-2*")))
-    if not runs:
-        sys.exit(f"no {label} run under {root}")
-    return Path(runs[-1])
-
-
-def pane_frames(path, n, fps):
-    """The first n frames of a pane at fps (resampled from 30 fps), as HxWx3 arrays."""
-    out = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-vf", f"fps={fps}", "-frames:v", str(n),
-                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
-    k = len(out) // (PANE_W * PANE_H * 3)
-    return np.frombuffer(out[: k * PANE_W * PANE_H * 3], np.uint8).reshape(k, PANE_H, PANE_W, 3)
+def frames(label):
+    run = sorted(glob.glob(os.path.join(RUNS, label + "-2*")))[-1]
+    fr, st = capture.load(run)
+    print(f"{label}: {len(fr)} frames from {run}")
+    return fr
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--runs", default=os.path.expanduser("~/Documents/ZedProjects/PZ_Optimization-godrays/harness/runs"))
-    ap.add_argument("--still")
-    ap.add_argument("--scene", type=int, default=0)
-    ap.add_argument("--on", action="store_true")
-    a = ap.parse_args()
-    card = Card("New! God rays", "2026-09-27", INTRO, ROWS, FOOTER, cols=("STOCK", "THIS RELEASE"))
-    x, y, mw, mh = card.media
-    lab, cap = font(24, "bold"), font(20)
+    card = Card("New! Soft god rays", "2026-10-04", INTRO, ROWS, FOOTER, cols=("LAST RELEASE", "THIS RELEASE"))
+    x, y, w, h = card.media
+    ph = (h - 8) // 2
+    off, on = frames("grsoft-off"), frames("grsoft-on5-b11")
+    still = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == "--still" else None
+    n = min(len(off), len(on))
+    picks = list(range(0, n, max(1, round(20 / FPS))))
+    if still:
+        picks = picks[len(picks) // 2:len(picks) // 2 + 1]
+    lab = font(22, "bold")
     work = Path(tempfile.mkdtemp(prefix="pzopt-newcard-godrays-"))
-    k = 0
-    n = int((OFF_S + ON_S) * FPS)
-    for si, (label, where) in enumerate(SCENES):
-        if a.still and si != a.scene:
-            continue
-        off = pane_frames(run_dir(a.runs, label + "-off") / "pane.mkv", n, FPS)
-        on = pane_frames(run_dir(a.runs, label + "-on") / "pane.mkv", n, FPS)
-        m = min(len(off), len(on))
-        ch = PANE_H
-        cw = min(PANE_W, round(ch * mw / mh))
-        box = ((PANE_W - cw) // 2, 0, (PANE_W - cw) // 2 + cw, ch)
-        for i in range(m):
-            is_on = a.on if a.still else i >= OFF_S * FPS
-            pane = Image.fromarray((on if is_on else off)[i]).crop(box).resize((mw, mh), Image.LANCZOS)
-            im = card.base()
-            im.paste(pane, (x, y))
-            d = ImageDraw.Draw(im)
-            text, colour = ("GOD RAYS ON", OPT) if is_on else ("GOD RAYS OFF (STOCK LOOK)", STOCK)
+    ch, cw = off.shape[1:3]
+    sh = min(ch, 420)
+    sw = round(sh * w / ph)
+    sx = max(0, min(cw - sw, CENTRE[0] - sw // 2))
+    sy = max(0, min(ch - sh, CENTRE[1] - sh // 2))
+    for k, i in enumerate(picks):
+        im = card.base()
+        d = ImageDraw.Draw(im)
+        for row, (fr, text, colour) in enumerate(((off, "LAST RELEASE", STOCK), (on, "THIS RELEASE", OPT))):
+            pane = Image.fromarray(fr[i]).crop((sx, sy, sx + sw, sy + sh)).resize((w, ph), Image.LANCZOS)
+            py = y + row * (ph + 8)
+            im.paste(pane, (x, py))
             tw = lab.getlength(text)
-            d.rounded_rectangle((x + 4, y + 12, x + 24 + tw, y + 50), radius=6, fill=BG)
-            d.text((x + 14, y + 31), text, font=lab, fill=colour, anchor="lm")
-            cwid = cap.getlength(where)
-            d.rounded_rectangle((x + 4, y + mh - 46, x + 24 + cwid, y + mh - 12), radius=6, fill=BG)
-            d.text((x + 14, y + mh - 29), where, font=cap, fill=INK2, anchor="lm")
-            if a.still:
-                im.save(a.still)
-                print(f"wrote {a.still} ({label}, {'on' if is_on else 'off'})")
-                return
-            k += 1
-            im.save(work / f"{k:04d}.png")
-        print(f"{label}: {m} frames")
-    write_gif(str(work), FPS, OUT, colours=int(os.environ.get("CARD_COLOURS", "96")))
-    shutil.rmtree(work)
-    print(f"wrote {OUT} ({os.path.getsize(OUT) / 1e6:.1f} MB, {k} frames)")
+            d.rounded_rectangle((x + 8, py + 8, x + 28 + tw, py + 42), radius=6, fill=BG)
+            d.text((x + 18, py + 25), text, font=lab, fill=colour, anchor="lm")
+        if still:
+            im.save(still)
+            print(f"wrote {still}")
+            return
+        im.save(work / f"{k + 1:04d}.png")
+    write_gif(str(work), FPS, OUT)
 
 
 if __name__ == "__main__":
