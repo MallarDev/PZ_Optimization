@@ -92,7 +92,7 @@ public final class Overrides {
          return true;
       }
       Log.info("all optimizations disabled (enabled=false, " + describeSource("enabled")
-            + "); running stock behaviour. Options > Optimizations, \"Enable all\", turns them back on.");
+            + "); running stock behaviour. Options > PZ Optimization, the \"Recommended\" preset, turns them back on.");
       return false;
    }
 

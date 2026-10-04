@@ -1,33 +1,31 @@
--- pzopt: "Optimizations" tab in the options screen, right after Display.
+-- pzopt: the "PZ Optimization" tab in the options screen, right after Display (one tab since 2026-10-04; before, three:
+--  Optimizations, Enhancements, Profiler).
 --  Every pzopt.Config key is a control here: booleans are tick boxes, integers are combos whose first
 --  entry is the build's default on this machine. The values live in Java: the overridden
 --  PerformanceSettings forwards to pzopt.Config (what is in force since boot) and pzopt.UserOptions
---  (Zomboid/pzopt/options.ini, what the next launch will read). The Optimizations tab applies on the
+--  (Zomboid/pzopt/options.ini, what the next launch will read). The Performance settings (SECTIONS) apply on the
 --  next launch, so a change away from the boot value raises the stock "restart required" dialog; the
---  Profiler tab's keys and the Enhancements tab's (entry.live) apply at once when saved (pzopt.Config.reloadLive, then
---  pzopt.Overlay.reconfigure / pzopt.Enhancements.apply).
+--  Tools (PROFILER_SECTIONS) and most Visuals (ENHANCEMENT_SECTIONS, entry.live) apply at once when saved
+--  (pzopt.Config.reloadLive, then pzopt.Overlay.reconfigure / pzopt.Enhancements.apply).
 --  A key set in the install dir's pzopt.properties or as -Dpzopt.<key> (harness runs) wins over the
 --  file; its control shows that value, is disabled, and the tooltip says what pins it.
---  The top of the tab is the master switch (key `enabled`): off = every override takes its stock
---  path, the same as a build mismatch, whatever the other keys say. "Disable all (stock)" turns it
---  off; "Enable all" turns it on and puts every other control back to the build's defaults.
---  Both only change the controls; Apply / Accept saves them like any other option.
---  Right of the controls sits the preview panel (PzoptPreview, fixed while the list scrolls): for the
+--  Each group has a master switch on the home page (keys `enabled`, `enhancementsEnabled`, `profilerEnabled`): off,
+--  the group's settings are ignored and kept. `enabled` off = every override takes its stock path, the same as a build
+--  mismatch. The presets (Recommended / Stock game / Low-end) and the Reset buttons only change the controls;
+--  Apply / Accept saves them like any other option.
+--  How the page is organised (home, categories, subcategories, Simple / Advanced / Everything, Fix a problem) comes
+--  from pzopt_optimizations_layout.lua; the layout engine is near the end of this file (buildPage, relayout).
+--  Right of the settings sits the preview panel (PzoptPreview, fixed while the list scrolls): for the
 --  setting under the mouse it plays two clips side by side, the stock game and the optimized build on the
 --  same route (animated GIFs under media/ui/pzopt/compare/, made by harness/menu-gifs.py, decoded by
 --  pzopt.GifTextures), shows the setting's description and its value now / at the next launch, and draws
 --  one bar per resource (game thread, render thread, other cores, GPU, VRAM, RAM, disk, load time, chunk
 --  arrival) from the EFFECTS table below: left = less work / sooner, right = more. Which clip a setting
 --  shows is its section's `clip`, overridden per key in KEY_CLIP.
---  Upscaling, HDR output and ambient occlusion (ENHANCEMENT_SECTIONS) have their own "Enhancements" tab right after
---  it, and the performance overlay and its game-thread profiler (PROFILER_SECTIONS) a "Profiler" tab after that, both
---  built the same way (buildSettingsPage) without the profile buttons; each has its own master switch at the top
---  (2026-09-28: `enhancementsEnabled`, `profilerEnabled`; off, Java reads the tab's feature switches as off and keeps
---  the choices saved; both live).
 -- Installed by scripts/pzopt.sh into <game dir>/media/lua/client/pzopt/ (loose game-dir Lua is
 -- loaded like any other, no mod to enable).
 
-local TAB = "Optimizations"
+local TAB = "PZ Optimization"
 local ENHANCEMENTS_TAB = "Enhancements"
 local PROFILER_TAB = "Profiler"
 local RESTART_NOTE = "Takes effect on the next launch."
@@ -35,7 +33,7 @@ local LIVE_NOTE = "Applies as soon as you press Apply; no restart needed."
 
 -- The master switch, drawn before the sections with the two buttons.
 local MASTER = { key = "enabled", label = "Optimizations enabled (master switch)",
-  tip = "Off = the game runs stock: every override takes its original code path and the settings below are ignored. On = the settings below apply. The Profiler tab is not affected: the performance overlay works either way." }
+  tip = "Off = the game runs stock: every override takes its original code path and the settings below are ignored. On = the settings below apply. The Tools are not affected: the performance overlay works either way." }
 -- The Enhancements and Profiler tabs' master switches (2026-09-28): off, Java reads every feature of the tab as off
 -- (Config's GATED list) while the choices below stay saved for when it is on again. Both apply at once; the features
 -- that pick their shaders or window at start-up (NEXT_LAUNCH_ONLY) follow on the next launch.
@@ -512,7 +510,7 @@ local SECTIONS = {
               note = { auto = "Linux", ["true"] = "every platform", ["false"] = "stock window" },
               tip = "KWin, Mutter and gamescope only switch variable refresh on for fullscreen windows; the stock borderless window is just a screen-sized window, so a G-SYNC / FreeSync display stayed at its fixed refresh (0 % of the time in VRR vs 100 % with this on, desktop KDE test). The window is held as a fullscreen window at the desktop's own resolution (no mode switch) and stays on screen when you switch away." },
             { key = "macGlCore", label = "macOS: OpenGL 4.1 (needed by the Enhancements)",
-              tip = "On a Mac the game asks for Apple's old OpenGL 2.1, the only version Apple offers that still has the 1990s drawing calls the game uses here and there. Everything newer (OpenGL 4.1, GLSL 4.10) only comes without them, so every Enhancement (shadows, ambient occlusion, reflections, god rays, per-pixel light, HDR effects...) stayed off on macOS. With this on the game runs on OpenGL 4.1 and pzopt stands in for the old calls: its shaders are translated, the old alpha test, matrices and immediate-mode quads are emulated. Same picture as before; the Enhancements tab then works on a Mac (screen-space reflections use the ray march there: OpenGL 4.1 has no image atomics). Applies on the next launch; if the Mac cannot give a 4.1 context the game starts on 2.1 as before." },
+              tip = "On a Mac the game asks for Apple's old OpenGL 2.1, the only version Apple offers that still has the 1990s drawing calls the game uses here and there. Everything newer (OpenGL 4.1, GLSL 4.10) only comes without them, so every Enhancement (shadows, ambient occlusion, reflections, god rays, per-pixel light, HDR effects...) stayed off on macOS. With this on the game runs on OpenGL 4.1 and pzopt stands in for the old calls: its shaders are translated, the old alpha test, matrices and immediate-mode quads are emulated. Same picture as before; the Visuals then work on a Mac (screen-space reflections use the ray march there: OpenGL 4.1 has no image atomics). Applies on the next launch; if the Mac cannot give a 4.1 context the game starts on 2.1 as before." },
             { key = "macGlTimerQueries", label = "macOS (OpenGL 4.1): GPU timer queries",
               tip = "The performance overlay's GPU load and present pacing's GPU timing ask the graphics driver to time each frame. On a Mac's OpenGL 4.1 (Apple's OpenGL runs on top of Metal) that cost a third of the frame rate (106 -> 68 fps on the test route, MacBook Pro M1 Pro), so it is off: the overlay shows no GPU load and present pacing measures on the CPU, as on OpenGL 2.1. On for a measurement that needs the GPU time. Applies on the next launch." },
             { key = "macPresent", label = "macOS: present through Metal (ProMotion timing)",
@@ -1968,7 +1966,7 @@ function PzoptPreview:pick()
     end
     if not panel:isMouseOver() or self:isMouseOver() then return end
     local mx, my = panel:getMouseX(), panel:getMouseY()
-    if mx >= self.x then return end
+    if mx >= self.x or mx < (self.minX or 0) then return end
     for _, row in ipairs(self.rows) do
         if not row.hidden and my >= row.y and my < row.y + row.h then
             self:select(row)
@@ -2305,352 +2303,6 @@ local function search(index, query)
         if s < 0.15 * top then hits[row] = nil; n = n - 1 end
     end
     return hits, n
-end
-
--- ---------------------------------------------------------------------------------------------------
--- Collapsible sections. Every row below the search box (section headings, settings, the closing note) remembers its
--- UI elements and their offsets; pzoptRelayout places the visible ones top to bottom, hides the rest and rebuilds
--- the controller navigation in the same order. Which sections are folded is kept for the session.
-
-local COLLAPSED = {}
--- The "Sort by" choice, kept for the session like the folds: "natural", "alpha", "date" or an AXES id.
-local SORT = { [TAB] = "alpha", [ENHANCEMENTS_TAB] = "natural", [PROFILER_TAB] = "natural" }
--- What the three headings of a resource sort say, per axis id (default: load).
-local LESS_WORDS = { load = "shorter", chunks = "sooner" }
-local MORE_WORDS = { load = "longer", chunks = "later", cores = "more work for idle cores" }
-
--- The groups the list shows for the current sort, in display order: { sec = <heading>, rows = { ... } }.
--- A resource sort regroups every setting under three headings of its own (S.virtual): the ones that lower that
--- resource's load (biggest change first), the ones that raise it, and the rest alphabetically. The release-date sort
--- has one heading of its own per release date (S.dateGroups, newest first).
-local function sortedGroups(S)
-    if SORT[S.tab] == "natural" then
-        local out = {}
-        for _, sec in ipairs(S.sections) do table.insert(out, { sec = sec, rows = sec.rows }) end
-        return out
-    end
-    if SORT[S.tab] == "date" then return S.dateGroups end
-    local axis
-    for _, a in ipairs(AXES) do
-        if a.id == SORT[S.tab] then axis = a end
-    end
-    if not axis then return S.alphaGroups end
-    local less, more, none = {}, {}, {}
-    local value = {}
-    for _, row in ipairs(S.managed) do
-        local v = (EFFECTS[row.entry.key] or {})[axis.id] or 0
-        value[row] = v
-        table.insert(v < 0 and less or (v > 0 and more or none), row)
-    end
-    local function byLabel(a, b) return alphaLess(a.entry.label, b.entry.label) end
-    table.sort(less, function(a, b)
-        if value[a] ~= value[b] then return value[a] < value[b] end
-        return byLabel(a, b)
-    end)
-    table.sort(more, function(a, b)
-        if value[a] ~= value[b] then return value[a] > value[b] end
-        return byLabel(a, b)
-    end)
-    table.sort(none, byLabel)
-    local V = S.virtual
-    V[1].title, V[1].rows = axis.label .. ": " .. (LESS_WORDS[axis.id] or "less load") .. ", biggest change first", less
-    V[2].title, V[2].rows = axis.label .. ": " .. (MORE_WORDS[axis.id] or "more load") .. ", biggest change first", more
-    V[3].title, V[3].rows = axis.label .. ": no measured change", none
-    if axis.moreIsWork then
-        return { { sec = V[2], rows = more }, { sec = V[1], rows = less }, { sec = V[3], rows = none } }
-    end
-    return { { sec = V[1], rows = less }, { sec = V[2], rows = more }, { sec = V[3], rows = none } }
-end
-
-local function placeRow(row, y)
-    for _, e in ipairs(row.elems) do
-        e.el:setY(y + e.dy)
-        e.el:setVisible(true)
-    end
-    row.hidden = false
-    if row.controlDy then row.y = y + row.controlDy end
-end
-
-local function hideRow(row)
-    for _, e in ipairs(row.elems) do e.el:setVisible(false) end
-    row.hidden = true
-end
-
--- Off-screen rows draw nothing. The UI renders every child of a scrolled panel each frame and lets the stencil drop
--- what is outside, so this page (~100 rows, ~340 controls) cost ~8 ms a frame on an M1 Pro against ~0.5 ms for the
--- ~25 rows on screen (controller menu profile, 2026-09-23). A control more than CULL_MARGIN px outside the scrolled
--- band gets no-op prerender / render instead of hiding it: hidden controls would drop out of the controller rows
--- (ISPanelJoypad walks visible children only) and ensureVisible could no longer scroll to them. Recomputed only when
--- the scroll band or the layout (search, fold, sort) changed; the instance's own prerender / render come back as
--- they were.
-local CULL_MARGIN = 50
-local NOOP = function() end
-
-local function cullElement(el, off)
-    if off == (el.pzoptCulled == true) then return end
-    if off then
-        el.pzoptCulled = true
-        el.pzoptOwnPrerender, el.pzoptOwnRender = rawget(el, "prerender"), rawget(el, "render")
-        el.prerender, el.render = NOOP, NOOP
-    else
-        el.pzoptCulled = nil
-        el.prerender, el.render = el.pzoptOwnPrerender, el.pzoptOwnRender
-        el.pzoptOwnPrerender, el.pzoptOwnRender = nil, nil
-    end
-end
-
-local function cullRow(row, top, bottom)
-    for _, e in ipairs(row.elems) do
-        local el = e.el
-        local y = el:getY()
-        cullElement(el, y + el:getHeight() < top - CULL_MARGIN or y > bottom + CULL_MARGIN)
-    end
-end
-
-local function cullRows(S)
-    local panel = S.panel
-    local top = -panel:getYScroll()
-    local bottom = top + panel:getHeight()
-    if S.cullTop == top and S.cullBottom == bottom and S.cullGen == S.layoutGen then return end
-    S.cullTop, S.cullBottom, S.cullGen = top, bottom, S.layoutGen
-    for _, row in ipairs(S.managed) do cullRow(row, top, bottom) end
-    for _, sec in ipairs(S.allSections) do cullRow(sec.header, top, bottom) end
-    cullRow(S.footer, top, bottom)
-end
-
-local function relayout(S)
-    local panel = S.panel
-    local y = S.top
-    local joy = {}
-    local groups
-    if S.hits then
-        -- a search ranks: the sections by their best match, the matches inside by score, whatever the sort
-        local order = {}
-        for _, sec in ipairs(S.sections) do table.insert(order, sec) end
-        table.sort(order, function(a, b)
-            if a.best ~= b.best then return a.best > b.best end
-            return a.index < b.index
-        end)
-        groups = {}
-        for _, sec in ipairs(order) do table.insert(groups, { sec = sec, rows = sec.hitRows }) end
-    else
-        groups = sortedGroups(S)
-    end
-    local shown, placed = {}, {}
-    for _, g in ipairs(groups) do
-        local sec = g.sec
-        if #g.rows > 0 then
-            placeRow(sec.header, y)
-            placed[sec] = true
-            y = y + sec.header.step
-            table.insert(joy, { sec.header.button })
-            if S.hits or not COLLAPSED[sec.title] then
-                for _, row in ipairs(g.rows) do
-                    placeRow(row, y)
-                    y = y + row.step
-                    shown[row] = true
-                    for _, line in ipairs(row.option.pzoptJoyLines or { { row.option.control } }) do
-                        table.insert(joy, line)
-                    end
-                end
-            end
-        end
-    end
-    for _, sec in ipairs(S.allSections) do
-        if not placed[sec] then hideRow(sec.header) end
-    end
-    for _, row in ipairs(S.managed) do
-        if not shown[row] then hideRow(row) end
-    end
-    placeRow(S.footer, y)
-    y = y + S.footer.step
-    panel:setScrollHeight(y + 20)
-    local maxScroll = math.max(0, y + 20 - panel:getHeight())
-    if -panel:getYScroll() > maxScroll then panel:setYScroll(-maxScroll) end
-    -- controller navigation: the fixed rows at the top, then the visible rows in display order
-    for i = #panel.joypadButtonsY, S.joyTop + 1, -1 do table.remove(panel.joypadButtonsY, i) end
-    for _, line in ipairs(joy) do table.insert(panel.joypadButtonsY, line) end
-    panel.joypadButtons = panel.joypadButtonsY[#panel.joypadButtonsY]
-    if (panel.joypadIndexY or 1) > #panel.joypadButtonsY then
-        panel.joypadIndexY = #panel.joypadButtonsY
-        panel.joypadIndex = 1
-    end
-    S.layoutGen = (S.layoutGen or 0) + 1 -- cullRows looks again
-end
-
-local function runSearch(S, text)
-    local hits, n = nil, 0
-    if text and string.match(text, "%w") then
-        hits, n = search(S.index, text)
-    end
-    S.hits = hits
-    for _, sec in ipairs(S.sections) do
-        sec.hitRows, sec.best = {}, 0
-        if hits then
-            for _, row in ipairs(sec.rows) do
-                local s = hits[row]
-                if s then
-                    table.insert(sec.hitRows, row)
-                    if s > sec.best then sec.best = s end
-                end
-            end
-            table.sort(sec.hitRows, function(a, b)
-                if hits[a] ~= hits[b] then return hits[a] > hits[b] end
-                return a.index < b.index
-            end)
-        end
-    end
-    if not hits then
-        S.status:setName(S.total .. " settings")
-    elseif n == 0 then
-        S.status:setName("Nothing matches")
-    else
-        S.status:setName(n .. " of " .. S.total .. " match")
-    end
-    S.panel:setYScroll(0)
-    relayout(S)
-end
-
--- A section heading that folds its section: a rule stopping short of the preview panel, "+" / "-", the title, and
--- how many settings it holds (or match the search). It is a button, so the mouse and a controller's A both work.
-local function addSectionHeader(self, S, sec, y, x0, width)
-    local spacing = MainOptions.style.borderSpacing
-    local hM = MainOptions.style:getFontHeight("Medium")
-    local hS = getTextManager():getFontHeight(UIFont.Small)
-    local b = ISButton:new(x0, self.addY + y, width, spacing + hM, "", S, function(target)
-        if target.hits then return end -- a search shows every match unfolded
-        COLLAPSED[sec.title] = not COLLAPSED[sec.title] or nil
-        relayout(target)
-    end)
-    b:initialise()
-    b.prerender = function() end
-    b.render = function(o)
-        local hot = o:isMouseOver() or o.joypadFocused
-        o:drawRect(0, 0, o.width, 1, 1.0, 0.5, 0.5, 0.5)
-        local open = S.hits or not COLLAPSED[sec.title]
-        local c = hot and 1 or 0.85
-        local markW = getTextManager():MeasureStringX(UIFont.Medium, "+ ")
-        o:drawText(open and "-" or "+", 2, spacing, c, c, c, 1, UIFont.Medium)
-        local count = S.hits and (#sec.hitRows .. " of " .. #sec.rows) or (#sec.rows .. (#sec.rows == 1 and " setting" or " settings"))
-        local countW = getTextManager():MeasureStringX(UIFont.Small, count)
-        o:drawTextRight(count, o.width, spacing + math.floor((hM - hS) / 2), C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
-        -- the title is cut with "..." before the count (WrapText does not cut a single line reliably)
-        local room, title = math.max(20, o.width - markW - countW - 16), sec.title
-        local tm = getTextManager()
-        if tm:MeasureStringX(UIFont.Medium, title) > room then
-            while #title > 1 and tm:MeasureStringX(UIFont.Medium, title .. "...") > room do
-                title = string.sub(title, 1, #title - 1)
-            end
-            title = title .. "..."
-        end
-        o:drawText(title, markW + 2, spacing, c, c, c, 1, UIFont.Medium)
-    end
-    self.mainPanel:addChild(b)
-    self.addY = self.addY + spacing * 2 + hM
-    return b
-end
-
--- The search box and, under it, "Collapse all" / "Expand all" and the match count.
-local function addSearchRows(self, S, splitpoint, y, width)
-    local style = MainOptions.style
-    local BUTTON_HGT = style.buttonHeight
-    local spacing = style.borderSpacing
-    local label = ISLabel:new(splitpoint, y + self.addY, BUTTON_HGT, "Search settings", 1, 1, 1, 1, UIFont.Small)
-    label:initialise()
-    self.mainPanel:addChild(label)
-    local entry = ISTextEntryBox:new("", splitpoint + 20, y + self.addY, width, BUTTON_HGT)
-    entry:initialise()
-    entry:instantiate()
-    entry:setClearButton(true)
-    entry.tooltip = "Type words from a setting's name, description or key, a resource (gpu, vram, game thread, "
-        .. "load time...) or a Java class that reads it (FBORenderCell, IsoChunk, pzopt.FogPass...). Typos and "
-        .. "partial words are fine; the best matches come first."
-    -- the text is polled each frame (the clear button and pasting do not all go through onTextChange) and searched
-    -- once it has been still for 120 ms, so typing a word runs one search, not one per letter
-    entry.prerender = function(o)
-        ISTextEntryBox.prerender(o)
-        local text, now = o:getText(), getTimestampMs()
-        if text ~= S.typed then
-            S.typed, S.typedAt = text, now
-        elseif text ~= S.lastText and now - S.typedAt >= 120 then
-            S.lastText = text
-            runSearch(S, text)
-        end
-    end
-    self.mainPanel:addChild(entry)
-    self.mainPanel:insertNewLineOfButtons(entry)
-    self.addY = self.addY + BUTTON_HGT + spacing
-    local x = splitpoint + 20
-    local fold = ISButton:new(x, y + self.addY, 100, BUTTON_HGT, "Collapse all", S, function(target)
-        for _, sec in ipairs(target.allSections) do COLLAPSED[sec.title] = true end
-        relayout(target)
-    end)
-    fold:initialise()
-    fold:setWidthToTitle()
-    self.mainPanel:addChild(fold)
-    local unfold = ISButton:new(x + fold:getWidth() + spacing, y + self.addY, 100, BUTTON_HGT, "Expand all", S, function(target)
-        for _, sec in ipairs(target.allSections) do COLLAPSED[sec.title] = nil end
-        relayout(target)
-    end)
-    unfold:initialise()
-    unfold:setWidthToTitle()
-    self.mainPanel:addChild(unfold)
-    local status = ISLabel:new(unfold:getX() + unfold:getWidth() + spacing * 2, y + self.addY, BUTTON_HGT, "", C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small, true)
-    status:initialise()
-    self.mainPanel:addChild(status)
-    self.mainPanel:insertNewLineOfButtons(fold, unfold)
-    self.addY = self.addY + BUTTON_HGT + spacing
-    -- "Sort by": the topic order, alphabetical, release date, or one resource (the settings that lower its load first)
-    local keys, names = { "natural", "alpha", "date" }, { "Natural (grouped by topic)", "Alphabetical", "Release date (newest first)" }
-    for _, axis in ipairs(AXES) do
-        table.insert(keys, axis.id)
-        table.insert(names, "Effect on " .. axis.label)
-    end
-    local sortLabel = ISLabel:new(splitpoint, y + self.addY, BUTTON_HGT, "Sort by", 1, 1, 1, 1, UIFont.Small)
-    sortLabel:initialise()
-    self.mainPanel:addChild(sortLabel)
-    local sort = ISComboBox:new(splitpoint + 20, y + self.addY, width, BUTTON_HGT, S, function(target, box)
-        SORT[target.tab] = keys[box.selected] or "alpha"
-        target.panel:setYScroll(0)
-        relayout(target)
-    end)
-    sort:initialise()
-    for i, name in ipairs(names) do
-        sort:addOption(name)
-        if keys[i] == SORT[S.tab] then sort.selected = i end
-    end
-    sort.tooltip = "Natural: the settings grouped by topic, in the order they were added. Alphabetical: the topics and "
-        .. "the settings in each by name. Release date: one heading per release, the newest first, the settings "
-        .. "under it by name. Effect on a resource: every setting that lowers that part's load first, "
-        .. "biggest change first (the bars in the preview), then the ones that raise it, then the rest. A search "
-        .. "always lists the best matches first."
-    self.mainPanel:addChild(sort)
-    self.mainPanel:insertNewLineOfButtons(sort)
-    self.addY = self.addY + BUTTON_HGT + spacing
-    -- "Before / after clips": the preview's GIFs, off by default; one choice for all three tabs, saved at once
-    local clipsLabel = ISLabel:new(splitpoint, y + self.addY, BUTTON_HGT, "Before / after clips", 1, 1, 1, 1, UIFont.Small)
-    clipsLabel:initialise()
-    self.mainPanel:addChild(clipsLabel)
-    local clips = ISTickBox:new(splitpoint + 20, y + self.addY, BUTTON_HGT, BUTTON_HGT, "", S, function(target, index, selected)
-        setClipsOn(selected == true)
-    end)
-    clips.choicesColor = { r = 1, g = 1, b = 1, a = 1 }
-    clips:initialise()
-    clips:addOption("")
-    clips:setSelected(1, clipsOn())
-    clips.tooltip = "Plays a short clip of the stock game and one with the setting on, side by side, above the "
-        .. "description of the setting under the mouse. Off saves the memory the clips take (up to ~100 MB of video "
-        .. "memory while this screen is open). Applies at once, for every tab, and is remembered."
-    -- another tab's tick box may have changed it
-    clips.prerender = function(o)
-        if o:isSelected(1) ~= clipsOn() then o:setSelected(1, clipsOn()) end
-        ISTickBox.prerender(o)
-    end
-    clipsLabel:setHeight(clips:getHeight())
-    self.mainPanel:addChild(clips)
-    self.mainPanel:insertNewLineOfButtons(clips)
-    self.addY = self.addY + BUTTON_HGT + spacing
-    S.entry, S.status, S.sort, S.clips = entry, status, sort, clips
 end
 
 local function comboLabels(entry, default, saved)
@@ -3249,9 +2901,9 @@ local function onUninstallConfirm(target, button)
     showUninstallResult("Nothing was removed:\n" .. tostring(msg):gsub(": ", ":\n"))
 end
 
-local function addUninstallButton(self, splitpoint, y)
-    local b = self:addButton(splitpoint, y, UNINSTALL_TITLE)
-    b.target = self
+-- The home page's uninstall button (made by buildPage): the confirmation dialog, disabled in a world or when
+-- pzopt.Uninstall says it cannot run.
+local function setupUninstallButton(self, b)
     b.onclick = function()
         if MainScreen.instance and MainScreen.instance.inGame then return end
         local w, h = 420, 200
@@ -3281,7 +2933,6 @@ local function addUninstallButton(self, splitpoint, y)
     else
         b.tooltip = UNINSTALL_TIP
     end
-    return b
 end
 
 -- devUninstallDrive (dev rig, Config key; harness/uninstall-e2e.sh): once the main menu is up, the real controls in
@@ -3308,6 +2959,7 @@ local function uninstallDriveTick()
     elseif d.step == 2 then
         if not mo or not mo.tabs then return end
         mo.tabs:activateView(TAB)
+        PzoptOptionsNavigate(mo, "home")
         d.step, d.at = 3, getTimestampMs() + 1500
     elseif d.step == 3 then
         local b = mo and mo.pzoptUninstallButton
@@ -3503,7 +3155,7 @@ local function importSettings(self, text)
         msg = msg .. "\n\nNot a true / false value, set to the default: " .. listSome(invalid, 6) .. "."
     end
     if #ignored > 0 then
-        msg = msg .. "\n\nNot settings of these tabs in this version, ignored: " .. listSome(ignored, 6) .. "."
+        msg = msg .. "\n\nNot settings of this version, ignored: " .. listSome(ignored, 6) .. "."
     end
     showMessage(self, msg)
 end
@@ -3545,77 +3197,8 @@ local function openImportDialog(self)
     end
 end
 
-local function addTransferButtons(self, splitpoint, y)
-    local out = self:addButton(splitpoint, y, EXPORT_TITLE)
-    out.tooltip = EXPORT_TIP
-    out.target = self
-    out.onclick = function(target) exportSettings(target) end
-    local into = self:addButton(splitpoint, y, IMPORT_TITLE)
-    into.tooltip = IMPORT_TIP
-    into.target = self
-    into.onclick = function(target) openImportDialog(target) end
-end
-
-local function addAllButtons(self, splitpoint, y)
-    local on = self:addButton(splitpoint, y, "Enable all (recommended defaults)")
-    on.tooltip = "Turns the master switch on and puts every setting below back to the build's default on this machine. " .. RESTART_NOTE
-    on.target = self
-    on.onclick = function(target) setAll(target, true) end
-    local off = self:addButton(splitpoint, y, "Disable all (stock game)")
-    off.tooltip = "Turns the master switch off: the game runs its original code everywhere, as if the overrides were not installed. The settings below are kept for when you enable them again; the Profiler tab and the performance overlay are not affected. " .. RESTART_NOTE
-    off.target = self
-    off.onclick = function(target) setAll(target, false) end
-    local profileButtons = {}
-    for _, profile in ipairs(PROFILES) do
-        local b = self:addButton(splitpoint, y, profile.button)
-        b.tooltip = profile.tip .. " " .. RESTART_NOTE
-        b.target = self
-        b.onclick = function(target) applyProfile(target, profile) end
-        table.insert(profileButtons, b)
-    end
-    addTransferButtons(self, splitpoint, y)
-    addUninstallButton(self, splitpoint, y)
-    if self.pzoptMaster and not self.pzoptMaster.control.enable then
-        on:setEnable(false)
-        off:setEnable(false)
-        on.tooltip = "Pinned by " .. perf():getPzoptOptionPinnedBy(MASTER.key) .. " for this install."
-        off.tooltip = on.tooltip
-        for _, b in ipairs(profileButtons) do
-            b:setEnable(false)
-            b.tooltip = on.tooltip
-        end
-    end
-end
-
--- The Enhancements and Profiler tabs' reset button: that tab's settings back to the build's defaults (the
--- Optimizations tab's Enable all leaves them alone). `options` names the MainOptions field holding the page's options,
--- `masterField` the one holding its master switch (back on as well).
-local PAGE_RESET = "Reset to defaults"
-local function addResetButton(self, splitpoint, y, options, note, masterField)
-    local b = self:addButton(splitpoint, y, PAGE_RESET)
-    b.tooltip = "Puts every setting on this tab back to the build's default, the master switch on. " .. note
-    b.target = self
-    b.onclick = function(target)
-        local master = target[masterField]
-        if master then
-            master:pzoptReset()
-            master:invokeOnChangeEvent()
-        end
-        for _, option in ipairs(target[options] or {}) do
-            option:pzoptReset()
-            option:invokeOnChangeEvent()
-        end
-    end
-    return b
-end
-local function addProfilerButtons(self, splitpoint, y)
-    addResetButton(self, splitpoint, y, "pzoptProfilerOptions", LIVE_NOTE, "pzoptProfilerMaster")
-    addTransferButtons(self, splitpoint, y)
-end
-
 -- "Install DLSS files": the natives DLSS needs that a release does not carry (pzopt.UpscalerDeps, Linux x86-64 with
--- an RTX card). The button's title follows the Java side's state; every title is listed so the layout reserves
--- the widest one.
+-- an RTX card). The button's title follows the Java side's state.
 local DEPS_TITLES = {
     missing = "Install DLSS files", error = "Retry the DLSS files download", checking = "Checking the DLSS files...",
     idle = "Checking the DLSS files...", downloading = "Downloading the DLSS files 100 %", installing = "Installing the DLSS files...",
@@ -3625,9 +3208,7 @@ local DEPS_TIP = "Downloads the two native files NVIDIA DLSS needs into the game
     .. "DLSS library; releases do not carry them) and checks each one's checksum. Linux or Windows with an NVIDIA RTX card; "
     .. "FSR 1.0 needs no files. Then pick \"Upscaler\": dlss and restart the game."
 
-local function addUpscalerDepsButton(self, splitpoint, y)
-    local b = self:addButton(splitpoint, y, DEPS_TITLES.checking)
-    b.target = self
+local function setupUpscalerDepsButton(self, b)
     b.onclick = function()
         local s = perf():getPzoptUpscalerDepsState()
         if s == "missing" or s == "error" then perf():pzoptUpscalerDepsInstall() end
@@ -3652,282 +3233,1373 @@ local function addUpscalerDepsButton(self, splitpoint, y)
         local msg = perf():getPzoptUpscalerDepsMessage()
         o.tooltip = msg ~= "" and (DEPS_TIP .. " Now: " .. msg .. ".") or DEPS_TIP
     end
+end
+
+-- A group's settings back to the build's defaults, its master switch on (the Visuals and Tools "Reset" buttons, a
+-- category's "Reset ... to defaults"). Only the controls change; Apply / Accept saves them.
+local function resetOptions(options, master)
+    if master then
+        master:pzoptReset()
+        master:invokeOnChangeEvent()
+    end
+    for _, option in ipairs(options) do
+        option:pzoptReset()
+        option:invokeOnChangeEvent()
+    end
+end
+
+-- The three groups of settings, as the tabs they were until 2026-10-04: their sections, master switch, the MainOptions
+-- fields holding their controls (the profile buttons, export / import and the harness read them) and the note on what
+-- Apply does. `tab` names them in the exported text.
+PAGES = {
+    { tab = "Optimizations", sections = SECTIONS, master = MASTER, masterField = "pzoptMaster", masterClip = "drive",
+      options = "pzoptOptions",
+      footer = "Performance settings take effect on the next launch. File: Zomboid/pzopt/options.ini" },
+    { tab = ENHANCEMENTS_TAB, sections = ENHANCEMENT_SECTIONS, master = ENHANCEMENTS_MASTER, masterField = "pzoptEnhancementMaster",
+      masterClip = "upscale", options = "pzoptEnhancementOptions",
+      footer = "Visuals apply as soon as you press Apply; HDR output, per-pixel lighting, reflections, car glass, mirrors and relief on the next launch. File: Zomboid/pzopt/options.ini" },
+    { tab = PROFILER_TAB, sections = PROFILER_SECTIONS, master = PROFILER_MASTER, masterField = "pzoptProfilerMaster",
+      masterClip = "overlay", options = "pzoptProfilerOptions",
+      footer = "Tools apply as soon as you press Apply, no restart needed. File: Zomboid/pzopt/options.ini" },
+}
+
+-- ---------------------------------------------------------------------------------------------------
+-- The tab (2026-10-04): one "PZ Optimization" tab instead of Optimizations / Enhancements / Profiler.
+--  Home: presets, the three groups (Performance, Visuals, Tools) with their master switches and one tile per category,
+--  "Fix a problem", export / import / uninstall. A category: the sidebar (fixed, every category), its subcategory tabs
+--  (Overview first; the Visuals categories show each subcategory as a card), its settings. "Fix a problem": what players
+--  report, why, and the settings that help. Typing in the search box lists the best matches of every category.
+--  Simple / Advanced / Everything filters what a category shows (tiers in pzopt_optimizations_layout.lua).
+--  Every setting is built once as a row: its control, its label to the right, and under the label a line with its
+--  tags and the first sentence of its description. relayout places the items of the page shown (rows, tiles, headings,
+--  buttons), hides the rest and rebuilds the controller rows in display order; the preview panel stays on the right.
+
+local GAP = 24
+-- the page shown, kept for the session
+local NAV = { kind = "home", cat = nil, sub = 0, level = "simple", problem = 1, back = "home" }
+local VIEWS = { { id = "simple", title = "Simple" }, { id = "advanced", title = "Advanced" }, { id = "everything", title = "Everything" } }
+local LEVEL = { simple = 1, advanced = 2, everything = 3 }
+local VIEW_TIPS = {
+    simple = "The settings worth knowing about: the features and the main switches.",
+    advanced = "Also the settings that change how something is done; the defaults are what was measured best.",
+    everything = "Also the tuning numbers (budgets, thread counts, intervals). Change them to experiment.",
+}
+local C_HELP = { r = 0.85, g = 0.55, b = 0.95 }
+local C_AMBER = { r = 0.98, g = 0.72, b = 0.30 }
+local C_EXPERT = { r = 0.95, g = 0.45, b = 0.40 }
+local C_ADV = { r = 0.45, g = 0.68, b = 0.98 }
+
+local function rgb(t) return { r = t[1], g = t[2], b = t[3] } end
+local function fontH(font) return getTextManager():getFontHeight(font) end
+local function textW(font, s) return getTextManager():MeasureStringX(font, s) end
+
+local function clipText(font, s, w)
+    if textW(font, s) <= w then return s end
+    while #s > 1 and textW(font, s .. "...") > w do s = string.sub(s, 1, #s - 1) end
+    return s .. "..."
+end
+
+local function wrapLines(font, s, w)
+    local out = {}
+    for line in string.gmatch(getTextManager():WrapText(font, s or "", w), "[^\n]+") do table.insert(out, line) end
+    return out
+end
+
+local function firstSentence(s)
+    s = s or ""
+    local i = string.find(s, "%. ")
+    if i then return string.sub(s, 1, i) end
+    return s
+end
+
+-- the part of a section title in brackets: "Ambient occlusion (soft shading ...)" -> "soft shading ..."
+local function bracketed(title)
+    return title and string.match(title, "%((.-)%)%s*$")
+end
+
+local TIER
+local function tierOf(key)
+    if not TIER then
+        local L = PzoptSettingsLayout or {}
+        TIER = { simple = {}, expert = {}, patterns = L.expertPatterns or {} }
+        for _, k in ipairs(L.simple or {}) do TIER.simple[k] = true end
+        for _, k in ipairs(L.expertKeys or {}) do TIER.expert[k] = true end
+    end
+    if TIER.simple[key] then return 1 end
+    if TIER.expert[key] then return 3 end
+    for _, pattern in ipairs(TIER.patterns) do
+        if string.find(key, pattern) then return 3 end
+    end
+    return 2
+end
+
+-- the control says something other than the build's default
+local function rowChanged(row)
+    local ok, v = pcall(function() return row.option:pzoptCurrent() end)
+    if not ok or not v then return false end
+    if string.sub(v, -10) == " (default)" then return false end
+    return v ~= perf():getPzoptOptionDefault(row.entry.key)
+end
+
+local function groupOff(group)
+    local m = group.master
+    return m ~= nil and m.option:pzoptCurrent() == "false"
+end
+
+-- A category's status for its tile, recomputed twice a second: "Recommended" / "N changed", on Visuals "N on" / "Off".
+local function catStatus(cat)
+    local now = getTimestampMs()
+    if cat.statusAt and now - cat.statusAt < 500 then return cat.status, cat.statusC end
+    local changed, on = 0, 0
+    for _, row in ipairs(cat.rows) do
+        if rowChanged(row) then
+            changed = changed + 1
+            if row.option.pzoptBool and row.option:pzoptCurrent() == "true" then on = on + 1 end
+        end
+    end
+    local status, c
+    if groupOff(cat.group) then
+        status, c = "Switched off", C_DIM
+    elseif cat.group.cards then
+        if on > 0 then status, c = on .. " on", C_AMBER
+        elseif changed > 0 then status, c = changed .. " changed", C_AMBER
+        else status, c = "Off", C_DIM end
+    elseif changed > 0 then
+        status, c = changed .. " changed", C_AMBER
+    else
+        status, c = "Recommended", C_OPT
+    end
+    cat.status, cat.statusC, cat.statusAt = status, c, now
+    return status, c
+end
+
+local function drawPill(o, x, y, text, c, filled)
+    local w, h = textW(UIFont.Small, text) + 12, fontH(UIFont.Small) + 2
+    o:drawRect(x, y, w, h, filled and 0.9 or 0.18, c.r, c.g, c.b)
+    o:drawRectBorder(x, y, w, h, 0.55, c.r, c.g, c.b)
+    if filled then
+        o:drawText(text, x + 6, y + 1, 0.05, 0.05, 0.05, 1, UIFont.Small)
+    else
+        o:drawText(text, x + 6, y + 1, c.r, c.g, c.b, 1, UIFont.Small)
+    end
+    return w
+end
+
+-- three squares filled to `n` (0..3), after a label; returns the x after them
+local function drawDots(o, x, y, label, n, c)
+    o:drawText(label, x, y, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+    local dx = x + textW(UIFont.Small, label) + 6
+    local s = fontH(UIFont.Small) - 6
+    for i = 1, 3 do
+        if i <= n then
+            o:drawRect(dx + (i - 1) * (s + 3), y + 3, s, s, 0.9, c.r, c.g, c.b)
+        else
+            o:drawRect(dx + (i - 1) * (s + 3), y + 3, s, s, 0.12, 1, 1, 1)
+        end
+    end
+    return dx + 3 * (s + 3) + 12
+end
+
+-- The line under a setting's label: its tags (Advanced / Expert, changed, next launch, pinned, mod compatibility),
+-- the first sentence of its description, and on the search and problem pages where it lives.
+PzoptRowInfo = ISPanel:derive("PzoptRowInfo")
+
+function PzoptRowInfo:new(x, y, w, h, row)
+    local o = ISPanel.new(self, x, y, w, h)
+    o.background = false
+    o.row = row
+    return o
+end
+
+function PzoptRowInfo:onMouseWheel(del) return false end
+function PzoptRowInfo:prerender() end
+
+function PzoptRowInfo:render()
+    local row = self.row
+    local p = perf()
+    local x = 0
+    if row.tier == 2 then x = x + drawPill(self, x, 0, "ADVANCED", C_ADV) + 6 end
+    if row.tier == 3 then x = x + drawPill(self, x, 0, "EXPERT", C_EXPERT) + 6 end
+    if rowChanged(row) then x = x + drawPill(self, x, 0, "CHANGED", C_AMBER) + 6 end
+    if not row.entry.live then x = x + drawPill(self, x, 0, "next launch", C_GREY) + 6 end
+    if p:getPzoptOptionPinnedBy(row.entry.key) ~= "" then x = x + drawPill(self, x, 0, "pinned", C_GREY) + 6 end
+    if compatReason(row.entry.key) ~= "" then x = x + drawPill(self, x, 0, "off for a mod", C_STOCK) + 6 end
+    local right = self.width
+    if (NAV.kind == "search" or NAV.kind == "problems") and row.cat then
+        local where = row.cat.title .. "  >  " .. row.sub.title
+        local c = row.cat.group.c
+        local ww = textW(UIFont.Small, where)
+        self:drawText(where, right - ww, 1, c.r, c.g, c.b, 1, UIFont.Small)
+        right = right - ww - 16
+    end
+    self:drawText(clipText(UIFont.Small, firstSentence(row.entry.tip), math.max(20, right - x)), x, 1,
+        C_GREY.r * 0.8, C_GREY.g * 0.8, C_GREY.b * 0.8, 1, UIFont.Small)
+end
+
+-- A panel that only draws (headings, notes): `draw(o)` paints it.
+local function drawPanel(draw)
+    local o = ISPanel:new(0, 0, 10, 10)
+    o:initialise()
+    o.background = false
+    o.prerender = function() end
+    o.render = draw
+    o.onMouseWheel = function() return false end
+    return o
+end
+
+-- A button that draws itself (tiles, tabs, headings): `draw(o, hot)`.
+local function drawButton(target, onclick, draw)
+    local b = ISButton:new(0, 0, 10, 10, "", target, onclick)
+    b:initialise()
+    b.prerender = function() end
+    b.render = function(o) draw(o, o:isMouseOver() or o.joypadFocused) end
     return b
 end
 
--- A section heading: a rule that stops short of the preview panel and the title above the label column.
-local function addSectionLine(self, y, text, x0, width)
-    local spacing = MainOptions.style.borderSpacing
-    local hM = MainOptions.style:getFontHeight("Medium")
-    local line = ISPanel:new(x0, self.addY + y, width, 2)
-    line.prerender = function() end
-    line.render = function(o) o:drawRect(0, 0, o.width, 1, 1.0, 0.5, 0.5, 0.5) end
-    line:initialise()
-    self.mainPanel:addChild(line)
-    local shown = getTextManager():WrapText(UIFont.Medium, text, width, 1, "...")
-    local label = ISLabel:new(x0, self.addY + y + spacing, hM, shown, 1, 1, 1, 1, UIFont.Medium, true)
-    label:initialise()
-    self.mainPanel:addChild(label)
-    self.addY = self.addY + spacing * 2 + hM
+-- ---------------------------------------------------------------------------------------------------
+-- Placement
+
+local function placeRow(row, y, dx)
+    dx = dx or 0
+    for _, e in ipairs(row.elems) do
+        e.el:setX(e.x0 + dx)
+        e.el:setY(y + e.dy)
+        e.el:setVisible(true)
+    end
+    row.hidden = false
+    row.y = y
 end
 
--- Layout: the label column (right-aligned labels) and the controls at the left margin, the fixed preview panel
--- filling the rest of the page's width and height. Measured over every tab, so the preview does not move between them.
-local function layout(self, comboWidth)
-    local W = self:getWidth()
-    local gap, margin, sbar = 40, 16, 13
-    local labelW = 0
-    for _, master in ipairs({ MASTER, ENHANCEMENTS_MASTER, PROFILER_MASTER }) do
-        labelW = math.max(labelW, getTextManager():MeasureStringX(UIFont.Small, master.label))
+local function hideItem(item)
+    for _, e in ipairs(item.elems) do e.el:setVisible(false) end
+    item.hidden = true
+end
+
+-- Off-screen elements draw nothing. The UI renders every child of a scrolled panel each frame and lets the stencil drop
+-- what is outside (the old Optimizations tab cost ~8 ms a frame on an M1 Pro against ~0.5 ms for the rows on screen,
+-- 2026-09-23). An element more than CULL_MARGIN px outside the scrolled band gets no-op prerender / render instead of
+-- being hidden: hidden ones would drop out of the controller rows and ensureVisible could no longer scroll to them.
+local CULL_MARGIN = 50
+local NOOP = function() end
+
+local function cullElement(el, off)
+    if off == (el.pzoptCulled == true) then return end
+    if off then
+        el.pzoptCulled = true
+        el.pzoptOwnPrerender, el.pzoptOwnRender = rawget(el, "prerender"), rawget(el, "render")
+        el.prerender, el.render = NOOP, NOOP
+    else
+        el.pzoptCulled = nil
+        el.prerender, el.render = el.pzoptOwnPrerender, el.pzoptOwnRender
+        el.pzoptOwnPrerender, el.pzoptOwnRender = nil, nil
     end
-    for _, sections in ipairs({ SECTIONS, ENHANCEMENT_SECTIONS, PROFILER_SECTIONS }) do
-        for _, section in ipairs(sections) do
-            for _, entry in ipairs(section.entries) do
-                labelW = math.max(labelW, getTextManager():MeasureStringX(UIFont.Small, entry.label))
+end
+
+local function cullRows(S)
+    local panel = S.panel
+    local top = -panel:getYScroll()
+    local bottom = top + panel:getHeight()
+    if S.cullTop == top and S.cullBottom == bottom and S.cullGen == S.layoutGen then return end
+    S.cullTop, S.cullBottom, S.cullGen = top, bottom, S.layoutGen
+    for _, item in ipairs(S.items) do
+        if not item.hidden then
+            for _, e in ipairs(item.elems) do
+                local el = e.el
+                local y = el:getY()
+                cullElement(el, y + el:getHeight() < top - CULL_MARGIN or y > bottom + CULL_MARGIN)
             end
         end
     end
-    labelW = labelW + 8
-    local controlW = comboWidth
-    for _, title in ipairs({ "Enable all (recommended defaults)", "Disable all (stock game)", PAGE_RESET, UNINSTALL_TITLE,
-                             EXPORT_TITLE, IMPORT_TITLE }) do
-        controlW = math.max(controlW, getTextManager():MeasureStringX(UIFont.Small, title) + 24)
-    end
-    for _, title in pairs(DEPS_TITLES) do
-        controlW = math.max(controlW, getTextManager():MeasureStringX(UIFont.Small, title) + 24)
-    end
-    for _, profile in ipairs(PROFILES) do
-        controlW = math.max(controlW, getTextManager():MeasureStringX(UIFont.Small, profile.button) + 24)
-    end
-    local controlsW = labelW + 20 + controlW
-    -- the controls at the left margin, the preview everything to the right of them: a fixed box that never
-    -- moves or resizes, however long the hovered row's description is
-    local previewW = math.max(360, W - 2 * margin - sbar - controlsW - gap)
-    local x0 = margin
-    return { x0 = x0, splitpoint = x0 + labelW, previewX = x0 + controlsW + gap, previewW = previewW,
-             lineW = controlsW + gap / 2, margin = margin, controlW = controlW }
 end
 
--- The three pages: the Optimizations tab (master switch, profiles), the Enhancements tab (upscaling, HDR, ambient
--- occlusion) and the Profiler tab (the overlay's settings).
--- `panel` / `options` / `search` / `preview` name the MainOptions fields that hold the page's parts.
-PAGES = {
-    {
-        tab = TAB, sections = SECTIONS, master = MASTER, masterField = "pzoptMaster", masterClip = "drive", buttons = addAllButtons,
-        panel = "pzoptPanel", options = "pzoptOptions", search = "pzoptSearch", preview = "pzoptPreview",
-        footer = "Changes take effect on the next launch. File: Zomboid/pzopt/options.ini",
-        headline = function(p)
-            return "All optimizations (since this boot: " .. (p:isPzoptEnabled() and "on" or "OFF: the game is running stock") .. ")"
-        end,
-    },
-    {
-        tab = ENHANCEMENTS_TAB, sections = ENHANCEMENT_SECTIONS,
-        master = ENHANCEMENTS_MASTER, masterField = "pzoptEnhancementMaster", masterClip = "upscale",
-        buttons = function(o, splitpoint, y)
-            addResetButton(o, splitpoint, y, "pzoptEnhancementOptions", "Applies as soon as you press Apply; HDR output, per-pixel lighting, reflections and car glass on the next launch.", "pzoptEnhancementMaster")
-            addTransferButtons(o, splitpoint, y)
-            addUpscalerDepsButton(o, splitpoint, y)
-        end,
-        panel = "pzoptEnhancementPanel", options = "pzoptEnhancementOptions", search = "pzoptEnhancementSearch",
-        preview = "pzoptEnhancementPreview",
-        footer = "Changes apply as soon as you press Apply (the two HDR output switches on the next launch). File: Zomboid/pzopt/options.ini",
-        -- part of the overrides: with the Optimizations tab's master switch off they are off too
-        headline = function(p)
-            return "Graphics enhancements" .. (p:isPzoptEnabled() and ""
-                or " (off since this boot: they need the Optimizations tab's master switch on)")
-        end,
-    },
-    {
-        tab = PROFILER_TAB, sections = PROFILER_SECTIONS, buttons = addProfilerButtons,
-        master = PROFILER_MASTER, masterField = "pzoptProfilerMaster", masterClip = "overlay",
-        panel = "pzoptProfilerPanel", options = "pzoptProfilerOptions", search = "pzoptProfilerSearch",
-        preview = "pzoptProfilerPreview",
-        footer = "Changes apply as soon as you press Apply, no restart needed. File: Zomboid/pzopt/options.ini",
-        -- independent of the Optimizations tab: the overlay also runs with the master switch off (stock game)
-        headline = function() return "Performance overlay and game-thread profiler" end,
-    },
-}
+local relayout
 
--- The pages are added with the others (so the tabs sit after Display) but their controls are built the first
--- time each is shown: the in-game menu builds the whole options screen while the world is entered, and the
--- Optimizations tab was 101 of that screen's 124 ms on the flip (flip-opttime), on every Continue.
-function MainOptions:pzoptAddOptimizationsPanel()
-    self.pzoptBuilt = {}
-    for _, page in ipairs(PAGES) do
-        self:addPage(page.tab)
-        self[page.panel] = self.mainPanel
+local function crumbFor(S)
+    if NAV.kind == "home" then return "Home" end
+    if NAV.kind == "problems" then return "Help  >  Fix a problem" end
+    if NAV.kind == "search" then return "Search" end
+    local cat = S.tree.catById[NAV.cat]
+    if not cat then return "" end
+    local sub = cat.subs[NAV.sub]
+    return cat.group.title .. "  >  " .. cat.title .. "  >  " .. (sub and sub.title or "Overview")
+end
+
+-- Shows a page: kind "home" | "cat" (cat id, sub index, 0 = Overview) | "problems". Leaves a search.
+local function navigate(S, kind, cat, sub)
+    NAV.kind = kind
+    if cat then NAV.cat = cat end
+    NAV.sub = sub or 0
+    if S.entry and S.entry:getText() ~= "" then
+        S.entry:setText("")
+        S.typed, S.lastText, S.hits = "", "", nil
+    end
+    S.panel:setYScroll(0)
+    relayout(S)
+    if S.panel.joyfocus and S.firstJoy then
+        S.panel:setJoypadFocus(S.firstJoy, JoypadState.getMainMenuJoypad())
     end
 end
 
-local function buildSettingsPage(self, page)
-    local pzoptT0 = getTimestampMs()
+local function setLevel(S, level)
+    NAV.level = level
+    relayout(S)
+end
+
+local function runSearch(S, text)
+    local hits, n = nil, 0
+    if text and string.match(text, "%w") then
+        hits, n = search(S.index, text)
+    end
+    S.hits, S.hitCount, S.query = hits, n, text
+    if hits then
+        if NAV.kind ~= "search" then NAV.back = NAV.kind end
+        NAV.kind = "search"
+    elseif NAV.kind == "search" then
+        NAV.kind = NAV.back or "home"
+    end
+    S.panel:setYScroll(0)
+    relayout(S)
+end
+
+-- The sidebar: home, every category under its group, "Fix a problem". Fixed while the page scrolls; the mouse picks.
+PzoptSidebar = ISPanel:derive("PzoptSidebar")
+
+function PzoptSidebar:new(x, y, w, h, S)
+    local o = ISPanel.new(self, x, y, w, h)
+    o.S = S
+    o.backgroundColor = { r = 0.04, g = 0.04, b = 0.06, a = 1 }
+    o.borderColor = { r = 0.31, g = 0.31, b = 0.35, a = 1 }
+    o.hits = {}
+    return o
+end
+
+function PzoptSidebar:onMouseWheel(del) return false end
+
+function PzoptSidebar:render()
+    local S = self.S
+    local hS = fontH(UIFont.Small)
+    local rowH = hS + 10
+    local pad = 12
+    local y = pad
+    local hits = {}
+    local mouseY = self:isMouseOver() and self:getMouseY() or -1
+    local function item(label, count, sel, c, action)
+        local hot = mouseY >= y and mouseY < y + rowH
+        if sel then
+            self:drawRect(4, y, self.width - 8, rowH, 0.18, c.r, c.g, c.b)
+            self:drawRect(4, y, 4, rowH, 1, c.r, c.g, c.b)
+        elseif hot then
+            self:drawRect(4, y, self.width - 8, rowH, 0.07, 1, 1, 1)
+        end
+        local countW = count and (textW(UIFont.Small, count) + pad) or 0
+        local col = (sel or hot) and C_TEXT or { r = 0.8, g = 0.8, b = 0.82 }
+        self:drawText(clipText(UIFont.Small, label, self.width - 2 * pad - 6 - countW), pad + 6, y + 5, col.r, col.g, col.b, 1, UIFont.Small)
+        if count then self:drawTextRight(count, self.width - pad, y + 5, C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small) end
+        table.insert(hits, { y = y, h = rowH, action = action })
+        y = y + rowH
+    end
+    item("<  Home", nil, NAV.kind == "home", C_TEXT, function() navigate(S, "home") end)
+    y = y + 6
+    for _, g in ipairs(S.tree.groups) do
+        self:drawText(string.upper(g.title), pad, y, g.c.r, g.c.g, g.c.b, 1, UIFont.Small)
+        if groupOff(g) then
+            self:drawTextRight("off", self.width - pad, y, C_STOCK.r, C_STOCK.g, C_STOCK.b, 1, UIFont.Small)
+        end
+        y = y + hS + 4
+        for _, cat in ipairs(g.cats) do
+            local id = cat.id
+            item(cat.title, tostring(#cat.rows), NAV.kind == "cat" and NAV.cat == id, g.c, function() navigate(S, "cat", id, 0) end)
+        end
+        y = y + 8
+    end
+    self:drawText("HELP", pad, y, C_HELP.r, C_HELP.g, C_HELP.b, 1, UIFont.Small)
+    y = y + hS + 4
+    item("Fix a problem", nil, NAV.kind == "problems", C_HELP, function() navigate(S, "problems") end)
+    self.hits = hits
+end
+
+function PzoptSidebar:onMouseDown(x, y)
+    for _, h in ipairs(self.hits) do
+        if y >= h.y and y < h.y + h.h then
+            h.action()
+            return true
+        end
+    end
+    return true
+end
+
+-- ---------------------------------------------------------------------------------------------------
+-- The tree: groups -> categories -> subcategories -> rows, from PzoptSettingsLayout and the rows built.
+
+local function buildTree(rows, masterRows)
+    local L = PzoptSettingsLayout
+    local tree = { groups = {}, catById = {}, problems = {} }
+    local claimed = {}
+    local function add(sub, row)
+        claimed[row] = true
+        row.cat, row.sub, row.group = sub.cat, sub, sub.cat.group
+        table.insert(sub.rows, row)
+        table.insert(sub.cat.rows, row)
+    end
+    local byKey = {}
+    for _, row in ipairs(rows) do byKey[row.entry.key] = row end
+    for _, g in ipairs(L.groups) do
+        local group = { id = g.id, title = g.title, page = g.page, c = rgb(g.colour), note = g.note, cards = g.cards,
+                        cats = {}, master = masterRows[g.page], count = 0 }
+        table.insert(tree.groups, group)
+        for _, c in ipairs(g.cats) do
+            local cat = { id = c.id, title = c.title, blurb = c.blurb, group = group, subs = {}, rows = {} }
+            table.insert(group.cats, cat)
+            tree.catById[cat.id] = cat
+            for _, s in ipairs(c.subs) do
+                local sub = { title = s.title, cat = cat, rows = {}, dlss = s.dlssButton }
+                table.insert(cat.subs, sub)
+                if s.sections then
+                    for _, row in ipairs(rows) do
+                        if not claimed[row] and row.page == g.page then
+                            for _, prefix in ipairs(s.sections) do
+                                if string.sub(row.section.title, 1, #prefix) == prefix then
+                                    add(sub, row)
+                                    sub.blurb = sub.blurb or bracketed(row.section.title)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                else
+                    for _, key in ipairs(s.keys or {}) do
+                        local row = byKey[key]
+                        if row and not claimed[row] then add(sub, row) end
+                    end
+                end
+            end
+        end
+    end
+    -- a key no subcategory lists: the "More" subcategory of the category its section maps to
+    for _, row in ipairs(rows) do
+        if not claimed[row] then
+            local cat
+            for _, h in ipairs(L.home or {}) do
+                if string.sub(row.section.title, 1, #h[1]) == h[1] then cat = tree.catById[h[2]]; break end
+            end
+            if not cat then
+                for _, g in ipairs(tree.groups) do
+                    if g.page == row.page then cat = g.cats[#g.cats] end
+                end
+            end
+            if not cat.more then
+                cat.more = { title = "More", cat = cat, rows = {} }
+                table.insert(cat.subs, cat.more)
+            end
+            add(cat.more, row)
+        end
+    end
+    for _, g in ipairs(tree.groups) do
+        for _, cat in ipairs(g.cats) do
+            g.count = g.count + #cat.rows
+            local subs = {}
+            for _, s in ipairs(cat.subs) do table.insert(subs, s.title) end
+            cat.subList = table.concat(subs, ", ")
+        end
+    end
+    for _, pr in ipairs(L.problems or {}) do
+        local problem = { title = pr.title, cause = pr.cause, why = pr.why, rows = {} }
+        for _, key in ipairs(pr.keys or {}) do
+            if byKey[key] then table.insert(problem.rows, byKey[key]) end
+        end
+        table.insert(tree.problems, problem)
+    end
+    return tree
+end
+
+local function visibleRows(list, level)
+    local out = {}
+    local limit = LEVEL[level] or 1
+    for _, row in ipairs(list) do
+        if row.tier <= limit then table.insert(out, row) end
+    end
+    return out
+end
+
+-- ---------------------------------------------------------------------------------------------------
+-- relayout: the page in NAV
+
+relayout = function(S)
+    local G, panel = S.G, S.panel
+    local hS, hM, hL, BH, SP = G.hS, G.hM, G.hL, G.BH, G.SP
+    local shown, joy = {}, {}
+    local firstContentLine
+    local function line(...)
+        local l = {}
+        for i = 1, select("#", ...) do
+            local el = select(i, ...)
+            if el then table.insert(l, el) end
+        end
+        if #l > 0 then table.insert(joy, l) end
+    end
+    local function rowAt(row, y, dx)
+        placeRow(row, y, dx)
+        shown[row] = true
+        for _, l in ipairs(row.option and (row.option.pzoptJoyLines or { { row.option.control } }) or row.joy or {}) do
+            table.insert(joy, l)
+        end
+        return y + row.step
+    end
+    local function at(item, x, y, w, h)
+        local el = item.elems[1].el
+        el:setX(x)
+        el:setY(y)
+        if w then el:setWidth(w) end
+        if h then el:setHeight(h) end
+        el:setVisible(true)
+        item.hidden = false
+        shown[item] = true
+        return el
+    end
+    local kind = NAV.kind
+    if kind == "cat" and not S.tree.catById[NAV.cat] then kind = "home"; NAV.kind = "home" end
+    local home = kind == "home"
+    local x0 = home and G.homeX or G.contentX
+    local x1 = home and G.homeR or G.contentR
+    local w = x1 - x0
+    S.crumb = crumbFor(S)
+
+    -- header: Home, the title and where we are, the clips switch; the search box and the view switch under them
+    local y = G.m
+    local tx = x0
+    if not home then
+        local hb = at(S.homeButton, x0, y + math.floor((hL + 4 - BH) / 2))
+        tx = x0 + hb:getWidth() + 16
+    end
+    at(S.title, tx, y, x1 - tx, hL + 4)
+    line(not home and S.homeButton.elems[1].el or nil)
+    y = y + hL + 4 + SP * 2
+    -- the clips switch at the right end of the search line (the controller starts on the left)
+    local clipsW = S.clips:getWidth() + 8 + S.clipsLabel:getWidth()
+    at(S.clipsLabelItem, x1 - S.clipsLabel:getWidth(), y)
+    at(S.clipsItem, x1 - clipsW, y)
+    local searchW = G.searchW
+    at(S.searchItem, x0, y)
+    local vx = x0 + searchW + 24
+    at(S.viewLabel, vx, y)
+    vx = vx + S.viewLabel.elems[1].el:getWidth() + 10
+    local views = {}
+    for _, v in ipairs(S.viewButtons) do
+        local el = at(v, vx, y)
+        vx = vx + el:getWidth() + 4
+        table.insert(views, el)
+    end
+    local status = ""
+    if kind == "search" then
+        status = S.hitCount > 0 and (S.hitCount .. " of " .. #S.searchRows .. " settings match") or "Nothing matches"
+    elseif kind == "home" then
+        status = #S.searchRows .. " settings"
+    end
+    S.status:setName(status)
+    at(S.statusItem, vx + 16, y)
+    line(S.entry, views[1], views[2], views[3], S.clips)
+    y = y + BH + SP * 2
+    local rules = 0
+    local function rule(yy)
+        rules = rules + 1
+        at(rules == 1 and S.rule or S.rule2, x0, yy, w, 1)
+    end
+    rule(y)
+    y = y + SP * 2 + 4
+    local contentLine = #joy + 1
+
+    if home then
+        -- presets
+        at(S.presetLabel, x0, y)
+        local px = x0 + S.presetLabel.elems[1].el:getWidth() + 16
+        local pl = {}
+        for _, b in ipairs(S.presetButtons) do
+            local el = at(b, px, y)
+            px = px + el:getWidth() + 8
+            table.insert(pl, el)
+        end
+        line(unpack(pl))
+        y = y + BH + SP * 3
+        local cols = w >= 1800 and 4 or (w >= 1150 and 3 or 2)
+        local tileW = math.floor((w - (cols - 1) * 12) / cols)
+        local tileH = hM + 3 * hS + 34
+        for _, g in ipairs(S.tree.groups) do
+            at(g.heading, x0, y, w, hM + 6)
+            y = y + hM + 6 + SP
+            if g.master then
+                rowAt(g.master, y, x0 - G.contentX)
+                if g.reset then
+                    local el = at(g.reset, 0, y)
+                    el:setX(x1 - el:getWidth())
+                    table.insert(joy[#joy], el)
+                end
+                y = y + g.master.step + SP
+            end
+            local col = 0
+            local tl = {}
+            for _, cat in ipairs(g.cats) do
+                table.insert(tl, at(cat.tile, x0 + col * (tileW + 12), y, tileW, tileH))
+                col = col + 1
+                if col == cols then
+                    col = 0
+                    y = y + tileH + 12
+                    line(unpack(tl))
+                    tl = {}
+                end
+            end
+            if col ~= 0 then
+                y = y + tileH + 12
+                line(unpack(tl))
+            end
+            y = y + SP * 3
+        end
+        at(S.helpHeading, x0, y, w, hM + 6)
+        y = y + hM + 6 + SP
+        line(at(S.problemTile, x0, y, tileW, tileH))
+        y = y + tileH + SP * 4
+        rule(y)
+        y = y + SP * 2
+        local bx = x0
+        local bl = {}
+        for _, b in ipairs(S.toolButtons) do
+            local el = at(b, bx, y)
+            bx = bx + el:getWidth() + 8
+            table.insert(bl, el)
+        end
+        line(unpack(bl))
+        y = y + BH + SP
+        at(S.homeNote, x0, y, w, hS * 2 + 4)
+        y = y + hS * 2 + 4
+
+    elseif kind == "cat" then
+        local cat = S.tree.catById[NAV.cat]
+        local g = cat.group
+        local headH = hL + hS + 10 + (groupOff(g) and (hS + 6) or 0)
+        S.catHead.elems[1].el.cat = cat
+        at(S.catHead, x0, y, w, headH)
+        y = y + headH + SP
+        -- the subcategory tabs (wrapping when they do not fit)
+        local tabX, tl = x0, {}
+        for i, t in ipairs(cat.tabs) do
+            local el = t.elems[1].el
+            if tabX + el:getWidth() > x1 and tabX > x0 then
+                line(unpack(tl))
+                tl = {}
+                tabX = x0
+                y = y + hM + 14
+            end
+            at(t, tabX, y)
+            tabX = tabX + el:getWidth() + 4
+            table.insert(tl, el)
+            if i == 1 then tabX = tabX + 8 end
+        end
+        line(unpack(tl))
+        y = y + hM + 14
+        at(S.tabRule, x0, y - 2, w, 1)
+        y = y + SP * 3
+        if NAV.sub == 0 then
+            for _, sub in ipairs(cat.subs) do
+                local rows = visibleRows(sub.rows, NAV.level)
+                local hidden = #sub.rows - #rows
+                if g.cards then
+                    -- a card: title, what it is, cost; its settings inside; "All N settings" opens its tab
+                    local cardY = y
+                    local headH2 = hM + hS + 22
+                    local card = at(sub.card, x0, cardY, w, 10)
+                    local ob = at(sub.open, 0, cardY + 10)
+                    ob:setX(x1 - 12 - ob:getWidth())
+                    line(ob)
+                    local ry = cardY + headH2
+                    if sub.dlssRow then ry = rowAt(sub.dlssRow, ry, 16) end
+                    for _, row in ipairs(rows) do ry = rowAt(row, ry, 16) end
+                    card:setHeight(ry - cardY + 8)
+                    y = ry + 8 + SP * 3
+                else
+                    local hb = at(sub.head, x0, y, w, hM + 8)
+                    sub.headHidden = hidden
+                    line(hb)
+                    y = y + hM + 8 + SP
+                    for _, row in ipairs(rows) do y = rowAt(row, y) end
+                    y = y + SP * 3
+                end
+            end
+        else
+            local sub = cat.subs[NAV.sub]
+            if sub then
+                if sub.dlssRow then y = rowAt(sub.dlssRow, y) end
+                local rows = visibleRows(sub.rows, NAV.level)
+                for _, row in ipairs(rows) do y = rowAt(row, y) end
+                local hidden = #sub.rows - #rows
+                if hidden > 0 then
+                    y = y + SP * 2
+                    local next = NAV.level == "simple" and "Advanced" or "Everything"
+                    local el = at(S.moreButton, x0, y)
+                    el:setTitle("Show " .. hidden .. " more " .. (hidden == 1 and "setting" or "settings") .. " (" .. next .. " view)")
+                    el:setWidthToTitle()
+                    line(el)
+                    y = y + BH + SP
+                end
+            end
+        end
+        y = y + SP * 2
+        rule(y)
+        y = y + SP * 2
+        local rb = at(S.catReset, x0, y)
+        rb:setTitle("Reset " .. cat.title .. " to defaults")
+        rb:setWidthToTitle()
+        line(rb)
+        S.catNote.elems[1].el.text = PAGES[g.page].footer
+        at(S.catNote, x0 + rb:getWidth() + 16, y + math.floor((BH - hS) / 2), x1 - x0 - rb:getWidth() - 16, hS + 2)
+        y = y + BH + SP
+
+    elseif kind == "problems" then
+        at(S.probHead, x0, y, w, hL + hS + 10)
+        y = y + hL + hS + 10 + SP * 2
+        local cols = w >= 1300 and 3 or 2
+        local tileW = math.floor((w - (cols - 1) * 10) / cols)
+        local tileH = hM + 2 * hS + 26
+        local col, tl = 0, {}
+        for _, pr in ipairs(S.tree.problems) do
+            table.insert(tl, at(pr.tile, x0 + col * (tileW + 10), y, tileW, tileH))
+            col = col + 1
+            if col == cols then
+                col = 0
+                y = y + tileH + 10
+                line(unpack(tl))
+                tl = {}
+            end
+        end
+        if col ~= 0 then
+            y = y + tileH + 10
+            line(unpack(tl))
+        end
+        y = y + SP * 3
+        local pr = S.tree.problems[NAV.problem] or S.tree.problems[1]
+        if pr then
+            local lines = wrapLines(UIFont.Small, pr.why, w - 56)
+            local whyH = hM + 16 + #lines * hS + 12
+            S.probWhy.elems[1].el.problem, S.probWhy.elems[1].el.lines = pr, lines
+            at(S.probWhy, x0, y, w, whyH)
+            y = y + whyH + SP * 2
+            for _, row in ipairs(pr.rows) do y = rowAt(row, y) end
+        end
+
+    elseif kind == "search" then
+        S.searchHead.elems[1].el.text = (S.hitCount or 0) > 0
+            and ((S.hitCount == 1 and "1 setting matches" or (S.hitCount .. " settings match")) .. " \"" .. (S.query or "") .. "\", best first")
+            or ("Nothing matches \"" .. (S.query or "") .. "\"")
+        at(S.searchHead, x0, y, w, hM + 6)
+        y = y + hM + 6 + SP * 2
+        local hits = S.hits or {}
+        -- the categories by their best match, the matches inside by score
+        local cats = {}
+        for _, g in ipairs(S.tree.groups) do
+            for _, cat in ipairs(g.cats) do
+                local list, best = {}, 0
+                for _, row in ipairs(cat.rows) do
+                    local s = hits[row]
+                    if s then
+                        table.insert(list, row)
+                        if s > best then best = s end
+                    end
+                end
+                if #list > 0 then
+                    table.sort(list, function(a, b)
+                        if hits[a] ~= hits[b] then return hits[a] > hits[b] end
+                        return a.index < b.index
+                    end)
+                    table.insert(cats, { cat = cat, rows = list, best = best })
+                end
+            end
+        end
+        table.sort(cats, function(a, b) return a.best > b.best end)
+        for _, c in ipairs(cats) do
+            at(c.cat.resultHead, x0, y, w, hS + 8)
+            y = y + hS + 8 + SP
+            for _, row in ipairs(c.rows) do y = rowAt(row, y) end
+            y = y + SP * 2
+        end
+    end
+
+    -- the sidebar and the preview: on every page but home; the preview shows a setting of the page shown
+    S.sidebar:setVisible(not home)
+    S.preview:setVisible(not home)
+    if not home and (not S.preview.row or not shown[S.preview.row]) then
+        for _, row in ipairs(S.keyRows) do
+            if shown[row] and not row.isMaster then
+                S.preview:select(row)
+                break
+            end
+        end
+    end
+    for _, item in ipairs(S.items) do
+        if not shown[item] and not item.hidden then hideItem(item) end
+        if not shown[item] then item.hidden = true end
+    end
+    panel:setScrollHeight(y + 20)
+    local maxScroll = math.max(0, y + 20 - panel:getHeight())
+    if -panel:getYScroll() > maxScroll then panel:setYScroll(-maxScroll) end
+    -- controller navigation: the rows in display order
+    -- (the stock spatial navigation searches allJoypadButtons, which only insertNewLineOfButtons fills: same elements)
+    for i = #panel.joypadButtonsY, 1, -1 do table.remove(panel.joypadButtonsY, i) end
+    panel.allJoypadButtons = {}
+    for _, l in ipairs(joy) do
+        table.insert(panel.joypadButtonsY, l)
+        for _, el in ipairs(l) do table.insert(panel.allJoypadButtons, el) end
+    end
+    panel.joypadButtons = panel.joypadButtonsY[#panel.joypadButtonsY]
+    if (panel.joypadIndexY or 1) > #panel.joypadButtonsY then
+        panel.joypadIndexY = #panel.joypadButtonsY
+        panel.joypadIndex = 1
+    end
+    local first = joy[contentLine] or joy[1]
+    S.firstJoy = first and first[1]
+    S.layoutGen = (S.layoutGen or 0) + 1 -- cullRows looks again
+end
+
+-- ---------------------------------------------------------------------------------------------------
+-- Building the page (once, the first time the tab is shown)
+
+local function buildPage(self)
+    local t0 = getTimestampMs()
     local savedPanel, savedAddY = self.mainPanel, self.addY
     local firstOption = #self.gameOptions.options + 1
     local wasChanged = self.gameOptions.changed
     local style = MainOptions.style
-    local BUTTON_HGT = style.buttonHeight
-    local y = style.initialY
-    self.addY = 0
+    local BH, SP = style.buttonHeight, style.borderSpacing
+    local hS, hM, hL = fontH(UIFont.Small), fontH(UIFont.Medium), fontH(UIFont.Large)
     local comboWidth = 45 * (getCore():getOptionFontSizeReal() + 1) + 60
-    local L = layout(self, comboWidth)
-    local splitpoint = L.splitpoint
-
-    self.mainPanel = self[page.panel]
-    local panel = self.mainPanel
+    local panel = self.pzoptPanel
+    self.mainPanel = panel
+    self.addY = 0
     local p = perf()
-    local added, pinned = 0, 0
-    local options = {}
-    self[page.options] = options
-    local rows = {}
-    local function addRow(entry, option, clip)
-        table.insert(rows, { entry = entry, option = option, clip = clip,
-                             y = option.control:getY(), h = math.max(option.control:getHeight(), BUTTON_HGT) })
-    end
-    addSectionLine(self, y, page.headline(p), L.x0, L.lineW)
-    if page.master then
-        self[page.masterField] = nil
-        if p:isPzoptOptionKnown(page.master.key) then
-            self[page.masterField] = addBoolOption(self, page.master, splitpoint, y, BUTTON_HGT)
-            addRow(page.master, self[page.masterField], page.masterClip)
-            if p:getPzoptOptionPinnedBy(page.master.key) ~= "" then pinned = pinned + 1 end
-        end
-    end
-    page.buttons(self, splitpoint, y)
-    -- Everything below the search rows is placed by relayout: each row records the elements the stock add*
-    -- helpers create (caught by wrapping the page's addChild) and their offsets from the row's top.
-    local S = { panel = panel, tab = page.tab, sections = {}, total = 0 }
-    self[page.search] = S
-    addSearchRows(self, S, splitpoint, y, math.max(comboWidth, L.controlW))
-    S.top = y + self.addY
-    S.joyTop = #panel.joypadButtonsY
+    local W, H = panel:getWidth(), panel:getHeight()
+    local G = { m = 16, sbar = 13, hS = hS, hM = hM, hL = hL, BH = BH, SP = SP }
+    G.sideW = math.max(200, math.min(330, math.floor(W * 0.14)))
+    G.prevW = math.max(340, math.min(900, math.floor(W * 0.27)))
+    G.prevX = W - G.m - G.sbar - G.prevW
+    G.contentX = G.m + G.sideW + GAP
+    G.contentR = G.prevX - GAP
+    G.homeX, G.homeR = G.m, W - G.m - G.sbar
+    G.ctrlW = math.min(comboWidth, math.floor((G.contentR - G.contentX) * 0.4))
+    G.labelX = G.contentX + G.ctrlW + 12
+    local split = G.contentX - 20 -- the stock helpers put the control at splitpoint + 20
+    local S = { panel = panel, G = G, items = {}, keyRows = {}, searchRows = {}, self = self, hitCount = 0 }
+    self.pzoptSearch = S
+
+    -- every element added while `sink` is set belongs to the item being built
     local sink
     panel.addChild = function(o, child)
         if sink then table.insert(sink, child) end
         return ISPanelJoypad.addChild(o, child)
     end
     local function capture(fn)
-        local top = y + self.addY
+        local top = self.addY
         sink = {}
         local result = fn()
-        local row = { elems = {}, step = y + self.addY - top }
-        for _, el in ipairs(sink) do table.insert(row.elems, { el = el, dy = el:getY() - top }) end
+        local item = { elems = {}, step = self.addY - top }
+        for _, el in ipairs(sink) do table.insert(item.elems, { el = el, dy = el:getY() - top, x0 = el:getX() }) end
         sink = nil
-        return row, result, top
+        table.insert(S.items, item)
+        return item, result, top
     end
-    local sectionOf = {}
-    local managed = {}
-    for si, section in ipairs(page.sections) do
-        local sec = { title = section.title, index = si, rows = {}, hitRows = {}, best = 0 }
-        local header, button = capture(function() return addSectionHeader(self, S, sec, y, L.x0, L.lineW) end)
-        header.button = button
-        sec.header = header
-        for _, entry in ipairs(section.entries) do
-            if p:isPzoptOptionKnown(entry.key) then
-                local row, option, top = capture(function()
-                    if entry.bezier then
-                        return addBezierOption(self, entry, splitpoint, y, comboWidth, BUTTON_HGT)
-                    end
-                    if entry.colour then
-                        return addColourOption(self, entry, splitpoint, y)
-                    end
-                    if entry.choices then
-                        return addIntOption(self, entry, splitpoint, y, comboWidth)
-                    end
-                    return addBoolOption(self, entry, splitpoint, y, BUTTON_HGT)
-                end)
-                option.pzoptProfile = section.profiles
-                table.insert(options, option)
-                addRow(entry, option, KEY_CLIP[entry.key] or section.clip or "drive")
-                local r = rows[#rows]
-                r.elems, r.step, r.controlDy, r.index = row.elems, row.step, option.control:getY() - top, #managed + 1
-                -- a multi-line control (the curve sliders) picks its preview row over its whole height
-                if option.pzoptJoyLines then r.h = r.step - r.controlDy end
-                table.insert(sec.rows, r)
-                table.insert(managed, r)
-                sectionOf[r] = sec
-                added = added + 1
-                if p:getPzoptOptionPinnedBy(entry.key) ~= "" then pinned = pinned + 1 end
+    -- one element, placed by relayout at its own x
+    local function single(el)
+        panel:addChild(el)
+        local item = { elems = { { el = el, dy = 0, x0 = el:getX() } }, step = el:getHeight() }
+        table.insert(S.items, item)
+        return item
+    end
+    local function button(title, tip, onclick, h)
+        local b = ISButton:new(0, 0, 100, h or BH, title, self, onclick)
+        b:initialise()
+        b:setWidthToTitle()
+        b.tooltip = tip
+        return b, single(b)
+    end
+    local function buttonItem(title, tip, onclick)
+        local _, item = button(title, tip, onclick)
+        return item
+    end
+    local function label(text, col, font)
+        col = col or C_TEXT
+        local l = ISLabel:new(0, 0, BH, text, col.r, col.g, col.b, 1, font or UIFont.Small, true)
+        l:initialise()
+        return l, single(l)
+    end
+
+    -- the header
+    S.homeButton = buttonItem("<  Home", "Back to the start page: presets, every category, export / import.",
+        function() navigate(S, "home") end)
+    S.title = single(drawPanel(function(o)
+        o:drawText("PZ OPTIMIZATION", 0, 0, 1, 1, 1, 1, UIFont.Large)
+        local x = textW(UIFont.Large, "PZ OPTIMIZATION") + 24
+        o:drawText(clipText(UIFont.Medium, S.crumb or "", math.max(20, o.width - x)), x, math.floor((hL - hM) / 2) + 2,
+            C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Medium)
+    end))
+    G.searchW = math.min(560, math.floor((G.contentR - G.contentX) * 0.42))
+    local entry = ISTextEntryBox:new("", 0, 0, G.searchW, BH)
+    entry:initialise()
+    entry:instantiate()
+    entry:setClearButton(true)
+    entry.tooltip = "Type words from a setting's name, description or key, a resource (gpu, vram, game thread, "
+        .. "load time...) or a Java class that reads it (FBORenderCell, IsoChunk, pzopt.FogPass...). Typos and "
+        .. "partial words are fine; the best matches of every category come first."
+    S.typed, S.lastText, S.typedAt = "", "", 0
+    -- polled each frame (the clear button and pasting do not all go through onTextChange) and searched once the
+    -- text has been still for 120 ms, so typing a word runs one search, not one per letter
+    entry.prerender = function(o)
+        ISTextEntryBox.prerender(o)
+        local text, now = o:getText(), getTimestampMs()
+        if text ~= S.typed then
+            S.typed, S.typedAt = text, now
+        elseif text ~= S.lastText and now - S.typedAt >= 120 then
+            S.lastText = text
+            runSearch(S, text)
+        end
+    end
+    -- what to type, while the box is empty and not focused
+    entry.render = function(o)
+        ISTextEntryBox.render(o)
+        if o:getText() == "" and not o:isFocused() then
+            o:drawText("Search all " .. #S.searchRows .. " settings: name, what it does, gpu, load time...", 8,
+                math.floor((o.height - hS) / 2), C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
+        end
+    end
+    S.entry = entry
+    S.searchItem = single(entry)
+    local _, viewLabelItem = label("View", C_GREY)
+    S.viewLabel = viewLabelItem
+    S.viewButtons = {}
+    for _, v in ipairs(VIEWS) do
+        local id = v.id
+        local b = drawButton(self, function() setLevel(S, id) end, function(o, hot)
+            local sel = NAV.level == id
+            if sel then
+                o:drawRect(0, 0, o.width, o.height, 0.85, 1, 1, 1)
             else
-                print("[pzopt] options tab: unknown key " .. entry.key .. ", skipped")
+                o:drawRect(0, 0, o.width, o.height, hot and 0.16 or 0.06, 1, 1, 1)
+            end
+            o:drawRectBorder(0, 0, o.width, o.height, 0.3, 1, 1, 1)
+            local c = sel and 0.05 or (hot and 1 or 0.7)
+            o:drawTextCentre(v.title, o.width / 2, math.floor((o.height - hS) / 2), c, c, c, 1, UIFont.Small)
+        end)
+        b:setWidth(textW(UIFont.Small, v.title) + 28)
+        b:setHeight(BH)
+        b.tooltip = VIEW_TIPS[id] .. " Search and Fix a problem always show every match."
+        table.insert(S.viewButtons, single(b))
+    end
+    local status = ISLabel:new(0, 0, BH, "", C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small, true)
+    status:initialise()
+    S.status, S.statusItem = status, single(status)
+    -- "Before / after clips": the preview's GIFs, off by default; saved at once
+    local clipsLabel = ISLabel:new(0, 0, BH, "Before / after clips", 1, 1, 1, 1, UIFont.Small, true)
+    clipsLabel:initialise()
+    S.clipsLabel = clipsLabel
+    S.clipsLabelItem = single(clipsLabel)
+    local clips = ISTickBox:new(0, 0, BH, BH, "", S, function(target, index, selected)
+        setClipsOn(selected == true)
+    end)
+    clips.choicesColor = { r = 1, g = 1, b = 1, a = 1 }
+    clips:initialise()
+    clips:addOption("")
+    clips:setSelected(1, clipsOn())
+    clips.tooltip = "Plays a short clip of the stock game and one with the setting on, side by side, above the "
+        .. "description of the setting under the mouse. Off saves the memory the clips take (up to ~100 MB of video "
+        .. "memory while this screen is open). Applies at once and is remembered."
+    S.clips = clips
+    S.clipsItem = single(clips)
+    S.rule = single(drawPanel(function(o) o:drawRect(0, 0, o.width, 1, 1, 0.35, 0.35, 0.38) end))
+    S.rule2 = single(drawPanel(function(o) o:drawRect(0, 0, o.width, 1, 1, 0.35, 0.35, 0.38) end))
+
+    -- home: presets, group headings, tiles, help, tools
+    local _, presetLabelItem = label("Presets", C_GREY)
+    S.presetLabel = presetLabelItem
+    S.presetButtons = {}
+    local function preset(title, tip, fn)
+        local _, item = button(title, tip, fn)
+        table.insert(S.presetButtons, item)
+        return item
+    end
+    local pinnedMaster = p:getPzoptOptionPinnedBy(MASTER.key) ~= ""
+    local recommended = preset("Recommended (every optimization on)",
+        "Turns the Performance master switch on and puts every Performance setting back to the build's default on this machine. "
+        .. "Visuals and Tools are not changed. " .. RESTART_NOTE, function() setAll(self, true) end)
+    local stockGame = preset("Stock game (every optimization off)",
+        "Turns the Performance master switch off: the game runs its original code everywhere, as if the overrides were not "
+        .. "installed. The settings are kept for when you turn it on again; Tools and the performance overlay are not affected. "
+        .. RESTART_NOTE, function() setAll(self, false) end)
+    for _, profile in ipairs(PROFILES) do
+        local pr = profile
+        preset(profile.button, profile.tip .. " " .. RESTART_NOTE, function() applyProfile(self, pr) end)
+    end
+    if pinnedMaster then
+        for _, item in ipairs(S.presetButtons) do
+            local b = item.elems[1].el
+            b:setEnable(false)
+            b.tooltip = "Pinned by " .. p:getPzoptOptionPinnedBy(MASTER.key) .. " for this install."
+        end
+    end
+    S.helpHeading = single(drawPanel(function(o)
+        o:drawText("HELP", 0, 0, C_HELP.r, C_HELP.g, C_HELP.b, 1, UIFont.Medium)
+        o:drawText("Not sure what to change? Start from what you notice.", textW(UIFont.Medium, "HELP") + 16,
+            math.floor((hM - hS) / 2), C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+    end))
+    S.problemTile = single(drawButton(self, function() navigate(S, "problems") end, function(o, hot)
+        o:drawRect(0, 0, o.width, o.height, 1, 0.115, 0.10, 0.13)
+        o:drawRectBorder(0, 0, o.width, o.height, hot and 0.9 or 0.15, hot and C_HELP.r or 1, hot and C_HELP.g or 1, hot and C_HELP.b or 1)
+        o:drawRect(0, 0, 5, o.height, 1, C_HELP.r, C_HELP.g, C_HELP.b)
+        o:drawText("Fix a problem", 16, 8, 1, 1, 1, 1, UIFont.Medium)
+        local yy = 10 + hM
+        for i, l in ipairs(wrapLines(UIFont.Small, "Stutter while driving, low fps in a horde, slow loading, laggy input... "
+            .. "Pick what you notice: why it happens, and the settings that help.", o.width - 32)) do
+            if i > 2 then break end
+            o:drawText(l, 16, yy, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+            yy = yy + hS
+        end
+    end))
+    S.toolButtons = {}
+    local _, exportItem = button(EXPORT_TITLE, EXPORT_TIP, function() exportSettings(self) end)
+    local _, importItem = button(IMPORT_TITLE, IMPORT_TIP, function() openImportDialog(self) end)
+    local uninstall, uninstallItem = button(UNINSTALL_TITLE, nil, nil)
+    setupUninstallButton(self, uninstall)
+    S.toolButtons = { exportItem, importItem, uninstallItem }
+    S.homeNote = single(drawPanel(function(o)
+        o:drawText("Apply or Accept saves your changes to Zomboid/pzopt/options.ini. Performance settings take effect on the next "
+            .. "launch; Visuals and Tools apply at once (a few Visuals on the next launch).", 0, 0, C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
+        o:drawText("Settings pinned by the game folder's pzopt.properties or -Dpzopt.<key> cannot be changed here.", 0, hS + 2,
+            C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
+    end))
+
+    -- category pages: heading, footer
+    S.catHead = single(drawPanel(function(o)
+        local cat = o.cat
+        if not cat then return end
+        local c = cat.group.c
+        o:drawText(cat.title, 0, 0, 1, 1, 1, 1, UIFont.Large)
+        o:drawText(cat.blurb, 0, hL + 4, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+        local count = #cat.rows .. " settings in " .. #cat.subs .. " subcategories"
+        o:drawTextRight(count, o.width, math.floor((hL - hS) / 2), c.r, c.g, c.b, 1, UIFont.Small)
+        if groupOff(cat.group) then
+            o:drawText("Switched off: the " .. cat.group.title .. " master switch on the home page is off, so these settings are ignored.",
+                0, hL + hS + 8, C_STOCK.r, C_STOCK.g, C_STOCK.b, 1, UIFont.Small)
+        end
+    end))
+    S.tabRule = single(drawPanel(function(o) o:drawRect(0, 0, o.width, 1, 1, 0.3, 0.3, 0.33) end))
+    S.moreButton = buttonItem("Show more", "Switches the view so this subcategory shows the rest of its settings.", function()
+        setLevel(S, NAV.level == "simple" and "advanced" or "everything")
+    end)
+    S.catReset = buttonItem("Reset to defaults", "Puts every setting of this category back to the build's default on this "
+        .. "machine. Only the controls change; Apply or Accept saves them.", function()
+        local cat = S.tree.catById[NAV.cat]
+        if not cat then return end
+        local list = {}
+        for _, row in ipairs(cat.rows) do table.insert(list, row.option) end
+        resetOptions(list)
+    end)
+    S.catNote = single(drawPanel(function(o)
+        o:drawText(clipText(UIFont.Small, o.text or "", o.width), 0, 0, C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
+    end))
+
+    -- problems
+    S.probHead = single(drawPanel(function(o)
+        o:drawText("Fix a problem", 0, 0, 1, 1, 1, 1, UIFont.Large)
+        o:drawText("Pick what you notice: why it happens, and the settings that help, wherever they live.", 0, hL + 4,
+            C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+    end))
+    S.probWhy = single(drawPanel(function(o)
+        local pr = o.problem
+        if not pr then return end
+        o:drawRect(0, 0, o.width, o.height, 1, 0.115, 0.10, 0.13)
+        o:drawRectBorder(0, 0, o.width, o.height, 0.6, C_HELP.r, C_HELP.g, C_HELP.b)
+        o:drawText(pr.title, 16, 8, 1, 1, 1, 1, UIFont.Medium)
+        local yy = 12 + hM
+        for _, l in ipairs(o.lines or {}) do
+            o:drawText(l, 16, yy, 0.85, 0.85, 0.87, 1, UIFont.Small)
+            yy = yy + hS
+        end
+    end))
+    -- search
+    S.searchHead = single(drawPanel(function(o)
+        o:drawText(o.text or "", 0, 0, 1, 1, 1, 1, UIFont.Medium)
+    end))
+
+    -- the settings: master switches first, then every section's entries (in tab order)
+    local rows = {}
+    local masterRows = {}
+    local optionLists = { {}, {}, {} }
+    local function makeRow(entry, pageIndex, section, isMaster)
+        local item, option, top = capture(function()
+            if entry.bezier then return addBezierOption(self, entry, split, 0, G.ctrlW, BH) end
+            if entry.colour then return addColourOption(self, entry, split, 0) end
+            if entry.choices then return addIntOption(self, entry, split, 0, G.ctrlW) end
+            return addBoolOption(self, entry, split, 0, BH)
+        end)
+        -- the labels the stock helpers right-align left of the control go to its right, left-aligned
+        local maxLab = 0
+        for _, e in ipairs(item.elems) do
+            local el = e.el
+            if el.Type == "ISLabel" and el:getX() < G.contentX - 1 then
+                local font = el.font or UIFont.Small
+                local name = clipText(font, el.name or "", G.contentR - G.labelX)
+                el.left, el.originalX, el.name = true, G.labelX, name
+                el:setWidth(textW(font, name))
+                el:setX(G.labelX)
+                e.x0 = G.labelX
+                maxLab = math.max(maxLab, el:getWidth())
+            elseif el.Type == "ISTickBox" then
+                el:setX(G.contentX + G.ctrlW - el:getWidth())
+                e.x0 = el:getX()
             end
         end
-        if #sec.rows > 0 then table.insert(S.sections, sec) else hideRow(header) end
-    end
-    -- the three headings of a resource sort (titles and rows set by sortedGroups)
-    S.virtual = {}
-    for i = 1, 3 do
-        local vsec = { title = "", index = #page.sections + i, rows = {}, hitRows = {}, best = 0 }
-        local header, button = capture(function() return addSectionHeader(self, S, vsec, y, L.x0, L.lineW) end)
-        header.button = button
-        vsec.header = header
-        hideRow(header)
-        table.insert(S.virtual, vsec)
-    end
-    -- release date: one heading per release date of this page's settings, newest first ("New in this version" on
-    -- top), the settings under each by label
-    local byDate, dates = {}, {}
-    for _, row in ipairs(managed) do
-        local d = optionDate(row.entry.key) or "new"
-        if not byDate[d] then
-            byDate[d] = {}
-            table.insert(dates, d)
+        for _, e in ipairs(item.elems) do
+            if e.el.Type ~= "ISLabel" and e.el:getX() < G.contentX - 1 then -- the curve plot
+                e.el:setX(G.labelX + maxLab + 16)
+                e.x0 = e.el:getX()
+            end
         end
-        table.insert(byDate[d], row)
+        local row = item
+        row.entry, row.option, row.page, row.section = entry, option, pageIndex, section
+        row.key = entry.key
+        row.tier = isMaster and 1 or tierOf(entry.key)
+        row.clip = isMaster and PAGES[pageIndex].masterClip or (KEY_CLIP[entry.key] or section.clip or "drive")
+        row.controlDy = 0
+        -- the line under the label
+        local info = PzoptRowInfo:new(G.labelX, self.addY - SP + 1, G.contentR - G.labelX, hS + 2, row)
+        info:initialise()
+        panel:addChild(info)
+        table.insert(row.elems, { el = info, dy = info:getY() - top, x0 = G.labelX })
+        self.addY = self.addY + hS + 2 + SP
+        row.step = self.addY - top
+        row.h = row.step
+        option.pzoptProfile = section and section.profiles
+        if not isMaster then table.insert(optionLists[pageIndex], option) end
+        table.insert(S.keyRows, row)
+        row.index = #S.keyRows
+        return row
     end
-    table.sort(dates, function(a, b)
-        if (a == "new") ~= (b == "new") then return a == "new" end
-        return a > b
-    end)
-    S.dateGroups = {}
-    for i, d in ipairs(dates) do
-        local rows = byDate[d]
-        table.sort(rows, function(a, b) return alphaLess(a.entry.label, b.entry.label) end)
-        local dsec = { title = d == "new" and "New in this version" or ("Released " .. d),
-                       index = #page.sections + #S.virtual + i, rows = rows, hitRows = {}, best = 0 }
-        local header, button = capture(function() return addSectionHeader(self, S, dsec, y, L.x0, L.lineW) end)
-        header.button = button
-        dsec.header = header
-        hideRow(header)
-        table.insert(S.dateGroups, { sec = dsec, rows = rows })
+    for pi, page in ipairs(PAGES) do
+        if page.master and p:isPzoptOptionKnown(page.master.key) then
+            local row = makeRow(page.master, pi, nil, true)
+            row.isMaster = true
+            masterRows[pi] = row
+            self[page.masterField] = row.option
+        end
     end
-    S.allSections = {}
-    for _, sec in ipairs(S.sections) do table.insert(S.allSections, sec) end
-    for _, sec in ipairs(S.virtual) do table.insert(S.allSections, sec) end
-    for _, g in ipairs(S.dateGroups) do table.insert(S.allSections, g.sec) end
-    -- alphabetical: the sections by title, the settings in each by label
-    S.alphaGroups = {}
-    for _, sec in ipairs(S.sections) do
-        local sorted = {}
-        for _, row in ipairs(sec.rows) do table.insert(sorted, row) end
-        table.sort(sorted, function(a, b) return alphaLess(a.entry.label, b.entry.label) end)
-        table.insert(S.alphaGroups, { sec = sec, rows = sorted })
+    -- the Visuals cards are built before the rows inside them, so the rows draw over them
+    for pi, page in ipairs(PAGES) do
+        for _, section in ipairs(page.sections) do
+            for _, entry in ipairs(section.entries) do
+                if p:isPzoptOptionKnown(entry.key) then
+                    table.insert(rows, { entry = entry, page = pi, section = section })
+                else
+                    print("[pzopt] options tab: unknown key " .. entry.key .. ", skipped")
+                end
+            end
+        end
     end
-    table.sort(S.alphaGroups, function(a, b) return alphaLess(a.sec.title, b.sec.title) end)
-    S.footer = capture(function()
-        addSectionLine(self, y, page.footer, L.x0, L.lineW)
-    end)
+    -- the tree needs the rows' keys and sections only; build it on stand-ins, then make the cards, then the real rows
+    local stand = {}
+    for _, r in ipairs(rows) do table.insert(stand, { entry = r.entry, page = r.page, section = r.section, stand = r }) end
+    local tree = buildTree(stand, masterRows)
+    S.tree = tree
+    -- group headings, tiles, Visuals cards and subcategory tabs / headings (before the rows: they draw beneath them)
+    for _, g in ipairs(tree.groups) do
+        local group = g
+        g.heading = single(drawPanel(function(o)
+            o:drawText(string.upper(group.title), 0, 0, group.c.r, group.c.g, group.c.b, 1, UIFont.Medium)
+            local x = textW(UIFont.Medium, string.upper(group.title)) + 16
+            o:drawText(group.count .. " settings.  " .. group.note, x, math.floor((hM - hS) / 2),
+                C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+        end))
+        if g.page ~= 1 then
+            local page = PAGES[g.page]
+            g.reset = buttonItem("Reset " .. g.title .. " to defaults", "Puts every " .. g.title .. " setting back to the "
+                .. "build's default, the master switch on. Only the controls change; Apply or Accept saves them.", function()
+                resetOptions(self[page.options] or {}, self[page.masterField])
+            end)
+        end
+        for _, cat in ipairs(g.cats) do
+            local c = cat
+            cat.tile = single(drawButton(self, function() navigate(S, "cat", c.id, 0) end, function(o, hot)
+                local col = c.group.c
+                o:drawRect(0, 0, o.width, o.height, 1, 0.115, 0.115, 0.125)
+                if hot then
+                    o:drawRectBorder(0, 0, o.width, o.height, 0.9, col.r, col.g, col.b)
+                else
+                    o:drawRectBorder(0, 0, o.width, o.height, 0.15, 1, 1, 1)
+                end
+                o:drawRect(0, 0, 5, o.height, 1, col.r, col.g, col.b)
+                o:drawText(c.title, 16, 8, 1, 1, 1, 1, UIFont.Medium)
+                local yy = 10 + hM
+                for i, l in ipairs(wrapLines(UIFont.Small, c.blurb, o.width - 32)) do
+                    if i > 2 then break end
+                    o:drawText(l, 16, yy, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+                    yy = yy + hS
+                end
+                local st, sc = catStatus(c)
+                local pw = textW(UIFont.Small, st) + 12
+                local fy = o.height - hS - 10
+                drawPill(o, o.width - 12 - pw, fy - 1, st, sc)
+                o:drawText(clipText(UIFont.Small, #c.rows .. " settings:  " .. c.subList, o.width - 44 - pw), 16, fy,
+                    C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
+            end))
+            -- the subcategory tabs, Overview first
+            cat.tabs = {}
+            local function tabButton(index, title, list)
+                local bw = textW(UIFont.Medium, title) + (list and (textW(UIFont.Small, "000") + 28) or 0) + 24
+                local b = drawButton(self, function() navigate(S, "cat", c.id, index) end, function(o, hot)
+                    local col = c.group.c
+                    local sel = NAV.sub == index
+                    if sel then
+                        o:drawRect(0, 0, o.width, o.height, 0.14, col.r, col.g, col.b)
+                        o:drawRect(0, o.height - 3, o.width, 3, 1, col.r, col.g, col.b)
+                    elseif hot then
+                        o:drawRect(0, 0, o.width, o.height, 0.07, 1, 1, 1)
+                    end
+                    local t = (sel or hot) and 1 or 0.65
+                    o:drawText(title, 12, math.floor((o.height - hM) / 2), t, t, t, 1, UIFont.Medium)
+                    if list then
+                        local n = tostring(#visibleRows(list, NAV.level))
+                        local nx = 12 + textW(UIFont.Medium, title) + 8
+                        local nw = textW(UIFont.Small, n) + 12
+                        o:drawRect(nx, math.floor((o.height - hS - 2) / 2), nw, hS + 2, sel and 0.4 or 0.1, sel and col.r or 1, sel and col.g or 1, sel and col.b or 1)
+                        o:drawTextCentre(n, nx + nw / 2, math.floor((o.height - hS) / 2), t, t, t, 1, UIFont.Small)
+                    end
+                end)
+                b:setWidth(bw)
+                b:setHeight(hM + 12)
+                table.insert(cat.tabs, single(b))
+            end
+            tabButton(0, "Overview", nil)
+            for i, sub in ipairs(cat.subs) do
+                local s, index = sub, i
+                tabButton(i, sub.title, sub.rows)
+                if g.cards then
+                    s.card = single(drawPanel(function(o)
+                        local col = c.group.c
+                        o:drawRect(0, 0, o.width, o.height, 1, 0.10, 0.10, 0.11)
+                        o:drawRectBorder(0, 0, o.width, o.height, 0.18, 1, 1, 1)
+                        o:drawRect(0, 0, 4, o.height, 1, col.r, col.g, col.b)
+                        o:drawText(s.title, 16, 8, 1, 1, 1, 1, UIFont.Medium)
+                        local fx = (s.rows[1] and EFFECTS[s.rows[1].entry.key]) or {}
+                        local dx = 16 + textW(UIFont.Medium, s.title) + 24
+                        dx = drawDots(o, dx, 8 + math.floor((hM - hS) / 2), "GPU", math.max(0, math.min(3, (fx.gpu or 0) + 1)), C_AMBER)
+                        drawDots(o, dx, 8 + math.floor((hM - hS) / 2), "VRAM", math.max(0, math.min(3, fx.vram or 0)), C_AMBER)
+                        local text = s.blurb or (s.rows[1] and firstSentence(s.rows[1].entry.tip)) or ""
+                        o:drawText(clipText(UIFont.Small, text, o.width - 32), 16, 10 + hM, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+                    end))
+                    s.open = buttonItem("All " .. #s.rows .. " settings  >", "Opens the " .. s.title .. " tab.",
+                        function() navigate(S, "cat", c.id, index) end)
+                else
+                    s.head = single(drawButton(self, function() navigate(S, "cat", c.id, index) end, function(o, hot)
+                        local col = c.group.c
+                        o:drawRect(0, 0, o.width, 1, 1, 0.3, 0.3, 0.33)
+                        o:drawText(s.title, 0, 6, col.r, col.g, col.b, 1, UIFont.Medium)
+                        local hidden = s.headHidden or 0
+                        local more = hidden > 0 and (hidden .. " more in its tab  >") or "Open its tab  >"
+                        local t = hot and 1 or 0.6
+                        o:drawText(more, textW(UIFont.Medium, s.title) + 16, 6 + math.floor((hM - hS) / 2), t, t, t, 1, UIFont.Small)
+                    end))
+                end
+            end
+            cat.resultHead = single(drawPanel(function(o)
+                local col = c.group.c
+                o:drawText(string.upper(c.group.title) .. "  >  " .. c.title, 0, 2, col.r, col.g, col.b, 1, UIFont.Small)
+            end))
+        end
+    end
+    for i, pr in ipairs(tree.problems) do
+        local problem, index = pr, i
+        pr.tile = single(drawButton(self, function() NAV.problem = index; relayout(S) end, function(o, hot)
+            local sel = NAV.problem == index
+            if sel then
+                o:drawRect(0, 0, o.width, o.height, 1, 0.20, 0.14, 0.24)
+            else
+                o:drawRect(0, 0, o.width, o.height, 1, 0.115, 0.115, 0.125)
+            end
+            if sel or hot then
+                o:drawRectBorder(0, 0, o.width, o.height, 0.9, C_HELP.r, C_HELP.g, C_HELP.b)
+            else
+                o:drawRectBorder(0, 0, o.width, o.height, 0.15, 1, 1, 1)
+            end
+            o:drawText(problem.title, 12, 6, 1, 1, 1, 1, UIFont.Medium)
+            o:drawText(clipText(UIFont.Small, problem.cause, o.width - 24), 12, 8 + hM, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+            local on = 0
+            for _, row in ipairs(problem.rows) do
+                local v = row.option:pzoptCurrent()
+                if v ~= "false" and v ~= "off" and v ~= "0" and v ~= "off (default)" and v ~= "false (default)" then on = on + 1 end
+            end
+            local c = on == #problem.rows and C_OPT or C_AMBER
+            o:drawText(#problem.rows .. " settings, " .. on .. " on", 12, o.height - hS - 8, c.r, c.g, c.b, 1, UIFont.Small)
+        end))
+    end
+    -- the real rows, in the tree's order (stand-ins swapped for them)
+    local real = {}
+    for _, st in ipairs(stand) do
+        local row = makeRow(st.entry, st.page, st.section, false)
+        row.cat, row.sub, row.group = st.cat, st.sub, st.group
+        real[st] = row
+        table.insert(S.searchRows, row)
+    end
+    for _, g in ipairs(tree.groups) do
+        for _, cat in ipairs(g.cats) do
+            for i, r in ipairs(cat.rows) do cat.rows[i] = real[r] end
+            for _, sub in ipairs(cat.subs) do
+                for i, r in ipairs(sub.rows) do sub.rows[i] = real[r] end
+                -- the Upscaling subcategory starts with the "Install DLSS files" button
+                if sub.dlss then
+                    local b, item = button(DEPS_TITLES.checking, DEPS_TIP, nil)
+                    setupUpscalerDepsButton(self, b)
+                    item.elems[1].x0 = G.contentX
+                    item.step = BH + SP
+                    item.joy = { { b } }
+                    sub.dlssRow = item
+                end
+            end
+        end
+    end
+    for _, pr in ipairs(tree.problems) do
+        for i, r in ipairs(pr.rows) do pr.rows[i] = real[r] end
+    end
+    for pi, page in ipairs(PAGES) do self[page.options] = optionLists[pi] end
     panel.addChild = nil -- back to the class method
-    S.total, S.managed = #managed, managed
-    S.index = buildIndex(managed, sectionOf)
-    S.lastText, S.typed, S.typedAt = "", "", 0
-    runSearch(S, "")
-    -- the page's prerender runs before its children draw: cull the rows for this frame's scroll first
-    local pagePrerender = panel.prerender
-    panel.prerender = function(o, ...)
-        cullRows(S)
-        return pagePrerender(o, ...)
+
+    -- search over every setting (the masters are on the home page)
+    local sectionOf = {}
+    for _, row in ipairs(S.searchRows) do
+        sectionOf[row] = { title = row.section.title .. " " .. row.cat.title .. " " .. row.sub.title }
     end
-    -- The preview panel: a child of the page that does not scroll with it, full page height, the master
-    -- switch shown until the mouse points at another row.
-    local preview = PzoptPreview:new(L.previewX, L.margin, L.previewW, panel:getHeight() - 2 * L.margin, panel, rows)
+    S.index = buildIndex(S.searchRows, sectionOf)
+
+    -- the fixed parts: the sidebar on the left, the preview on the right (both added last: they draw on top)
+    local sidebar = PzoptSidebar:new(G.m, G.m, G.sideW, H - 2 * G.m, S)
+    sidebar:initialise()
+    sidebar:instantiate()
+    sidebar:setScrollWithParent(false)
+    sidebar:setAnchorTop(true)
+    sidebar:setAnchorBottom(true)
+    panel:addChild(sidebar)
+    S.sidebar = sidebar
+    local preview = PzoptPreview:new(G.prevX, G.m, G.prevW, H - 2 * G.m, panel, S.keyRows)
     preview:initialise()
     preview:instantiate()
     preview:setScrollWithParent(false)
     preview:setAnchorTop(true)
     preview:setAnchorBottom(true)
+    preview.minX = G.contentX
     panel:addChild(preview)
-    if rows[1] then preview:select(rows[1]) end
-    self[page.preview] = preview
+    if S.keyRows[1] then preview:select(S.keyRows[1]) end
+    self.pzoptPreview = preview
+    S.preview = preview
+
+    -- the page's prerender runs before its children draw: cull for this frame's scroll first
+    local pagePrerender = panel.prerender
+    panel.prerender = function(o, ...)
+        cullRows(S)
+        return pagePrerender(o, ...)
+    end
+    relayout(S)
     -- the screen's toUI ran before this tab existed: show the saved values and remember them as the current ones
     for i = firstOption, #self.gameOptions.options do
         local option = self.gameOptions.options[i]
@@ -3936,21 +4608,46 @@ local function buildSettingsPage(self, page)
     end
     self.gameOptions.changed = wasChanged
     self.mainPanel, self.addY = savedPanel, savedAddY
-    PzoptLogInfo("[pzopt] options tab " .. page.tab .. ": " .. added .. " controls, " .. pinned .. " pinned by pzopt.properties or -D, "
-        .. #rows .. " preview rows, preview " .. L.previewW .. " px at x=" .. L.previewX
-        .. ", built in " .. (getTimestampMs() - pzoptT0) .. " ms")
+    local tiers = { 0, 0, 0 }
+    for _, row in ipairs(S.searchRows) do tiers[row.tier] = tiers[row.tier] + 1 end
+    PzoptLogInfo("[pzopt] options tab " .. TAB .. ": " .. #S.keyRows .. " settings (simple " .. tiers[1] .. ", advanced "
+        .. tiers[2] .. ", expert " .. tiers[3] .. "), " .. #S.items .. " items, layout "
+        .. G.sideW .. " / " .. (G.contentR - G.contentX) .. " / " .. G.prevW .. " px, built in " .. (getTimestampMs() - t0) .. " ms")
+end
+
+-- The tab is added with the others (after Display) but built the first time it is shown: the in-game menu builds the
+-- whole options screen while the world is entered.
+function MainOptions:pzoptAddOptimizationsPanel()
+    self.pzoptBuilt = false
+    self:addPage(TAB)
+    self.pzoptPanel = self.mainPanel
 end
 
 ensurePageBuilt = function(self, tab)
-    for _, page in ipairs(PAGES) do
-        if page.tab == tab and self.pzoptBuilt and self[page.panel] and not self.pzoptBuilt[tab] then
-            self.pzoptBuilt[tab] = true
-            local ok, err = pcall(buildSettingsPage, self, page)
-            if not ok then
-                print("[pzopt] options tab " .. tab .. ": build failed: " .. tostring(err))
-            end
+    if self.pzoptPanel and not self.pzoptBuilt then
+        self.pzoptBuilt = true
+        local ok, err = pcall(buildPage, self)
+        if not ok then
+            print("[pzopt] options tab " .. TAB .. ": build failed: " .. tostring(err))
         end
     end
+end
+
+-- For the harness and the e2e rigs: the tab's name, and showing a page ("home", "cat" + category id + subcategory
+-- index, "problems") at a view level ("simple", "advanced", "everything").
+PzoptOptionsTab = TAB
+function PzoptOptionsNavigate(mo, kind, cat, sub, level)
+    if not mo then return false end
+    ensurePageBuilt(mo, TAB)
+    local S = mo.pzoptSearch
+    if not S then return false end
+    if level and LEVEL[level] then NAV.level = level end
+    if kind == "problems" and tonumber(cat) then
+        NAV.problem = tonumber(cat)
+        cat = nil
+    end
+    navigate(S, kind or "home", cat, tonumber(sub) or 0)
+    return true
 end
 
 local function install()
@@ -3972,16 +4669,13 @@ local function install()
         local t0 = getTimestampMs()
         local r = stockCreate(self, ...)
         PzoptLogInfo("[pzopt] options screen: MainOptions:create took " .. (getTimestampMs() - t0) .. " ms")
-        -- build each of our tabs when it is first shown (pzoptAddOptimizationsPanel added them empty)
+        -- build our tab when it is first shown (pzoptAddOptimizationsPanel added it empty)
         local tabs = self.tabs
         if tabs and self.pzoptPanel then
             local stockOnActivate = tabs.onActivateView
             tabs.onActivateView = function(target, tabPanel)
-                for _, page in ipairs(PAGES) do
-                    local pagePanel = target and target[page.panel]
-                    if pagePanel and tabPanel:getActiveView() == pagePanel then
-                        ensurePageBuilt(target, page.tab)
-                    end
+                if target and target.pzoptPanel and tabPanel:getActiveView() == target.pzoptPanel then
+                    ensurePageBuilt(target, TAB)
                 end
                 if stockOnActivate then
                     return stockOnActivate(target, tabPanel)

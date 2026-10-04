@@ -54,7 +54,56 @@ local quitAtMs = nil
 -- the page is on the screenshot (e.g. options_search=HDR).
 -- options_select=<key> (2026-09-26): the preview panel of every options page shows that setting (its clips, text, bars)
 -- instead of the page's first row, re-selected every tick until the screenshot (a mouse over the list would pick another).
+-- Since 2026-10-04 the settings are one tab, "PZ Optimization" (PzoptOptionsTab); options_tab=Optimizations / Enhancements
+-- / Profiler open it on the matching page. options_nav=<page> shows a page of it: home | cat:<category id>:<subcategory,
+-- 0 = Overview>[:simple|advanced|everything] | problems[:<n>] | search:<text> (category ids in
+-- src/lua/client/pzopt/pzopt_optimizations_layout.lua). options_shots=<page>;<page>;... shows each in turn and writes
+-- Screenshots/pzopt-options-<n>.png per page (1.5 s each), then quits.
 local optionsCheck = nil
+local OLD_TABS = { Optimizations = "home", Enhancements = "cat:image:0", Profiler = "cat:overlay:0" }
+-- options_joy=<step>,<step>,... (2026-10-04): the tab's controller navigation without a pad: the steps call the page's
+-- own joypad handlers as the game does for a pad (focus = gain focus; down / up / left / right; a = A, never B: it leaves
+-- the screen), one every 0.6 s, logging the focused element and the page after each ("[pzopt-harness] joy: ..."); shot
+-- writes Screenshots/pzopt-joy-<n>.png. Quits when done.
+local JOY = { id = 0, player = 0 }
+local function joyDescribe(mo)
+    local panel = mo.pzoptPanel
+    local child = panel and panel:getJoypadFocus()
+    local what = "none"
+    if child then
+        what = tostring(child.Type) .. " '" .. tostring(child.title or child.name or (child.options and child.options[1]) or "") .. "'"
+    end
+    local S = mo.pzoptSearch
+    return what .. " line " .. tostring(panel and panel.joypadIndexY) .. "/" .. tostring(panel and #panel.joypadButtonsY)
+        .. " page '" .. tostring(S and S.crumb) .. "' scroll " .. tostring(panel and math.floor(-panel:getYScroll()))
+end
+local function joyStep(mo, step, n)
+    local panel = mo.pzoptPanel
+    if step == "focus" then
+        panel.joyfocus = JOY
+        MainOptions.onGainJoypadFocusCurrentTab(panel, JOY)
+        panel:restoreJoypadFocus(JOY)
+    elseif step == "down" then panel:onJoypadDirDown(JOY)
+    elseif step == "up" then panel:onJoypadDirUp(JOY)
+    elseif step == "left" then panel:onJoypadDirLeft(JOY)
+    elseif step == "right" then panel:onJoypadDirRight(JOY)
+    elseif step == "a" then panel:onJoypadDown(Joypad.AButton, JOY)
+    elseif step == "shot" then getCore():TakeFullScreenshot("pzopt-joy-" .. n .. ".png")
+    end
+end
+
+local function applyNav(mo, spec)
+    local parts = {}
+    for part in string.gmatch(spec .. ":", "([^:]*):") do table.insert(parts, part) end
+    local kind = parts[1] ~= "" and parts[1] or "home"
+    if kind == "search" then
+        PzoptOptionsNavigate(mo, "home")
+        local S = mo.pzoptSearch
+        if S and S.entry then S.entry:setText(string.sub(spec, 8)) end
+        return
+    end
+    PzoptOptionsNavigate(mo, kind, parts[2] ~= "" and parts[2] or nil, parts[3], parts[4] ~= "" and parts[4] or nil)
+end
 -- compat_check=1 (2026-10-02): stay on the main menu, log the pzopt menu items, write Screenshots/pzopt-menu.png, open
 -- the "PZ OPTIMIZATION MOD COMPATIBILITY CHECK" dialog through the item's own click handler, log its text, write
 -- Screenshots/pzopt-compat.png, close it and quit. With `--mod pzopt-compat-javafixture` (harness/compat/make-java-fixture.sh)
@@ -242,9 +291,46 @@ local function optionsTick()
         mo:setVisible(true)
         local names = {}
         for _, v in ipairs(mo.tabs.viewList) do table.insert(names, v.name) end
-        local found = mo.tabs:activateView(c.tab)
-        print("[pzopt-harness] options: tabs " .. table.concat(names, " | ") .. "; " .. c.tab .. (found and " shown" or " NOT FOUND"))
+        local tab = c.tab
+        if OLD_TABS[tab] and PzoptOptionsTab then
+            c.nav = c.nav or OLD_TABS[tab]
+            tab = PzoptOptionsTab
+        end
+        local found = mo.tabs:activateView(tab)
+        print("[pzopt-harness] options: tabs " .. table.concat(names, " | ") .. "; " .. tab .. (found and " shown" or " NOT FOUND"))
+        if c.nav and PzoptOptionsNavigate then
+            applyNav(mo, c.nav)
+            print("[pzopt-harness] options: page " .. c.nav)
+        end
         c.openedMs = now
+    elseif c.joy and not c.joyDone then
+        if now < (c.joyAt or (c.openedMs + 1500)) then return end
+        local i = (c.joyIndex or 0) + 1
+        if i > #c.joy then
+            c.joyDone, c.shotMs = true, now
+            return
+        end
+        local ok, err = pcall(joyStep, ms.mainOptions, c.joy[i], i)
+        print("[pzopt-harness] joy: " .. i .. " " .. c.joy[i] .. (ok and "" or (" ERROR " .. tostring(err))) .. " -> " .. joyDescribe(ms.mainOptions))
+        c.joyIndex, c.joyAt = i, now + 600
+    elseif c.shots and not c.shotsDone then
+        -- one page every 1.5 s, the screenshot 1 s after showing it
+        local i = c.shotIndex or 0
+        if i == 0 or now >= c.shotAt then
+            if i > 0 and not c.shotTaken then
+                getCore():TakeFullScreenshot("pzopt-options-" .. i .. ".png")
+                print("[pzopt-harness] options: screenshot " .. i .. " " .. c.shots[i])
+                c.shotTaken, c.shotAt = true, now + 500
+                return
+            end
+            i = i + 1
+            if i > #c.shots then
+                c.shotsDone, c.shotMs = true, now
+                return
+            end
+            applyNav(ms.mainOptions, c.shots[i])
+            c.shotIndex, c.shotAt, c.shotTaken = i, now + 1000, false
+        end
     elseif c.search and not c.searched and now - c.openedMs >= 1000 then
         c.searched = true
         local box = findSearchBox(ms.mainOptions, 0)
@@ -289,7 +375,18 @@ local function onMainMenuEnter()
     if flags.options_tab and flags.options_tab ~= "" then
         if optionsCheck == nil then
             appendFlag("consumed=1")
+            local shots = nil
+            if flags.options_shots and flags.options_shots ~= "" then
+                shots = {}
+                for s in string.gmatch(flags.options_shots, "[^;]+") do table.insert(shots, s) end
+            end
             optionsCheck = { tab = flags.options_tab, search = flags.options_search ~= "" and flags.options_search or nil,
+                nav = flags.options_nav ~= "" and flags.options_nav or nil, shots = shots,
+                joy = (flags.options_joy and flags.options_joy ~= "") and (function()
+                    local t = {}
+                    for s in string.gmatch(flags.options_joy, "[^,]+") do table.insert(t, s) end
+                    return t
+                end)() or nil,
                 select = flags.options_select ~= "" and flags.options_select or nil,
                 io = (flags.options_io and flags.options_io ~= "") and {} or nil }
         end
@@ -489,11 +586,11 @@ local function optionsCheckTick()
     local before = mo.pzoptBuilt
     local nBefore = #mo.gameOptions.options
     local t0 = getTimestampMs()
-    mo.tabs:activateView("Optimizations")
+    mo.tabs:activateView(PzoptOptionsTab or "Optimizations")
     print(string.format("[pzopt-harness] options check: built before=%s after=%s in %d ms, controls=%d, game options %d -> %d, changed=%s, active=%s",
         tostring(before), tostring(mo.pzoptBuilt), getTimestampMs() - t0, mo.pzoptOptions and #mo.pzoptOptions or -1,
         nBefore, #mo.gameOptions.options, tostring(mo.gameOptions.changed), tostring(mo.tabs:getActiveView() == mo.pzoptPanel)))
-    mo.tabs:activateView("Optimizations") -- a second activation must not build again
+    mo.tabs:activateView(PzoptOptionsTab or "Optimizations") -- a second activation must not build again
     print("[pzopt-harness] options check: second activation, game options " .. #mo.gameOptions.options)
 end
 

@@ -146,9 +146,9 @@ public final class UserOptions {
    public static String exportText(String body) {
       String when = java.time.LocalDateTime.now().withNano(0).toString().replace('T', ' ');
       String commit = BuildInfo.get("commit");
-      return "# PZ Optimization settings (Options > Optimizations, Enhancements, Profiler), exported " + when
+      return "# PZ Optimization settings (Options > PZ Optimization), exported " + when
             + (commit != null && !commit.isEmpty() ? ", build " + commit : "") + "\n"
-            + "# Import: Options > any of those tabs > Import settings... Settings not listed go back to the build's defaults.\n"
+            + "# Import: Options > PZ Optimization > Import settings... Settings not listed go back to the build's defaults.\n"
             + (body == null ? "" : body);
    }
 
@@ -194,7 +194,7 @@ public final class UserOptions {
          sorted.put(k, p.getProperty(k));
       }
       try (Writer w = new FileWriter(f)) {
-         w.write("# pzopt options chosen in Options > Optimizations; keys as in pzopt.properties (see pzopt.Config).\n");
+         w.write("# pzopt options chosen in Options > PZ Optimization; keys as in pzopt.properties (see pzopt.Config).\n");
          w.write("# Absent keys use the build's defaults. -Dpzopt.<key> and the install dir's pzopt.properties win over this file.\n");
          for (var e : sorted.entrySet()) {
             w.write(e.getKey() + "=" + e.getValue() + "\n");

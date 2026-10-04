@@ -93,13 +93,13 @@ public final class Overlay {
    private static final long NOTICE_NS = 8_000_000_000L;
    private static final String[] NOTICE = {
       "Performance overlay: sampling is off.",
-      "Tick \"Sample frame times and utilization\" under Options > Profiler > Performance overlay,",
+      "Tick \"Sample frame times and utilization\" under Options > PZ Optimization > Tools > Performance overlay,",
       "apply, then toggle the overlay again (no restart needed)."
    };
-   /** The same with the Profiler tab's master switch off (profilerEnabled=false, 2026-09-28). */
+   /** The same with the Tools master switch off (profilerEnabled=false, 2026-09-28). */
    private static final String[] NOTICE_MASTER = {
       "Performance overlay: the profiler is switched off.",
-      "Tick \"Profiler enabled (master switch)\" at the top of Options > Profiler,",
+      "Tick \"Profiler enabled (master switch)\" on the home page of Options > PZ Optimization,",
       "apply, then toggle the overlay again (no restart needed)."
    };
 

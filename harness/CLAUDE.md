@@ -120,6 +120,15 @@ Modes:
   `chunkHandoffSlack` off); `compat_choose=performance|compatibility` presses that button and writes
   `Screenshots/pzopt-compat-chosen.png` — it saves the choice, so pass `--vmarg -Dpzopt.userOptionsFile=<scratch>`; runs
   `compat-menu-*`, `compat-prof-*`, `--mode verify`, ~35 s),
+  `options_nav=<page>` / `options_shots=<page>;<page>;...` / `options_joy=<step>,...` (2026-10-04, the single "PZ Optimization"
+  tab; `options_tab=Optimizations|Enhancements|Profiler` open it on home / Visuals > Image quality / Tools): a page is `home`,
+  `cat:<category id>:<subcategory, 0 = Overview>[:simple|advanced|everything]`, `problems[:<n>]` or `search:<text>`
+  (ids in `src/lua/client/pzopt/pzopt_optimizations_layout.lua`); `options_shots` writes `Screenshots/pzopt-options-<n>.png`
+  per page (copy them out of `~/Zomboid/Screenshots/` after the job; the options window sits at 768,216 3584x1728 on this
+  desktop); `options_joy` drives the tab's own joypad handlers without a pad (`focus`, `down`, `up`, `left`, `right`, `a`,
+  `shot` -> `pzopt-joy-<n>.png`) and logs `[pzopt-harness] joy: <step> -> <focused element> line <y> page '<breadcrumb>'`.
+  Runs `settings-nav-*`. `enhancements-tab-check.sh`, `texcompress-tab-check.sh` and `preset-texcompress-check.sh` click the
+  old tab names (OCR) and need updating before reuse.
   `options_tab=<tab name>` (harness Lua mod, 2026-09-24: stays on the main menu, opens Options on that tab, logs
   `[pzopt-harness] options: tabs ...`, writes `Screenshots/pzopt-options.png` 3 s later and quits; run-mac.sh copies
   `Screenshots/pzopt-*.png` into the run dir; menu checks without xdotool, e.g. `--machine mac -- --label x --mode verify

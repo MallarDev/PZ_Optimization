@@ -189,6 +189,10 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   offer 500/430/400/330/300 fps; the in-game choice is snapshotted before `Core.loadOptions`
   rewrites options.ini and a cap above 244 lives in framecap.ini (`gameFps=`); forced
   `uncappedFps=` runs restore the player's choice on the next boot (`restore=`).
+- Since 2026-10-04 the three tabs below are one "PZ Optimization" tab (home page with presets, master switches and category
+  tiles; sidebar; subcategory tabs; Simple / Advanced / Everything; Visuals as cards; Fix a problem; one search), organised by
+  `src/lua/client/pzopt/pzopt_optimizations_layout.lua`; the groups Performance / Visuals / Tools are the old Optimizations /
+  Enhancements / Profiler tabs. Harness: `options_nav=`, `options_shots=`, `options_joy=` (harness/CLAUDE.md).
 - Options > Optimizations tab (2026-09-20): every Config key as a tick box / combo
   (`src/lua/client/pzopt/pzopt_optimizations_options.lua`, Java side `pzopt.UserOptions` +
   `PerformanceSettings` forwards), saved to `~/Zomboid/pzopt/options.ini`, applied on the next

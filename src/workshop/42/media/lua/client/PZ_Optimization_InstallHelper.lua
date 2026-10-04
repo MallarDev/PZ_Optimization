@@ -80,7 +80,7 @@ function PZOptInstallHelper:new(command)
         "4. Start the game: Options now has an Optimizations tab.",
         "",
         "Then disable this mod in the Mods list: it only shows this window.",
-        "To uninstall later: Options > Optimizations > Uninstall PZ Optimization.",
+        "To uninstall later: Options > PZ Optimization > Uninstall PZ Optimization...",
     }
     if not command then
         lines = {
