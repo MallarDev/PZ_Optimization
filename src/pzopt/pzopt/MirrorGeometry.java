@@ -47,7 +47,7 @@ import zombie.tileDepth.TileDepthTexture;
  * with the paint of the mirror's own wall.
  *
  * <p>Every texel gets the distance its reflected ray travels to it: the tile's depth map gives its iso depth
- * (w = x + y + 2z + 4 d, as the stock tileWithDepth shader blends between the square's far and near corner), and a ray
+ * (w = x + y + 2z + 4 (1 - d), as the stock tileWithDepth shader blends from the square's near to its far corner), and a ray
  * from the pane point of iso depth wM meets it at t = 3 / 8 (wM - w). The texels are drawn into the pane's place in a
  * geometry atlas with that distance as depth (nearest wins); the static march then takes the geometry wherever it found
  * nothing, only a stand-in, or a hit farther than the geometry (it passed behind something the camera cannot see round),
@@ -514,7 +514,11 @@ final class MirrorGeometry {
          d[o + 12] = d[o + 13] = 1F;
          d[o + 14] = d[o + 15] = 0F; // (max < min: no depth map)
       }
-      // the distance: t = 3/8 (wM - wBase) - 3/2 d, wM the pane point's iso depth under the atlas px (linear on the pane)
+      // the distance: t = 3/8 (wM - w), w = wBase + 4 (1 - d): the depth map's 0 is the square's front corner (x+1, y+1, z+1),
+      // 1 its far corner (x, y, z), as tileWithDepth blends zDepthBlendZ (front) to zDepthBlendToZ (far); the floor preset
+      // runs 1 at the diamond's top to 0.5 at its bottom. (Until 2026-10-04 afternoon w = wBase + 4 d: the far half of every
+      // mirrored floor tile came up to 1.5 squares too near the glass and hid the reflected player's legs.)
+      // So t = 3/8 (wM - wBase) - 3/2 + 3/2 d, wM the pane point's iso depth under the atlas px (linear on the pane)
       double wBase = sx + sy + 2.0 * k.z;
       double c = r.c;
       double wM0 = r.axis == 0 ? u0 + 2.0 * c + (u0 + 2.0 * c - v0) / 3.0 : 2.0 * c - u0 + (2.0 * c - u0 - v0) / 3.0;
@@ -523,8 +527,8 @@ final class MirrorGeometry {
       d[o + 18] = (float)(-1.0 / 3.0 / tl.ppv);
       boolean wall = !Float.isNaN(wallDist);
       d[o + 19] = wall ? 0F : 1F;
-      d[o + 20] = wall ? wallDist : depth == null ? -0.75F : 0F; // (no depth map: the square's middle, d = 0.5)
-      d[o + 21] = wall || depth == null ? 0F : -1.5F;
+      d[o + 20] = wall ? wallDist : depth == null ? -0.75F : -1.5F; // (no depth map: the square's middle, d = 0.5)
+      d[o + 21] = wall || depth == null ? 0F : 1.5F;
       d[o + 22] = 0F;
       d[o + 23] = 0F;
       d[o + 24] = light.r;
@@ -644,7 +648,7 @@ final class MirrorGeometry {
     * Render thread, the static pass before its march: the due panes' tiles of the geometry atlas cleared ("nothing") and
     * the frame's instances drawn into them, nearest texel kept. Leaves the geometry atlas' framebuffer bound.
     */
-   static boolean draw(Batch b, long serial, boolean full) {
+   static boolean draw(Batch b, long serial, boolean full, boolean oldDepth) {
       if (b.n == 0 || !ensure(full)) {
          return false;
       }
@@ -670,7 +674,7 @@ final class MirrorGeometry {
       GL11.glBindTexture(GL11.GL_TEXTURE_2D, DATA[(int)(serial % 3)]);
       GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, GT, b.n, GL11.GL_RGBA, GL11.GL_FLOAT, UP);
       GL20.glUseProgram(prog);
-      GL20.glUniform4f(uParams, Math.max(1, Config.MIRRORS_REACH), 0F, 0F, 0F);
+      GL20.glUniform4f(uParams, Math.max(1, Config.MIRRORS_REACH), oldDepth ? 1F : 0F, 0F, 0F);
       int i = 0;
       while (i < b.n) {
          Texture t = b.tex[i], dt = b.depth[i];
@@ -716,7 +720,7 @@ final class MirrorGeometry {
          "uniform sampler2D Geo;",
          "uniform sampler2D Sprite;",
          "uniform sampler2D DepthMap;",
-         "uniform vec4 params;", // the longest ray (squares)
+         "uniform vec4 params;", // the longest ray (squares), dev: old depth direction
          "flat in int inst;",
          "in vec2 cUv;",
          "in vec2 dUv;",
@@ -733,6 +737,7 @@ final class MirrorGeometry {
          "      if (dUv.x < dr.x || dUv.x > dr.z || dUv.y < dr.y || dUv.y > dr.w) discard;",
          "      dd = texture(DepthMap, dUv).r;",
          "      if (dd <= 0.0) discard;", // (as tileWithDepth: no depth, no texel)
+         "      if (params.y > 0.5) dd = 1.0 - dd;", // (dev: the depth map read the wrong way round, as before 2026-10-04 afternoon)
          "   }",
          "   vec4 r0 = texelFetch(Geo, ivec2(0, inst), 0);",
          "   vec4 tw = texelFetch(Geo, ivec2(4, inst), 0);",

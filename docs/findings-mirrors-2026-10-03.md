@@ -299,6 +299,48 @@ Not done: the far wall's own interior sprite where it has one (the paint of the 
 with two colours of wall shows the mirror wall's), mirrored objects on the far wall (pictures, switches), overlays on
 furniture (items on a counter), lighting beyond the square's light colour (no pixel light, AO or shadows on the geometry).
 
+## Zoomed in: the rays hit their own mirror (2026-10-04 afternoon)
+
+Maintainer's screenshot (zoom 0.25, the wall mirror of the walk's house): the reflection speckled with the stock glass colour
+in triangles (Sierpinski-like), a pale triangle over the floor. Dev view 5: the speckle pixels were marched hits (blue)
+inside the geometry / floor areas. The march taps every 10 px; zoomed in to 0.25 that is 0.08 squares, so the first taps
+fell on the mirror sprite and its wall in the frame's depth, within the 0.8 thickness of the ray's own depth: the ray hit
+its own mirror and took its glass colour; the depth quantisation made the triangles. At zoom 1 the first tap is already
+~0.3 squares out, which is why the walks at 0.5-1 never showed it. Fix: rays (the march and the floor-first clearance)
+start 0.2 squares in front of the glass (`t0`, at most half the ray); nothing else stands that close in front of a pane
+(the people are the model layer). Same-run A/B at zoom 0.25 (`devMirrorsAlternate=2000 devMirrorsCycle=0,262144`, runs
+`mzf-4` wall mirror with dev view 5, `mzf-6` medicine cabinet): wall mirror speckle gone (no blue in the geometry / floor
+areas), cabinet unchanged. Dev bit 262144 = the old start at the glass.
+
+Second screenshot (same mirror): the reflected player cut from the thighs to the knees, the shins and feet drawn again
+below. The room geometry read the tile depth maps the wrong way round: tileWithDepth blends from the square's front corner
+(x+1, y+1, z+1) at 0 to its far corner (x, y, z) at 1 (`zDepthBlendZ` = front, `zDepthBlendToZ` = far; the Floor preset is
+254 at the diamond's top, 128 at its bottom), so w = x + y + 2z + 4 (1 - d), not + 4 d. The far half of every mirrored floor
+tile came up to 1.5 squares too near the glass, nearer than the mirrored player, and the composite (`tM < tS + 0.15`) drew
+the floor over the legs; lower down the march's own floor hits (the right distance) let the feet through. Same-run A/B
+(`devMirrorsCycle=0,524288`, run `mzf-7`, zoom 0.25): the player and the medical bag whole with the fix, cut along a stepped
+diagonal without; the faint pale stand-in patch on the floor also went with it. Dev bit 524288 = the old direction.
+
+**Where people show in a mirror** (maintainer: "adjust the angle or perspective of the reflections ... so it feels more
+natural to the player's perspective, the cabinet mirror should show the character's head when the character is in front of
+the sink"). The camera's true reflection puts a person d squares in front of a pane d squares along it and d / 3 levels up:
+at the sink (d ~ 0.9) the head landed beside and above the medicine cabinet (run `mzf-10`, old: the glass shows only the
+room). Mirrors now place people by a reflected ray D of their own (north pane (-L, 1, -S), west (1, -L, -S)): the model
+pass draws through Y = X - d (D + (1, 1, 1/3)), an affine map with det -1 for every L, S that reduces to the plane's
+reflection at L = 1, S = 1/3 and keeps the layer's depth at 8/3 d under the pane point (the composite's distance unchanged);
+the reach test uses the same L, S. `mirrorsViewLateralPct` (default 0: straight in front of where one stands) and
+`mirrorsViewDropPct` (default 50: d / 6 levels up; 0 put the head under the game's high-hung cabinet, only the top of the
+hair at the glass's lower edge, `mzf-8`; 100 the head's top cut by the glass's top, `mzf-9`), both Enhancements-tab entries,
+next launch; windows keep the true reflection. The room behind the glass is still the true reflection (the geometry is iso
+sprites, which exist only for the camera's direction), so the composite compares a person's distance scaled by 3 S with the
+room's: their feet meet the reflected floor (at S = 1/6 unscaled, the floor covered the shins). Runs `mzf-10` (cabinet: face,
+glasses and shoulders in the glass from the sink) and `mzf-12` (wall mirror: the whole person, shoes on the floor); dev bit
+1048576 = the true reflection, 2097152 = drop 100 % alone. Left: a person beside furniture of the reflected room is offset from
+it by up to d along the glass (the room keeps the true lateral shift).
+
+The mirror walk also ends on its own 5 s past `mirror_secs` when no director said done (an 8 s route without a running
+`explore-director.py` held the game ~200 s until the harness gave up).
+
 ## Rigs
 
 - `harness/mirrors/tiles.py` (tile definitions by property), `packsprite.py` (sprites out of the .pack files),

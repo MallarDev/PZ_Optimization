@@ -274,6 +274,12 @@ final class MirrorWalk {
       float dx = w[0] - p.getX(), dy = w[1] - p.getY();
       float dist = (float)Math.hypot(dx, dy);
       boolean sameLevel = (int)Math.floor(p.getZ() + 0.01F) == m.z;
+      if (!command.equals("done") && (nowNs - startNs) / 1e9 > limitSecs + 5F) {
+         // the director is told the time is up; without one (not started, crashed) the walk ends itself 5 s later instead of
+         // holding the run until the harness gives up on it (2026-10-04: 8 s routes ran 200 s)
+         Log.info(String.format(Locale.ROOT, "harness: mirror walk: time limit passed by 5 s without a done from the director, ending (%d commands)", commands));
+         command = "done";
+      }
       if (command.equals("done")) {
          if (!finished) {
             finished = true;

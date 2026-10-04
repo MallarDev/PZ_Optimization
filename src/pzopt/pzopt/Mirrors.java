@@ -418,6 +418,7 @@ public final class Mirrors {
       final LateDrawer[] late = new LateDrawer[MAX_BATCHES];
       // planes the models are mirrored in: axis, c (relative), lateral lo / hi (absolute), zlo, zhi, iso rect u0 v0 u1 v1 (relative)
       final float[] planes = new float[MAXP * 10];
+      final boolean[] planeMirror = new boolean[MAXP]; // a mirror's plane (else windows only): people placed by mirrorsView*
       int nP;
       int modelsQueued, skip, nClear;
       float ppu, ppv; // this frame's px per iso unit (a tile marched at another zoom is read scaled by the ratio)
@@ -626,7 +627,10 @@ public final class Mirrors {
       d[o + 27] = t == null || t.ppv <= 0F || f.ppv <= 0F ? 1F : t.ppv / f.ppv;
       d[o + 28] = 0F; // the pane's room geometry is in the geometry atlas (static pass only; set by beginFrame)
       d[o + 29] = 0.25F; // a marched hit this much farther than the geometry is the ray passing behind it (squares)
-      d[o + 30] = 0F;
+      // a mirrored person's distance on the scale of the room behind the glass: the room is marched with the camera's drop
+      // (the floor d squares out shows d / 3 levels up), people with viewDrop (d S levels up); scaled by 3 S their feet meet
+      // the reflected floor where they stand on it instead of sinking into it (the floor covered the shins at S = 1/6)
+      d[o + 30] = 3F * viewDrop(r.mirror, skipNow);
       d[o + 31] = 0F;
    }
 
@@ -755,12 +759,14 @@ public final class Mirrors {
             f.planes[o + 7] = Math.min(f.planes[o + 7], r.v0 - ov);
             f.planes[o + 8] = Math.max(f.planes[o + 8], r.u1 - ou);
             f.planes[o + 9] = Math.max(f.planes[o + 9], r.v1 - ov);
+            f.planeMirror[i] |= r.mirror;
             return;
          }
       }
       if (f.nP >= MAXP) {
          return;
       }
+      f.planeMirror[f.nP] = r.mirror;
       int o = f.nP++ * 10;
       f.planes[o] = r.axis;
       f.planes[o + 1] = cRel;
@@ -788,8 +794,25 @@ public final class Mirrors {
    }
 
    /**
+    * Where a person d squares in front of a plane shows on it: lateral + viewLateral d, height + viewDrop d. The game camera's
+    * true reflection is (1, 1/3): d squares to the side and d / 3 levels up, so a player at the sink saw their head above
+    * and beside the medicine cabinet (maintainer, 2026-10-04: "the cabinet mirror should show the character's head when the
+    * character is in front of the sink"). Mirrors use mirrorsViewLateralPct / mirrorsViewDropPct of it (default 0, 50: the
+    * person straight in front of where they stand, a little higher, as one sees oneself looking slightly down into a mirror;
+    * at their own height the head stayed under the game's high-hung cabinets); windows keep the true one.
+    */
+   static float viewLateral(boolean mirror, int skip) {
+      return !mirror || (skip & 1048576) != 0 ? 1F : Config.MIRRORS_VIEW_LATERAL_PCT / 100F;
+   }
+
+   static float viewDrop(boolean mirror, int skip) {
+      return !mirror || (skip & (1048576 | 2097152)) != 0 ? 1F / 3F : Config.MIRRORS_VIEW_DROP_PCT / 300F;
+   }
+
+   /**
     * Game thread, TextureDraw.drawModel: the planes (bit mask over the frame's planes) a character / vehicle shows in. A model
-    * at distance d in front of a plane is seen at the pane's points (lateral + d, height + d / 3); those must fall on a pane.
+    * at distance d in front of a plane is seen at the pane's points (lateral + L d, height + S d, viewLateral / viewDrop);
+    * those must fall on a pane.
     */
    public static void planesFor(ModelManager.ModelSlot slot, TextureDraw texd) {
       texd.pzoptMirrorPlanes = 0;
@@ -823,14 +846,16 @@ public final class Mirrors {
          int p = i * 10;
          float cAbs = f.planes[p + 1] + (f.planes[p] == 0F ? f.view.oy : f.view.ox);
          float d = f.planes[p] == 0F ? y - cAbs : x - cAbs;
-         if (d < 0.05F - r * 0.5F || d > 3F * (f.planes[p + 5] - z) + r + 0.5F) {
+         float vl = viewLateral(f.planeMirror[i], skipNow), vs = viewDrop(f.planeMirror[i], skipNow);
+         float dMax = vs > 0.001F ? (f.planes[p + 5] - z) / vs : Config.MIRRORS_REACH;
+         if (d < 0.05F - r * 0.5F || d > dMax + r + 0.5F) {
             continue;
          }
-         float lat = f.planes[p] == 0F ? x + d : y + d;
+         float lat = f.planes[p] == 0F ? x + vl * d : y + vl * d;
          if (lat < f.planes[p + 2] - r || lat > f.planes[p + 3] + r) {
             continue;
          }
-         float zi = z + Math.max(d, 0F) / 3F;
+         float zi = z + Math.max(d, 0F) * vs;
          if (zi > f.planes[p + 5] || zi + h < f.planes[p + 4]) {
             continue;
          }
@@ -841,7 +866,7 @@ public final class Mirrors {
          f.modelsQueued++;
          float ang = o instanceof IsoGameCharacter c2 ? c2.getAnimAngleRadians() : ((BaseVehicle)o).getAngleY();
          f.modelSig = f.modelSig * 1000003L + System.identityHashCode(o) + Float.floatToIntBits(x) * 31L + Float.floatToIntBits(y) * 17L + Float.floatToIntBits(z) * 7L
-               + Float.floatToIntBits(ang) * 3L + mask;
+               + Float.floatToIntBits(ang) * 3L + mask + (skipNow & (1048576 | 2097152));
       }
    }
 
@@ -1353,7 +1378,7 @@ public final class Mirrors {
             ensureStatic();
             mapping(this.f);
             // the due mirrors' rooms into the geometry atlas first (its own framebuffer), read by the march below
-            boolean geo = (this.f.skip & 131072) == 0 && MirrorGeometry.draw(this.f.geo, this.f.serial, FULL);
+            boolean geo = (this.f.skip & 131072) == 0 && MirrorGeometry.draw(this.f.geo, this.f.serial, FULL, (this.f.skip & 524288) != 0);
             if (geo) {
                GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, worldFbo);
                GL11.glViewport(VPI[0], VPI[1], VPI[2], VPI[3]);
@@ -1663,7 +1688,7 @@ public final class Mirrors {
                   }
                   int o = k * 10;
                   float cAbs = this.f.planes[o + 1] + (this.f.planes[o] == 0F ? this.f.view.oy : this.f.view.ox);
-                  CAMERA.setUp(p, (int)this.f.planes[o], cAbs);
+                  CAMERA.setUp(p, (int)this.f.planes[o], cAbs, viewLateral(this.f.planeMirror[k], this.f.skip), viewDrop(this.f.planeMirror[k], this.f.skip));
                   if (!calibrated) {
                      calibrated = CAMERA.calibrate(this.f);
                   }
@@ -1709,13 +1734,15 @@ public final class Mirrors {
    static final class MirrorCamera extends ModelCamera {
       private Pending p;
       private int axis;
-      private float c;
+      private float c, viewL = 1F, viewS = 1F / 3F;
       private final Matrix4f b = new Matrix4f(), bi = new Matrix4f(), r = new Matrix4f(), scratch = new Matrix4f(), scratch2 = new Matrix4f();
       private int devFacingLogs;
       private final Vector4f v = new Vector4f();
 
-      void setUp(Pending p, int axis, float cAbs) {
+      void setUp(Pending p, int axis, float cAbs, float viewL, float viewS) {
          this.p = p;
+         this.viewL = viewL;
+         this.viewS = viewS;
          this.axis = axis;
          this.c = cAbs;
          this.useAngle = p.angle;
@@ -1743,13 +1770,22 @@ public final class Mirrors {
          core.DoPushIsoStuff(this.x, this.y, this.z, this.useAngle, this.p.vehicle);
          Matrix4f mv = core.modelViewMatrixStack.peek();
          // T's frame: (-(wx - x), (wz - z) * 2.449, -(wy - y)); the plane wy = c is W.z = -(c - y), wx = c is W.x = -(c - x)
+         // A point X d squares in front of the plane is to show at the pane point P = X - d D, D = the reflected view ray per
+         // square out (north pane (-L, 1, -S), west (1, -L, -S) in world x, y, levels; L = 1, S = 1/3 the camera's true
+         // reflection), with the iso depth 8/3 d under P's (the composite turns the layer's depth back into d): Y = P - d (1, 1, 1/3)
+         // (the view axis), i.e. Y = X - d K, K = D + (1, 1, 1/3). With L = 1, S = 1/3 that is the plane's reflection. In T's
+         // frame (x, y, z) = (-(wx - x), 2.449 (wz - z), -(wy - y)): north d = zc - W.z, west d = xc - W.x. det = -1 for every
+         // L, S (still a mirror image: the winding turns over)
          this.r.identity();
+         float kDrop = -2.449F * (1F / 3F - this.viewS);
          if (this.axis == 0) {
             float zc = -(this.c - this.y);
-            this.r.translate(0F, 0F, zc).scale(1F, 1F, -1F).translate(0F, 0F, -zc);
+            float k0 = 1F - this.viewL, k1 = kDrop, k2 = 2F;
+            this.r.m20(-k0).m21(-k1).m22(1F - k2).m30(zc * k0).m31(zc * k1).m32(zc * k2);
          } else {
             float xc = -(this.c - this.x);
-            this.r.translate(xc, 0F, 0F).scale(-1F, 1F, 1F).translate(-xc, 0F, 0F);
+            float k0 = 2F, k1 = kDrop, k2 = 1F - this.viewL;
+            this.r.m00(1F - k0).m01(-k1).m02(-k2).m30(xc * k0).m31(xc * k1).m32(xc * k2);
          }
          modelB();
          this.bi.set(this.b).invert();
@@ -1948,6 +1984,11 @@ public final class Mirrors {
          // floor first: the ray meets the pane's own floor at tf; when the frame shows that floor there and half a march's
          // taps find nothing standing in the ray's way before it, that is the hit (no refinement needed)
          "   float tf = (P.z - floorZ) * 3.0;",
+         // the ray's first 0.2 squares are the pane's own surroundings: the mirror sprite and its wall stand there in the
+         // frame's depth, within the thickness of the ray's own depth; at zoom 0.25 the taps (10 px apart) are 0.08 squares
+         // apart and the first ones "hit" the mirror itself: its glass colour speckled over the reflection in triangles
+         // (maintainer's screenshot 2026-10-04). Nothing else stands that close in front of the glass (dev bit 262144: off)
+         "   float t0 = (int(dev.y) & 262144) != 0 ? 0.0 : min(0.2, 0.5 * tEnd);",
          "   vec2 pf = px0 + pxPerT * tf;",
          "   if ((int(dev.y) & 16) == 0 && tf > 0.05 && tf < tEnd + 0.01) {",
          "      if (inside(pf) && abs(isoDepth(pf) - (wM - 0.6666667 * tf)) < 0.25) {",
@@ -1955,7 +1996,7 @@ public final class Mirrors {
          "         int kk = max(3, int(clamp(length(pxPerT) * tf / march.w, 4.0, march.x)) / 2);", // half the taps a full march of tf takes (harness/mirrors/march_sim.py: same error as the full march)
          "         for (int k = 1; k <= 32; k++) {",
          "            if (k > kk) break;",
-         "            float t = tf * float(k) / (float(kk) + 1.0);",
+         "            float t = t0 + max(tf - t0, 0.0) * float(k) / (float(kk) + 1.0);",
          "            float d = isoDepth(px0 + pxPerT * t) - (wM - 0.6666667 * t);",
          "            if (d >= 0.0 && d < march.y) { clear = false; break; }",
          "         }",
@@ -1963,12 +2004,12 @@ public final class Mirrors {
          "      }",
          "   }",
          "   int n = int(clamp(length(pxPerT) * tEnd / march.w, 4.0, march.x));",
-         "   float dt = tEnd / float(n);",
-         "   float tLo = 0.0, tHit = -1.0;",
+         "   float dt = (tEnd - t0) / float(n);",
+         "   float tLo = t0, tHit = -1.0;",
          "   vec2 lastFloor = vec2(-1.0);", // the last tap whose pixel shows the pane's own floor (iso depth of that floor there)
          "   for (int i = 1; i <= 64; i++) {",
          "      if (i > n) break;",
-         "      float t = dt * float(i);",
+         "      float t = t0 + dt * float(i);",
          "      vec2 px = px0 + pxPerT * t;",
          "      if (!inside(px)) return vec4(0.0, 0.0, 0.0, 1.0);",
          "      float iz = isoDepth(px);",
@@ -2090,7 +2131,7 @@ public final class Mirrors {
          "      lc = texelFetch(LayerColor, ivec2(fc), 0);",
          "      if (lc.a > 0.01) {",
          "         float wP = layerMap.w + (texelFetch(LayerDepth, ivec2(fc), 0).r * 2.0 - 1.0 - layerMap.z) * layerMap.y;",
-         "         float tM = 0.375 * (wM - wP);", // the model's distance in front of the pane (iso depth falls 8/3 a square behind it)
+         "         float tM = 0.375 * (wM - wP) * texelFetch(Data, ivec2(7, inst), 0).z;", // the model's distance in front of the pane (iso depth falls 8/3 a square behind it), on the room's scale (pack: 3 viewDrop)
          "         if (tM < tS + 0.15) { col = mix(col, lc.rgb, lc.a); conf = mix(conf, 1.0, lc.a); hit = true; tS = min(tS, tM); }",
          "      }",
          "   }",

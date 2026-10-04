@@ -557,6 +557,7 @@ PzoptOptionDates = {
     mipmapArrays = "2026-09-20",
     mirrors = "2026-10-04",
     mirrorsCompositeOnce = "2026-10-04",
+    mirrorsGeometry = "2026-10-04",
     mirrorsMaxModels = "2026-10-04",
     mirrorsMirrorPct = "2026-10-04",
     mirrorsModelHz = "2026-10-04",

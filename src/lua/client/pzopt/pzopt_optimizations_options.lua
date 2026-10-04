@@ -977,6 +977,12 @@ local ENHANCEMENT_SECTIONS = {
               tip = "On: a wall mirror's room is rebuilt behind the glass from the game's own tiles, so the mirror shows what the camera can never see: the far side of the bathtub or the bed in front of it (the furniture's other facing, as the game draws it when you turn it), the floor behind it, and the wall across the room. Off: the reflection is made of what the camera sees, and where that is hidden (behind a table, a bathtub) the floor seen last stands in. Built once when a mirror comes on screen and kept; costs nothing while it stands. Applies on the next launch." },
             { key = "mirrorsModels", label = "Mirrors: people and cars in the reflection",
               tip = "On: characters and vehicles in front of a mirror or window are drawn once more through its plane, so the mirror shows their faces and the side of the car facing it. Off: the reflection is made of what the camera sees (cheaper; you see their backs). Applies on the next launch." },
+            { key = "mirrorsViewLateralPct", label = "Mirrors: where you appear along the glass (%)",
+              choices = { "0", "50", "100" }, note = { ["0"] = "default" },
+              tip = "0: you appear straight in front of where you stand, as you see yourself in a mirror. 100: the game camera's true reflection, which puts someone a square out from the mirror a square to its side (off a small medicine cabinet). Windows always use the true reflection. Applies on the next launch." },
+            { key = "mirrorsViewDropPct", label = "Mirrors: how high you appear (%)",
+              choices = { "0", "25", "50", "75", "100" }, note = { ["50"] = "default" },
+              tip = "How much higher someone farther from the mirror appears in it, as a share of the game camera's true reflection (100: a third of a floor per square out, a head at the sink above the medicine cabinet). 0: at their own height, eye level, below the game's high-hung cabinets. 50: your head in the cabinet from the sink, as if looking slightly down into the mirror. Applies on the next launch." },
         },
     },
     {
@@ -1136,7 +1142,7 @@ local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true, carOccupant = true, carOc
     -- car glass: the vehicle shaders are patched when the game loads them (only then); its strengths apply at once
     carGlass = true,
     -- mirrors: mirror tiles leave the chunk pictures at start-up; the settings are read once
-    mirrors = true, mirrorsWindows = true, mirrorsWindowPct = true, mirrorsModels = true, mirrorsGeometry = true,
+    mirrors = true, mirrorsWindows = true, mirrorsWindowPct = true, mirrorsModels = true, mirrorsGeometry = true, mirrorsViewLateralPct = true, mirrorsViewDropPct = true,
     -- relief: compiled into the chunk composite programs when the game loads them
     relief = true, reliefDepthPct = true, reliefSunPct = true, reliefTorchShadowSteps = true }
 for _, section in ipairs(ENHANCEMENT_SECTIONS) do
@@ -1652,6 +1658,8 @@ local EFFECTS = {
     mirrors = { gpu = 1, vram = 1, render = 1 },
     mirrorsWindows = { gpu = 1 },
     mirrorsWindowPct = {},
+    mirrorsViewLateralPct = {},
+    mirrorsViewDropPct = {},
     mirrorsModels = { gpu = 1, render = 1 },
     mirrorsGeometry = { vram = 1 },
     carGlassReflectPct = {},
