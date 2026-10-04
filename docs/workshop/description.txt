@@ -1,15 +1,15 @@
 [b]Game closes at start since the 42.21 update?[/b] The 42.20 build is still installed: run the one-line installer below again, it replaces it. Vanilla instead: the uninstall line below.
 
-[b]The optimizations are class files for the game folder, not a Lua mod.[/b] Subscribe, enable the mod once: the main menu shows the install command for your computer with a Copy button. To remove it: Options > Optimizations > Uninstall PZ Optimization.
+[b]The optimizations are class files for the game folder, not a Lua mod.[/b] Subscribe, enable the mod once: the main menu shows the install command for your computer with a Copy button. To remove it: Options > PZ Optimization > Uninstall PZ Optimization.
 
-Class overrides for Project Zomboid Build @VERSION@ (game revision @REV@) that shorten chunk-streaming stalls and tighten the frame time, plus graphics options (Options > Enhancements) and a frame-time overlay (F9 / L3 + R3). Single player and multiplayer, client side only. Steam version on Windows, Linux and macOS. Source, measurements and the same files as a GitHub release: https://github.com/xD3I/PZ_Optimization
+Class overrides for Project Zomboid Build @VERSION@ (game revision @REV@) that shorten chunk-streaming stalls and tighten the frame time, plus graphics options (Options > PZ Optimization > Visuals) and a frame-time overlay (F9 / L3 + R3). Single player and multiplayer, client side only. Steam version on Windows, Linux and macOS. Source, measurements and the same files as a GitHub release: https://github.com/xD3I/PZ_Optimization
 
 [h1]Install[/h1]
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/40-install.gif[/img]
 1. Subscribe and wait until Steam has downloaded the item.
 2. Mods (main menu): enable [b]PZ_Optimization[/b]. A window shows the install command with this item's folder in it.
 3. Press [b]Copy the command[/b], open PowerShell (Windows: Start menu, type powershell) or a terminal (Linux, macOS), paste, Enter.
-4. Quit the game (QUIT): the installer waits for that, then copies the files. Start the game: Options now has an [b]Optimizations[/b] tab. Disable the mod again, it only carries that window.
+4. Quit the game (QUIT): the installer waits for that, then copies the files. Start the game: Options now has a [b]PZ Optimization[/b] tab. Disable the mod again, it only carries that window.
 
 [b]Without the window[/b], one line (finds this item's download itself, waits for the game to close):
 Windows (PowerShell): [code]irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1 | iex[/code]
@@ -17,17 +17,19 @@ Linux, macOS (terminal): [code]curl -fsSL https://github.com/xD3I/PZ_Optimizatio
 Or run install.ps1 / install.bash from this item's folder (steamapps/workshop/content/108600/@ID@/mods/PZ_Optimization/42/). The installer checks the game version, never overwrites a file and never modifies projectzomboid.jar; the first boot is a few seconds slower (caches under Zomboid/pzopt/).
 
 [h1]Stock game again, or uninstall[/h1]
-[b]To compare with stock:[/b] Options > Optimizations > "Disable all (stock game)", restart. Nothing is removed; "Enable all" brings it back.
-[b]To uninstall:[/b] Options > Optimizations > [b]Uninstall PZ Optimization[/b] (main menu). The game closes, then every installed file is removed and the launcher settings it changed are put back. Your settings in Zomboid/pzopt/ stay.
+[b]To compare with stock:[/b] Options > PZ Optimization > "Stock game" preset, restart. Nothing is removed; "Recommended" brings it back.
+[b]To uninstall:[/b] Options > PZ Optimization > [b]Uninstall PZ Optimization[/b] (main menu). The game closes, then every installed file is removed and the launcher settings it changed are put back. Your settings in Zomboid/pzopt/ stay.
 [b]Uninstall before you unsubscribe:[/b] unsubscribing deletes this item, not the installed files. Already unsubscribed, or no game? The one-line installer with -Uninstall: [code]& ([scriptblock]::Create((irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1))) -Uninstall[/code] (Linux, macOS: the curl line ending in [b]| bash -s -- --uninstall[/b]).
 
 [h1]Updates[/h1]
-No need to run the installer again: the main menu shows PZ OPTIMIZATION UPDATE when a new build is out (copied from this item's download or GitHub, only the changed files), then Restart game. Off in Options > Optimizations > Updates. After a game update the old build can stop the game at start: run the installer again once the new build is out.
+No need to run the installer again: the main menu shows PZ OPTIMIZATION UPDATE when a new build is out (copied from this item's download or GitHub, only the changed files), then Restart game. Off in Options > PZ Optimization. After a game update the old build can stop the game at start: run the installer again once the new build is out.
 
 [url=https://github.com/xD3I/PZ_Optimization#readme][img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/00-showcase-thumbnail.gif[/img][/url]
 [i]Uncapped at 5120x2160, the in-game overlay (F9 / L3 + R3) live at the bottom; video on the repository page.[/i]
 
-[h1]New! Soft god rays[/h1]
+[h1]New! Settings in one place[/h1]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/59-settings-in-one-place.gif[/img]
+
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/58-soft-god-rays.gif[/img]
 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/57-mirrors-and-windows.gif[/img]
@@ -84,8 +86,6 @@ No need to run the installer again: the main menu shows PZ OPTIMIZATION UPDATE w
 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/30-smooth-operator-driving.gif[/img]
 
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/29-enhancements-tab.gif[/img]
-
 [h1]What it does[/h1]
 Project Zomboid loads and bakes the map in chunks; on stock, the loading, baking and lighting work of a busy screen lands in the same frame and shows as stutter while driving or turning. These overrides move that work off the game thread, spread it over frames, and cache what stock recomputes every frame (puddles, rain, cutaways, lights, sound zones). At 5120x2160 on an RTX 4090: driving p99 frame time 19 -> 8 ms, uncapped ~270 -> ~500 fps, thunderstorms 83 -> 188 fps.
 
@@ -99,11 +99,11 @@ Launch to main menu and Continue to world ready, same save: stock 7.55 s + 7.67 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/01-boot-load.jpg[/img]
 
 [h1]Performance overlay (F9 / L3 + R3)[/h1]
-Off by default: tick "Sample frame times and utilization" in Options > Profiler (no restart), then F9 or a pad's L3 + R3 toggles it. Frame time, its tail (p99 / p99.9 / max, 1 %-low, jitter, spikes), GPU busy, game- and render-thread load, a verdict line, the game-thread tree and flame graph below, the frame graph; every element is a dropdown there. Same on every platform, no MangoHud / RivaTuner.
+Off by default: tick "Sample frame times and utilization" in Options > PZ Optimization > Tools (no restart), then F9 or a pad's L3 + R3 toggles it. Frame time, its tail (p99 / p99.9 / max, 1 %-low, jitter, spikes), GPU busy, game- and render-thread load, a verdict line, the game-thread tree and flame graph below, the frame graph; every element is a dropdown there. Same on every platform, no MangoHud / RivaTuner.
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/13-profiler.jpg[/img]
 
 [h1]Settings[/h1]
-Options > Optimizations (applied on the next launch) has every key with a tick box, a stock-vs-optimized clip and effect bars for the setting under the mouse. Options > Enhancements holds the graphics features (upscaling, HDR, ambient occlusion, lighting, shadows, reflections, foliage sway; most apply at once). Options > Display gains an "Uncapped" framerate entry and a separate menu framerate.
+Options > PZ Optimization: presets, a tile per category, subcategory tabs, Simple / Advanced / Everything, Fix a problem, one search; each setting with a stock-vs-optimized clip and effect bars. Performance applies on the next launch, most Visuals (upscaling, HDR, shadows, reflections...) at once. Options > Display gains an "Uncapped" framerate entry and a separate menu framerate.
 
 [h1]Stock vs optimized, frame by frame[/h1]
 Left: stock, cap removed. Right: the overrides, uncapped. Big number = 1 s average, small block = whole route.
