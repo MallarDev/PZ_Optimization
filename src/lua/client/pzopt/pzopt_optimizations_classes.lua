@@ -411,6 +411,7 @@ PzoptOptionClasses = {
     jitSteady = { "pzopt.GcChoice" },
     keyboardFresh = { "pzopt.InputLatch" },
     kidsRoomMemo = { "pzopt.KidsRoom" },
+    lampIdsApart = { "LightingJNI" },
     lazyPose = { "AnimationTrack", "IsoGameCharacter" },
     lightInfoChunkGate = { "FBORenderCell" },
     lightInfoOncePerFrame = { "FBORenderCell", "IsoChunk" },

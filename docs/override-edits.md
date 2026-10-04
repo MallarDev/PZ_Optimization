@@ -2339,6 +2339,22 @@ square, per chunk level or an idempotent write, and the natives are pure reads (
 `getSquareDirty` is an index computation and a byte load; `getSquareLighting` reads the lighting arrays and copies
 into the Java array), so per-level tasks do not race.
 
+## zombie.iso.LightingJNI (sixth edit, 2026-10-04, lamp ids apart from the torches)
+
+`lampIdsApart` (default on). `checkLights` gives a new `IsoLightSource` the id `1048576 + IsoLightSource.nextId++`
+instead of `nextId++`. The native keeps one entry per id in a square's light list (`getSquareLighting`): stock numbers
+lamps 1, 2, 3, ... and the local players' handheld torches `playerIndex * 4 + i + 1` (remote players' `(onlineId + 1)
+* 4 + i + 1`), so lamp 1 and player 1's first torch shared id 1 and on every square both reached only one of them was
+listed (four dumps of the 2026-10-04 report save: ~700 squares with lamp 1, ~150 with the torch, never both). pixelLight
+takes the listed torch out of a square's light and draws its own; where lamp 1 had replaced the entry the native's
+torch stayed in the base and the per-pixel torch went on top: half the cone lit twice, read by the player as a second
+cone (rotating torch rig: base >= 0.9 on 61 cone squares -> 7). Stock's model lighting (`ModelInstance` frame lights,
+matched by id) mixed the two lights up the same way. The new range is clear of the torches (1..4095, the
+`rl.id < 4096` test in PixelLight), the vehicle lights (`4096 + vehicleId * 10 + light`) and the room lights
+(`100000 + n`); torch ids are unchanged (stock's own-torch skip in `ModelInstance` needs them). Lamp ids are runtime
+only (not saved, not sent). Rig: `--flag torch=on --flag face=90 --prop devPplDumpAt=10,14`, `--prop lampIdsApart=false`
+for the old ids.
+
 ## zombie.iso.fboRenderChunk.FBORenderCell (edit of 2026-09-22, the pre-pass lighting drain on the frame workers)
 
 `pzoptFlushPendingLighting` hands over to `pzoptFlushPendingLightingParallel` when `lightingReadParallel` is on: the

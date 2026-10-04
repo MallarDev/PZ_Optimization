@@ -308,7 +308,7 @@ public final class LightingJNI {
 
                float lightMult = 2.0F;
                if (lightSource.id == 0) {
-                  lightSource.id = IsoLightSource.nextId++;
+                  lightSource.id = pzopt.Config.LAMP_IDS_APART ? 1048576 + IsoLightSource.nextId++ : IsoLightSource.nextId++; // pzopt: lampIdsApart (ids clear of the torches' 1..4095, the vehicles' and the room lights')
                   if (lightSource.life != -1) {
                      addTempLight(
                         lightSource.id,
