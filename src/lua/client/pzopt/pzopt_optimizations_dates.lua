@@ -507,6 +507,7 @@ PzoptOptionDates = {
     jitSteady = "2026-09-24",
     keyboardFresh = "2026-09-24",
     kidsRoomMemo = "2026-09-25",
+    lampIdsApart = "2026-10-04",
     lazyOptionsScreen = "2026-09-23",
     lazyPose = "2026-09-23",
     lightInfoChunkGate = "2026-09-20",

@@ -3763,6 +3763,8 @@ end
 -- ---------------------------------------------------------------------------------------------------
 -- relayout: the page in NAV
 
+local layoutPage = {} -- the page kinds' content (below relayout)
+
 relayout = function(S)
     local G, panel = S.G, S.panel
     local hS, hM, hL, BH, SP = G.hS, G.hM, G.hL, G.BH, G.SP
@@ -3863,226 +3865,9 @@ relayout = function(S)
     y = y + SP * 2 + 4
     local contentLine = #joy + 1
 
-    if home then
-        -- presets (wrapping to a second row on a narrow window)
-        at(S.presetLabel, x0, y)
-        local px0 = x0 + S.presetLabel.elems[1].el:getWidth() + 16
-        local px = px0
-        local pl = {}
-        for _, b in ipairs(S.presetButtons) do
-            local bw = b.elems[1].el:getWidth()
-            if px + bw > x1 and px > px0 then
-                line(unpack(pl))
-                pl = {}
-                px = px0
-                y = y + BH + SP
-            end
-            local el = at(b, px, y)
-            px = px + bw + 8
-            table.insert(pl, el)
-        end
-        line(unpack(pl))
-        y = y + BH + SP * 3
-        local cols = w >= 1800 and 4 or (w >= 1150 and 3 or 2)
-        local tileW = math.floor((w - (cols - 1) * 12) / cols)
-        local tileH = hM + 3 * hS + 34
-        for _, g in ipairs(S.tree.groups) do
-            at(g.heading, x0, y, w, hM + 6)
-            y = y + hM + 6 + SP
-            if g.master then
-                rowAt(g.master, y, x0 - G.contentX)
-                if g.reset then
-                    local el = at(g.reset, 0, y)
-                    el:setX(x1 - el:getWidth())
-                    table.insert(joy[#joy], el)
-                end
-                y = y + g.master.step + SP
-            end
-            local col = 0
-            local tl = {}
-            for _, cat in ipairs(g.cats) do
-                table.insert(tl, at(cat.tile, x0 + col * (tileW + 12), y, tileW, tileH))
-                col = col + 1
-                if col == cols then
-                    col = 0
-                    y = y + tileH + 12
-                    line(unpack(tl))
-                    tl = {}
-                end
-            end
-            if col ~= 0 then
-                y = y + tileH + 12
-                line(unpack(tl))
-            end
-            y = y + SP * 3
-        end
-        at(S.helpHeading, x0, y, w, hM + 6)
-        y = y + hM + 6 + SP
-        line(at(S.problemTile, x0, y, tileW, tileH))
-        y = y + tileH + SP * 4
-        rule(y)
-        y = y + SP * 2
-        local bx = x0
-        local bl = {}
-        for _, b in ipairs(S.toolButtons) do
-            local el = at(b, bx, y)
-            bx = bx + el:getWidth() + 8
-            table.insert(bl, el)
-        end
-        line(unpack(bl))
-        y = y + BH + SP
-        local noteH = #wrapLines(UIFont.Small, S.homeNoteText, w) * hS + 4
-        at(S.homeNote, x0, y, w, noteH)
-        y = y + noteH
-
-    elseif kind == "cat" then
-        local cat = S.tree.catById[NAV.cat]
-        local g = cat.group
-        local headH = hL + hS + 10 + (groupOff(g) and (hS + 6) or 0)
-        S.catHead.elems[1].el.cat = cat
-        at(S.catHead, x0, y, w, headH)
-        y = y + headH + SP
-        -- the subcategory tabs (wrapping when they do not fit)
-        local tabX, tl = x0, {}
-        for i, t in ipairs(cat.tabs) do
-            local el = t.elems[1].el
-            if tabX + el:getWidth() > x1 and tabX > x0 then
-                line(unpack(tl))
-                tl = {}
-                tabX = x0
-                y = y + hM + 14
-            end
-            at(t, tabX, y)
-            tabX = tabX + el:getWidth() + 4
-            table.insert(tl, el)
-            if i == 1 then tabX = tabX + 8 end
-        end
-        line(unpack(tl))
-        y = y + hM + 14
-        at(S.tabRule, x0, y - 2, w, 1)
-        y = y + SP * 3
-        if NAV.sub == 0 then
-            for _, sub in ipairs(cat.subs) do
-                local rows = visibleRows(sub.rows, NAV.level)
-                local hidden = #sub.rows - #rows
-                if g.cards then
-                    -- a card: title, what it is, cost; its settings inside; "All N settings" opens its tab
-                    local cardY = y
-                    local headH2 = hM + hS + 22
-                    local card = at(sub.card, x0, cardY, w, 10)
-                    local ob = at(sub.open, 0, cardY + 10)
-                    ob:setX(x1 - 12 - ob:getWidth())
-                    line(ob)
-                    local ry = cardY + headH2
-                    if sub.dlssRow then ry = rowAt(sub.dlssRow, ry, 16) end
-                    for _, row in ipairs(rows) do ry = rowAt(row, ry, 16) end
-                    card:setHeight(ry - cardY + 8)
-                    y = ry + 8 + SP * 3
-                else
-                    local hb = at(sub.head, x0, y, w, hM + 8)
-                    sub.headHidden = hidden
-                    line(hb)
-                    y = y + hM + 8 + SP
-                    for _, row in ipairs(rows) do y = rowAt(row, y) end
-                    y = y + SP * 3
-                end
-            end
-        else
-            local sub = cat.subs[NAV.sub]
-            if sub then
-                if sub.dlssRow then y = rowAt(sub.dlssRow, y) end
-                local rows = visibleRows(sub.rows, NAV.level)
-                for _, row in ipairs(rows) do y = rowAt(row, y) end
-                local hidden = #sub.rows - #rows
-                if hidden > 0 then
-                    y = y + SP * 2
-                    local next = NAV.level == "simple" and "Advanced" or "Everything"
-                    local el = at(S.moreButton, x0, y)
-                    el:setTitle("Show " .. hidden .. " more " .. (hidden == 1 and "setting" or "settings") .. " (" .. next .. " view)")
-                    el:setWidthToTitle()
-                    line(el)
-                    y = y + BH + SP
-                end
-            end
-        end
-        y = y + SP * 2
-        rule(y)
-        y = y + SP * 2
-        local rb = at(S.catReset, x0, y)
-        rb:setTitle("Reset " .. cat.title .. " to defaults")
-        rb:setWidthToTitle()
-        line(rb)
-        S.catNote.elems[1].el.text = PAGES[g.page].footer
-        at(S.catNote, x0 + rb:getWidth() + 16, y + math.floor((BH - hS) / 2), x1 - x0 - rb:getWidth() - 16, hS + 2)
-        y = y + BH + SP
-
-    elseif kind == "problems" then
-        at(S.probHead, x0, y, w, hL + hS + 10)
-        y = y + hL + hS + 10 + SP * 2
-        local cols = w >= 1300 and 3 or 2
-        local tileW = math.floor((w - (cols - 1) * 10) / cols)
-        local tileH = hM + 2 * hS + 26
-        local col, tl = 0, {}
-        for _, pr in ipairs(S.tree.problems) do
-            table.insert(tl, at(pr.tile, x0 + col * (tileW + 10), y, tileW, tileH))
-            col = col + 1
-            if col == cols then
-                col = 0
-                y = y + tileH + 10
-                line(unpack(tl))
-                tl = {}
-            end
-        end
-        if col ~= 0 then
-            y = y + tileH + 10
-            line(unpack(tl))
-        end
-        y = y + SP * 3
-        local pr = S.tree.problems[NAV.problem] or S.tree.problems[1]
-        if pr then
-            local lines = wrapLines(UIFont.Small, pr.why, w - 56)
-            local whyH = hM + 16 + #lines * hS + 12
-            S.probWhy.elems[1].el.problem, S.probWhy.elems[1].el.lines = pr, lines
-            at(S.probWhy, x0, y, w, whyH)
-            y = y + whyH + SP * 2
-            for _, row in ipairs(pr.rows) do y = rowAt(row, y) end
-        end
-
-    elseif kind == "search" then
-        S.searchHead.elems[1].el.text = (S.hitCount or 0) > 0
-            and ((S.hitCount == 1 and "1 setting matches" or (S.hitCount .. " settings match")) .. " \"" .. (S.query or "") .. "\", best first")
-            or ("Nothing matches \"" .. (S.query or "") .. "\"")
-        at(S.searchHead, x0, y, w, hM + 6)
-        y = y + hM + 6 + SP * 2
-        local hits = S.hits or {}
-        -- the categories by their best match, the matches inside by score
-        local cats = {}
-        for _, g in ipairs(S.tree.groups) do
-            for _, cat in ipairs(g.cats) do
-                local list, best = {}, 0
-                for _, row in ipairs(cat.rows) do
-                    local s = hits[row]
-                    if s then
-                        table.insert(list, row)
-                        if s > best then best = s end
-                    end
-                end
-                if #list > 0 then
-                    table.sort(list, function(a, b)
-                        if hits[a] ~= hits[b] then return hits[a] > hits[b] end
-                        return a.index < b.index
-                    end)
-                    table.insert(cats, { cat = cat, rows = list, best = best })
-                end
-            end
-        end
-        table.sort(cats, function(a, b) return a.best > b.best end)
-        for _, c in ipairs(cats) do
-            at(c.cat.resultHead, x0, y, w, hS + 8)
-            y = y + hS + 8 + SP
-            for _, row in ipairs(c.rows) do y = rowAt(row, y) end
-            y = y + SP * 2
-        end
+    local page = layoutPage[kind]
+    if page then
+        y = page({ S = S, G = G, x0 = x0, x1 = x1, w = w, joy = joy, line = line, rowAt = rowAt, at = at, rule = rule }, y)
     end
 
     -- the sidebar and the preview: on every page but home; the preview shows a setting of the page shown
@@ -4125,84 +3910,263 @@ relayout = function(S)
     S.layoutGen = (S.layoutGen or 0) + 1 -- cullRows looks again
 end
 
+-- The content of each page kind below the header, one function each: the game's Lua compiler fails a function that
+-- declares more than 200 locals in a -debug game (Core.debug records each local's line in a 200-slot array indexed by
+-- every local declared so far), and relayout with all four pages inline declared 201 (issue #58, 2026-10-04;
+-- scripts/LuaDebugCompile.java checks it in build.sh). C = the page geometry and relayout's placing helpers; each
+-- returns the y under its content.
+function layoutPage.home(C, y)
+    local S, G, x0, x1, w, joy = C.S, C.G, C.x0, C.x1, C.w, C.joy
+    local at, line, rowAt, rule = C.at, C.line, C.rowAt, C.rule
+    local hS, hM, BH, SP = G.hS, G.hM, G.BH, G.SP
+    -- presets (wrapping to a second row on a narrow window)
+    at(S.presetLabel, x0, y)
+    local px0 = x0 + S.presetLabel.elems[1].el:getWidth() + 16
+    local px = px0
+    local pl = {}
+    for _, b in ipairs(S.presetButtons) do
+        local bw = b.elems[1].el:getWidth()
+        if px + bw > x1 and px > px0 then
+            line(unpack(pl))
+            pl = {}
+            px = px0
+            y = y + BH + SP
+        end
+        local el = at(b, px, y)
+        px = px + bw + 8
+        table.insert(pl, el)
+    end
+    line(unpack(pl))
+    y = y + BH + SP * 3
+    local cols = w >= 1800 and 4 or (w >= 1150 and 3 or 2)
+    local tileW = math.floor((w - (cols - 1) * 12) / cols)
+    local tileH = hM + 3 * hS + 34
+    for _, g in ipairs(S.tree.groups) do
+        at(g.heading, x0, y, w, hM + 6)
+        y = y + hM + 6 + SP
+        if g.master then
+            rowAt(g.master, y, x0 - G.contentX)
+            if g.reset then
+                local el = at(g.reset, 0, y)
+                el:setX(x1 - el:getWidth())
+                table.insert(joy[#joy], el)
+            end
+            y = y + g.master.step + SP
+        end
+        local col = 0
+        local tl = {}
+        for _, cat in ipairs(g.cats) do
+            table.insert(tl, at(cat.tile, x0 + col * (tileW + 12), y, tileW, tileH))
+            col = col + 1
+            if col == cols then
+                col = 0
+                y = y + tileH + 12
+                line(unpack(tl))
+                tl = {}
+            end
+        end
+        if col ~= 0 then
+            y = y + tileH + 12
+            line(unpack(tl))
+        end
+        y = y + SP * 3
+    end
+    at(S.helpHeading, x0, y, w, hM + 6)
+    y = y + hM + 6 + SP
+    line(at(S.problemTile, x0, y, tileW, tileH))
+    y = y + tileH + SP * 4
+    rule(y)
+    y = y + SP * 2
+    local bx = x0
+    local bl = {}
+    for _, b in ipairs(S.toolButtons) do
+        local el = at(b, bx, y)
+        bx = bx + el:getWidth() + 8
+        table.insert(bl, el)
+    end
+    line(unpack(bl))
+    y = y + BH + SP
+    local noteH = #wrapLines(UIFont.Small, S.homeNoteText, w) * hS + 4
+    at(S.homeNote, x0, y, w, noteH)
+    y = y + noteH
+    return y
+end
+
+function layoutPage.cat(C, y)
+    local S, x0, x1, w = C.S, C.x0, C.x1, C.w
+    local at, line, rowAt, rule = C.at, C.line, C.rowAt, C.rule
+    local hS, hM, hL, BH, SP = C.G.hS, C.G.hM, C.G.hL, C.G.BH, C.G.SP
+    local cat = S.tree.catById[NAV.cat]
+    local g = cat.group
+    local headH = hL + hS + 10 + (groupOff(g) and (hS + 6) or 0)
+    S.catHead.elems[1].el.cat = cat
+    at(S.catHead, x0, y, w, headH)
+    y = y + headH + SP
+    -- the subcategory tabs (wrapping when they do not fit)
+    local tabX, tl = x0, {}
+    for i, t in ipairs(cat.tabs) do
+        local el = t.elems[1].el
+        if tabX + el:getWidth() > x1 and tabX > x0 then
+            line(unpack(tl))
+            tl = {}
+            tabX = x0
+            y = y + hM + 14
+        end
+        at(t, tabX, y)
+        tabX = tabX + el:getWidth() + 4
+        table.insert(tl, el)
+        if i == 1 then tabX = tabX + 8 end
+    end
+    line(unpack(tl))
+    y = y + hM + 14
+    at(S.tabRule, x0, y - 2, w, 1)
+    y = y + SP * 3
+    if NAV.sub == 0 then
+        for _, sub in ipairs(cat.subs) do
+            local rows = visibleRows(sub.rows, NAV.level)
+            local hidden = #sub.rows - #rows
+            if g.cards then
+                -- a card: title, what it is, cost; its settings inside; "All N settings" opens its tab
+                local cardY = y
+                local headH2 = hM + hS + 22
+                local card = at(sub.card, x0, cardY, w, 10)
+                local ob = at(sub.open, 0, cardY + 10)
+                ob:setX(x1 - 12 - ob:getWidth())
+                line(ob)
+                local ry = cardY + headH2
+                if sub.dlssRow then ry = rowAt(sub.dlssRow, ry, 16) end
+                for _, row in ipairs(rows) do ry = rowAt(row, ry, 16) end
+                card:setHeight(ry - cardY + 8)
+                y = ry + 8 + SP * 3
+            else
+                local hb = at(sub.head, x0, y, w, hM + 8)
+                sub.headHidden = hidden
+                line(hb)
+                y = y + hM + 8 + SP
+                for _, row in ipairs(rows) do y = rowAt(row, y) end
+                y = y + SP * 3
+            end
+        end
+    else
+        local sub = cat.subs[NAV.sub]
+        if sub then
+            if sub.dlssRow then y = rowAt(sub.dlssRow, y) end
+            local rows = visibleRows(sub.rows, NAV.level)
+            for _, row in ipairs(rows) do y = rowAt(row, y) end
+            local hidden = #sub.rows - #rows
+            if hidden > 0 then
+                y = y + SP * 2
+                local next = NAV.level == "simple" and "Advanced" or "Everything"
+                local el = at(S.moreButton, x0, y)
+                el:setTitle("Show " .. hidden .. " more " .. (hidden == 1 and "setting" or "settings") .. " (" .. next .. " view)")
+                el:setWidthToTitle()
+                line(el)
+                y = y + BH + SP
+            end
+        end
+    end
+    y = y + SP * 2
+    rule(y)
+    y = y + SP * 2
+    local rb = at(S.catReset, x0, y)
+    rb:setTitle("Reset " .. cat.title .. " to defaults")
+    rb:setWidthToTitle()
+    line(rb)
+    S.catNote.elems[1].el.text = PAGES[g.page].footer
+    at(S.catNote, x0 + rb:getWidth() + 16, y + math.floor((BH - hS) / 2), x1 - x0 - rb:getWidth() - 16, hS + 2)
+    y = y + BH + SP
+    return y
+end
+
+function layoutPage.problems(C, y)
+    local S, x0, w = C.S, C.x0, C.w
+    local at, line, rowAt = C.at, C.line, C.rowAt
+    local hS, hM, hL, SP = C.G.hS, C.G.hM, C.G.hL, C.G.SP
+    at(S.probHead, x0, y, w, hL + hS + 10)
+    y = y + hL + hS + 10 + SP * 2
+    local cols = w >= 1300 and 3 or 2
+    local tileW = math.floor((w - (cols - 1) * 10) / cols)
+    local tileH = hM + 2 * hS + 26
+    local col, tl = 0, {}
+    for _, pr in ipairs(S.tree.problems) do
+        table.insert(tl, at(pr.tile, x0 + col * (tileW + 10), y, tileW, tileH))
+        col = col + 1
+        if col == cols then
+            col = 0
+            y = y + tileH + 10
+            line(unpack(tl))
+            tl = {}
+        end
+    end
+    if col ~= 0 then
+        y = y + tileH + 10
+        line(unpack(tl))
+    end
+    y = y + SP * 3
+    local pr = S.tree.problems[NAV.problem] or S.tree.problems[1]
+    if pr then
+        local lines = wrapLines(UIFont.Small, pr.why, w - 56)
+        local whyH = hM + 16 + #lines * hS + 12
+        S.probWhy.elems[1].el.problem, S.probWhy.elems[1].el.lines = pr, lines
+        at(S.probWhy, x0, y, w, whyH)
+        y = y + whyH + SP * 2
+        for _, row in ipairs(pr.rows) do y = rowAt(row, y) end
+    end
+    return y
+end
+
+function layoutPage.search(C, y)
+    local S, x0, w = C.S, C.x0, C.w
+    local at, rowAt = C.at, C.rowAt
+    local hS, hM, SP = C.G.hS, C.G.hM, C.G.SP
+    S.searchHead.elems[1].el.text = (S.hitCount or 0) > 0
+        and ((S.hitCount == 1 and "1 setting matches" or (S.hitCount .. " settings match")) .. " \"" .. (S.query or "") .. "\", best first")
+        or ("Nothing matches \"" .. (S.query or "") .. "\"")
+    at(S.searchHead, x0, y, w, hM + 6)
+    y = y + hM + 6 + SP * 2
+    local hits = S.hits or {}
+    -- the categories by their best match, the matches inside by score
+    local cats = {}
+    for _, g in ipairs(S.tree.groups) do
+        for _, cat in ipairs(g.cats) do
+            local list, best = {}, 0
+            for _, row in ipairs(cat.rows) do
+                local s = hits[row]
+                if s then
+                    table.insert(list, row)
+                    if s > best then best = s end
+                end
+            end
+            if #list > 0 then
+                table.sort(list, function(a, b)
+                    if hits[a] ~= hits[b] then return hits[a] > hits[b] end
+                    return a.index < b.index
+                end)
+                table.insert(cats, { cat = cat, rows = list, best = best })
+            end
+        end
+    end
+    table.sort(cats, function(a, b) return a.best > b.best end)
+    for _, c in ipairs(cats) do
+        at(c.cat.resultHead, x0, y, w, hS + 8)
+        y = y + hS + 8 + SP
+        for _, row in ipairs(c.rows) do y = rowAt(row, y) end
+        y = y + SP * 2
+    end
+    return y
+end
+
 -- ---------------------------------------------------------------------------------------------------
 -- Building the page (once, the first time the tab is shown)
 
-local function buildPage(self)
-    local t0 = getTimestampMs()
-    local savedPanel, savedAddY = self.mainPanel, self.addY
-    local firstOption = #self.gameOptions.options + 1
-    local wasChanged = self.gameOptions.changed
-    local style = MainOptions.style
-    local BH, SP = style.buttonHeight, style.borderSpacing
-    local hS, hM, hL = fontH(UIFont.Small), fontH(UIFont.Medium), fontH(UIFont.Large)
-    local comboWidth = 45 * (getCore():getOptionFontSizeReal() + 1) + 60
-    local panel = self.pzoptPanel
-    self.mainPanel = panel
-    self.addY = 0
-    local p = perf()
-    local W, H = panel:getWidth(), panel:getHeight()
-    local G = { m = 16, sbar = 13, hS = hS, hM = hM, hL = hL, BH = BH, SP = SP }
-    -- the sidebar as wide as its longest category name needs (with its count), within 200..330 px; the preview a
-    -- quarter of the width, at least 300 px (a 1920 x 1080 window is 1344 px wide: 1/4 is 336)
-    local longest = 0
-    for _, g in ipairs(PzoptSettingsLayout.groups) do
-        for _, c in ipairs(g.cats) do longest = math.max(longest, textW(UIFont.Small, c.title)) end
-    end
-    G.sideW = math.max(200, math.min(330, math.max(math.floor(W * 0.14), longest + textW(UIFont.Small, "000") + 48)))
-    G.prevW = math.max(300, math.min(900, math.floor(W * 0.25)))
-    G.prevX = W - G.m - G.sbar - G.prevW
-    G.contentX = G.m + G.sideW + GAP
-    G.contentR = G.prevX - GAP
-    G.homeX, G.homeR = G.m, W - G.m - G.sbar
-    G.ctrlW = math.min(comboWidth, math.floor((G.contentR - G.contentX) * 0.4))
-    G.labelX = G.contentX + G.ctrlW + 12
-    local split = G.contentX - 20 -- the stock helpers put the control at splitpoint + 20
-    local S = { panel = panel, G = G, items = {}, keyRows = {}, searchRows = {}, self = self, hitCount = 0 }
-    self.pzoptSearch = S
+-- Parts of buildPage, one function each: the game's Lua compiler fails a function that declares more than 200 locals
+-- in a -debug game, and buildPage in one piece declared 216 (issue #58, 2026-10-04; scripts/LuaDebugCompile.java checks
+-- it in build.sh). B = the page being built and buildPage's element helpers.
+local pageBuild = {}
 
-    -- every element added while `sink` is set belongs to the item being built
-    local sink
-    panel.addChild = function(o, child)
-        if sink then table.insert(sink, child) end
-        return ISPanelJoypad.addChild(o, child)
-    end
-    local function capture(fn)
-        local top = self.addY
-        sink = {}
-        local result = fn()
-        local item = { elems = {}, step = self.addY - top }
-        for _, el in ipairs(sink) do table.insert(item.elems, { el = el, dy = el:getY() - top, x0 = el:getX() }) end
-        sink = nil
-        table.insert(S.items, item)
-        return item, result, top
-    end
-    -- one element, placed by relayout at its own x
-    local function single(el)
-        panel:addChild(el)
-        local item = { elems = { { el = el, dy = 0, x0 = el:getX() } }, step = el:getHeight() }
-        table.insert(S.items, item)
-        return item
-    end
-    local function button(title, tip, onclick, h)
-        local b = ISButton:new(0, 0, 100, h or BH, title, self, onclick)
-        b:initialise()
-        b:setWidthToTitle()
-        b.tooltip = tip
-        return b, single(b)
-    end
-    local function buttonItem(title, tip, onclick)
-        local _, item = button(title, tip, onclick)
-        return item
-    end
-    local function label(text, col, font)
-        col = col or C_TEXT
-        local l = ISLabel:new(0, 0, BH, text, col.r, col.g, col.b, 1, font or UIFont.Small, true)
-        l:initialise()
-        return l, single(l)
-    end
-
-    -- the header
+function pageBuild.header(B)
+    local self, S, G, single, buttonItem, label = B.self, B.S, B.G, B.single, B.buttonItem, B.label
+    local BH, hS, hM, hL = G.BH, G.hS, G.hM, G.hL
     S.homeButton = buttonItem("<  Home", "Back to the start page: presets, every category, export / import.",
         function() navigate(S, "home") end)
     S.title = single(drawPanel(function(o)
@@ -4296,7 +4260,11 @@ local function buildPage(self)
     S.rule = single(drawPanel(function(o) o:drawRect(0, 0, o.width, 1, 1, 0.35, 0.35, 0.38) end))
     S.rule2 = single(drawPanel(function(o) o:drawRect(0, 0, o.width, 1, 1, 0.35, 0.35, 0.38) end))
     S.rule.background, S.rule2.background = true, true -- (drawn under other items: the harness's overlap audit skips them)
+end
 
+function pageBuild.home(B)
+    local self, S, p, single, button, label = B.self, B.S, B.p, B.single, B.button, B.label
+    local hS, hM = B.G.hS, B.G.hM
     -- home: presets, group headings, tiles, help, tools
     local _, presetLabelItem = label("Presets", C_GREY)
     S.presetLabel = presetLabelItem
@@ -4360,6 +4328,223 @@ local function buildPage(self)
             yy = yy + hS
         end
     end))
+end
+
+-- group headings, tiles, Visuals cards and subcategory tabs / headings (before the rows: they draw beneath them)
+function pageBuild.decorations(B)
+    local self, S, single, buttonItem = B.self, B.S, B.single, B.buttonItem
+    local hS, hM, tree = B.G.hS, B.G.hM, S.tree
+    for _, g in ipairs(tree.groups) do
+        local group = g
+        g.heading = single(drawPanel(function(o)
+            o:drawText(string.upper(group.title), 0, 0, group.c.r, group.c.g, group.c.b, 1, UIFont.Medium)
+            local x = textW(UIFont.Medium, string.upper(group.title)) + 16
+            o:drawText(clipText(UIFont.Small, group.count .. " settings.  " .. group.note, math.max(20, o.width - x)), x,
+                math.floor((hM - hS) / 2), C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+        end))
+        if g.page ~= 1 then
+            local page = PAGES[g.page]
+            g.reset = buttonItem("Reset " .. g.title .. " to defaults", "Puts every " .. g.title .. " setting back to the "
+                .. "build's default, the master switch on. Only the controls change; Apply or Accept saves them.", function()
+                resetOptions(self[page.options] or {}, self[page.masterField])
+            end)
+        end
+        for _, cat in ipairs(g.cats) do
+            local c = cat
+            cat.tile = single(drawButton(self, function() navigate(S, "cat", c.id, 0) end, function(o, hot)
+                local col = c.group.c
+                o:drawRect(0, 0, o.width, o.height, 1, 0.115, 0.115, 0.125)
+                if hot then
+                    o:drawRectBorder(0, 0, o.width, o.height, 0.9, col.r, col.g, col.b)
+                else
+                    o:drawRectBorder(0, 0, o.width, o.height, 0.15, 1, 1, 1)
+                end
+                o:drawRect(0, 0, 5, o.height, 1, col.r, col.g, col.b)
+                o:drawText(c.title, 16, 8, 1, 1, 1, 1, UIFont.Medium)
+                local yy = 10 + hM
+                for i, l in ipairs(wrapLines(UIFont.Small, c.blurb, o.width - 32)) do
+                    if i > 2 then break end
+                    o:drawText(l, 16, yy, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+                    yy = yy + hS
+                end
+                local st, sc = catStatus(c)
+                local pw = textW(UIFont.Small, st) + 12
+                local fy = o.height - hS - 10
+                drawPill(o, o.width - 12 - pw, fy - 1, st, sc)
+                o:drawText(clipText(UIFont.Small, #c.rows .. " settings:  " .. c.subList, o.width - 44 - pw), 16, fy,
+                    C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
+            end))
+            -- the subcategory tabs, Overview first
+            cat.tabs = {}
+            local function tabButton(index, title, list)
+                local bw = textW(UIFont.Medium, title) + (list and (textW(UIFont.Small, "000") + 28) or 0) + 24
+                local b = drawButton(self, function() navigate(S, "cat", c.id, index) end, function(o, hot)
+                    local col = c.group.c
+                    local sel = NAV.sub == index
+                    if sel then
+                        o:drawRect(0, 0, o.width, o.height, 0.14, col.r, col.g, col.b)
+                        o:drawRect(0, o.height - 3, o.width, 3, 1, col.r, col.g, col.b)
+                    elseif hot then
+                        o:drawRect(0, 0, o.width, o.height, 0.07, 1, 1, 1)
+                    end
+                    local t = (sel or hot) and 1 or 0.65
+                    o:drawText(title, 12, math.floor((o.height - hM) / 2), t, t, t, 1, UIFont.Medium)
+                    if list then
+                        local n = tostring(#visibleRows(list, NAV.level))
+                        local nx = 12 + textW(UIFont.Medium, title) + 8
+                        local nw = textW(UIFont.Small, n) + 12
+                        o:drawRect(nx, math.floor((o.height - hS - 2) / 2), nw, hS + 2, sel and 0.4 or 0.1, sel and col.r or 1, sel and col.g or 1, sel and col.b or 1)
+                        o:drawTextCentre(n, nx + nw / 2, math.floor((o.height - hS) / 2), t, t, t, 1, UIFont.Small)
+                    end
+                end)
+                b:setWidth(bw)
+                b:setHeight(hM + 12)
+                table.insert(cat.tabs, single(b))
+            end
+            tabButton(0, "Overview", nil)
+            for i, sub in ipairs(cat.subs) do
+                local s, index = sub, i
+                tabButton(i, sub.title, sub.rows)
+                if g.cards then
+                    s.card = single(drawPanel(function(o)
+                        local col = c.group.c
+                        o:drawRect(0, 0, o.width, o.height, 1, 0.10, 0.10, 0.11)
+                        o:drawRectBorder(0, 0, o.width, o.height, 0.18, 1, 1, 1)
+                        o:drawRect(0, 0, 4, o.height, 1, col.r, col.g, col.b)
+                        o:drawText(s.title, 16, 8, 1, 1, 1, 1, UIFont.Medium)
+                        local fx = (s.rows[1] and EFFECTS[s.rows[1].entry.key]) or {}
+                        local dx = 16 + textW(UIFont.Medium, s.title) + 24
+                        dx = drawDots(o, dx, 8 + math.floor((hM - hS) / 2), "GPU", math.max(0, math.min(3, (fx.gpu or 0) + 1)), C_AMBER)
+                        drawDots(o, dx, 8 + math.floor((hM - hS) / 2), "VRAM", math.max(0, math.min(3, fx.vram or 0)), C_AMBER)
+                        local text = s.blurb or (s.rows[1] and firstSentence(s.rows[1].entry.tip)) or ""
+                        o:drawText(clipText(UIFont.Small, text, o.width - 32), 16, 10 + hM, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+                    end))
+                    s.card.background = true
+                    s.open = buttonItem("All " .. #s.rows .. " settings  >", "Opens the " .. s.title .. " tab.",
+                        function() navigate(S, "cat", c.id, index) end)
+                else
+                    s.head = single(drawButton(self, function() navigate(S, "cat", c.id, index) end, function(o, hot)
+                        local col = c.group.c
+                        o:drawRect(0, 0, o.width, 1, 1, 0.3, 0.3, 0.33)
+                        o:drawText(s.title, 0, 6, col.r, col.g, col.b, 1, UIFont.Medium)
+                        local hidden = s.headHidden or 0
+                        local more = hidden > 0 and (hidden .. " more in its tab  >") or "Open its tab  >"
+                        local t = hot and 1 or 0.6
+                        o:drawText(more, textW(UIFont.Medium, s.title) + 16, 6 + math.floor((hM - hS) / 2), t, t, t, 1, UIFont.Small)
+                    end))
+                end
+            end
+            cat.resultHead = single(drawPanel(function(o)
+                local col = c.group.c
+                o:drawText(string.upper(c.group.title) .. "  >  " .. c.title, 0, 2, col.r, col.g, col.b, 1, UIFont.Small)
+            end))
+        end
+    end
+    for i, pr in ipairs(tree.problems) do
+        local problem, index = pr, i
+        pr.tile = single(drawButton(self, function() NAV.problem = index; relayout(S) end, function(o, hot)
+            local sel = NAV.problem == index
+            if sel then
+                o:drawRect(0, 0, o.width, o.height, 1, 0.20, 0.14, 0.24)
+            else
+                o:drawRect(0, 0, o.width, o.height, 1, 0.115, 0.115, 0.125)
+            end
+            if sel or hot then
+                o:drawRectBorder(0, 0, o.width, o.height, 0.9, C_HELP.r, C_HELP.g, C_HELP.b)
+            else
+                o:drawRectBorder(0, 0, o.width, o.height, 0.15, 1, 1, 1)
+            end
+            o:drawText(problem.title, 12, 6, 1, 1, 1, 1, UIFont.Medium)
+            o:drawText(clipText(UIFont.Small, problem.cause, o.width - 24), 12, 8 + hM, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
+            local on = 0
+            for _, row in ipairs(problem.rows) do
+                local v = row.option:pzoptCurrent()
+                if v ~= "false" and v ~= "off" and v ~= "0" and v ~= "off (default)" and v ~= "false (default)" then on = on + 1 end
+            end
+            local c = on == #problem.rows and C_OPT or C_AMBER
+            o:drawText(#problem.rows .. " settings, " .. on .. " on", 12, o.height - hS - 8, c.r, c.g, c.b, 1, UIFont.Small)
+        end))
+    end
+end
+
+local function buildPage(self)
+    local t0 = getTimestampMs()
+    local savedPanel, savedAddY = self.mainPanel, self.addY
+    local firstOption = #self.gameOptions.options + 1
+    local wasChanged = self.gameOptions.changed
+    local style = MainOptions.style
+    local BH, SP = style.buttonHeight, style.borderSpacing
+    local hS, hM, hL = fontH(UIFont.Small), fontH(UIFont.Medium), fontH(UIFont.Large)
+    local comboWidth = 45 * (getCore():getOptionFontSizeReal() + 1) + 60
+    local panel = self.pzoptPanel
+    self.mainPanel = panel
+    self.addY = 0
+    local p = perf()
+    local W, H = panel:getWidth(), panel:getHeight()
+    local G = { m = 16, sbar = 13, hS = hS, hM = hM, hL = hL, BH = BH, SP = SP }
+    -- the sidebar as wide as its longest category name needs (with its count), within 200..330 px; the preview a
+    -- quarter of the width, at least 300 px (a 1920 x 1080 window is 1344 px wide: 1/4 is 336)
+    local longest = 0
+    for _, g in ipairs(PzoptSettingsLayout.groups) do
+        for _, c in ipairs(g.cats) do longest = math.max(longest, textW(UIFont.Small, c.title)) end
+    end
+    G.sideW = math.max(200, math.min(330, math.max(math.floor(W * 0.14), longest + textW(UIFont.Small, "000") + 48)))
+    G.prevW = math.max(300, math.min(900, math.floor(W * 0.25)))
+    G.prevX = W - G.m - G.sbar - G.prevW
+    G.contentX = G.m + G.sideW + GAP
+    G.contentR = G.prevX - GAP
+    G.homeX, G.homeR = G.m, W - G.m - G.sbar
+    G.ctrlW = math.min(comboWidth, math.floor((G.contentR - G.contentX) * 0.4))
+    G.labelX = G.contentX + G.ctrlW + 12
+    local split = G.contentX - 20 -- the stock helpers put the control at splitpoint + 20
+    local S = { panel = panel, G = G, items = {}, keyRows = {}, searchRows = {}, self = self, hitCount = 0 }
+    self.pzoptSearch = S
+
+    -- every element added while `sink` is set belongs to the item being built
+    local sink
+    panel.addChild = function(o, child)
+        if sink then table.insert(sink, child) end
+        return ISPanelJoypad.addChild(o, child)
+    end
+    local function capture(fn)
+        local top = self.addY
+        sink = {}
+        local result = fn()
+        local item = { elems = {}, step = self.addY - top }
+        for _, el in ipairs(sink) do table.insert(item.elems, { el = el, dy = el:getY() - top, x0 = el:getX() }) end
+        sink = nil
+        table.insert(S.items, item)
+        return item, result, top
+    end
+    -- one element, placed by relayout at its own x
+    local function single(el)
+        panel:addChild(el)
+        local item = { elems = { { el = el, dy = 0, x0 = el:getX() } }, step = el:getHeight() }
+        table.insert(S.items, item)
+        return item
+    end
+    local function button(title, tip, onclick, h)
+        local b = ISButton:new(0, 0, 100, h or BH, title, self, onclick)
+        b:initialise()
+        b:setWidthToTitle()
+        b.tooltip = tip
+        return b, single(b)
+    end
+    local function buttonItem(title, tip, onclick)
+        local _, item = button(title, tip, onclick)
+        return item
+    end
+    local function label(text, col, font)
+        col = col or C_TEXT
+        local l = ISLabel:new(0, 0, BH, text, col.r, col.g, col.b, 1, font or UIFont.Small, true)
+        l:initialise()
+        return l, single(l)
+    end
+
+    local B = { self = self, S = S, G = G, p = p, single = single, button = button, buttonItem = buttonItem, label = label }
+    pageBuild.header(B)
+
+    pageBuild.home(B)
 
     -- category pages: heading, footer
     S.catHead = single(drawPanel(function(o)
@@ -4515,138 +4700,7 @@ local function buildPage(self)
     for _, r in ipairs(rows) do table.insert(stand, { entry = r.entry, page = r.page, section = r.section, stand = r }) end
     local tree = buildTree(stand, masterRows)
     S.tree = tree
-    -- group headings, tiles, Visuals cards and subcategory tabs / headings (before the rows: they draw beneath them)
-    for _, g in ipairs(tree.groups) do
-        local group = g
-        g.heading = single(drawPanel(function(o)
-            o:drawText(string.upper(group.title), 0, 0, group.c.r, group.c.g, group.c.b, 1, UIFont.Medium)
-            local x = textW(UIFont.Medium, string.upper(group.title)) + 16
-            o:drawText(clipText(UIFont.Small, group.count .. " settings.  " .. group.note, math.max(20, o.width - x)), x,
-                math.floor((hM - hS) / 2), C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
-        end))
-        if g.page ~= 1 then
-            local page = PAGES[g.page]
-            g.reset = buttonItem("Reset " .. g.title .. " to defaults", "Puts every " .. g.title .. " setting back to the "
-                .. "build's default, the master switch on. Only the controls change; Apply or Accept saves them.", function()
-                resetOptions(self[page.options] or {}, self[page.masterField])
-            end)
-        end
-        for _, cat in ipairs(g.cats) do
-            local c = cat
-            cat.tile = single(drawButton(self, function() navigate(S, "cat", c.id, 0) end, function(o, hot)
-                local col = c.group.c
-                o:drawRect(0, 0, o.width, o.height, 1, 0.115, 0.115, 0.125)
-                if hot then
-                    o:drawRectBorder(0, 0, o.width, o.height, 0.9, col.r, col.g, col.b)
-                else
-                    o:drawRectBorder(0, 0, o.width, o.height, 0.15, 1, 1, 1)
-                end
-                o:drawRect(0, 0, 5, o.height, 1, col.r, col.g, col.b)
-                o:drawText(c.title, 16, 8, 1, 1, 1, 1, UIFont.Medium)
-                local yy = 10 + hM
-                for i, l in ipairs(wrapLines(UIFont.Small, c.blurb, o.width - 32)) do
-                    if i > 2 then break end
-                    o:drawText(l, 16, yy, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
-                    yy = yy + hS
-                end
-                local st, sc = catStatus(c)
-                local pw = textW(UIFont.Small, st) + 12
-                local fy = o.height - hS - 10
-                drawPill(o, o.width - 12 - pw, fy - 1, st, sc)
-                o:drawText(clipText(UIFont.Small, #c.rows .. " settings:  " .. c.subList, o.width - 44 - pw), 16, fy,
-                    C_DIM.r, C_DIM.g, C_DIM.b, 1, UIFont.Small)
-            end))
-            -- the subcategory tabs, Overview first
-            cat.tabs = {}
-            local function tabButton(index, title, list)
-                local bw = textW(UIFont.Medium, title) + (list and (textW(UIFont.Small, "000") + 28) or 0) + 24
-                local b = drawButton(self, function() navigate(S, "cat", c.id, index) end, function(o, hot)
-                    local col = c.group.c
-                    local sel = NAV.sub == index
-                    if sel then
-                        o:drawRect(0, 0, o.width, o.height, 0.14, col.r, col.g, col.b)
-                        o:drawRect(0, o.height - 3, o.width, 3, 1, col.r, col.g, col.b)
-                    elseif hot then
-                        o:drawRect(0, 0, o.width, o.height, 0.07, 1, 1, 1)
-                    end
-                    local t = (sel or hot) and 1 or 0.65
-                    o:drawText(title, 12, math.floor((o.height - hM) / 2), t, t, t, 1, UIFont.Medium)
-                    if list then
-                        local n = tostring(#visibleRows(list, NAV.level))
-                        local nx = 12 + textW(UIFont.Medium, title) + 8
-                        local nw = textW(UIFont.Small, n) + 12
-                        o:drawRect(nx, math.floor((o.height - hS - 2) / 2), nw, hS + 2, sel and 0.4 or 0.1, sel and col.r or 1, sel and col.g or 1, sel and col.b or 1)
-                        o:drawTextCentre(n, nx + nw / 2, math.floor((o.height - hS) / 2), t, t, t, 1, UIFont.Small)
-                    end
-                end)
-                b:setWidth(bw)
-                b:setHeight(hM + 12)
-                table.insert(cat.tabs, single(b))
-            end
-            tabButton(0, "Overview", nil)
-            for i, sub in ipairs(cat.subs) do
-                local s, index = sub, i
-                tabButton(i, sub.title, sub.rows)
-                if g.cards then
-                    s.card = single(drawPanel(function(o)
-                        local col = c.group.c
-                        o:drawRect(0, 0, o.width, o.height, 1, 0.10, 0.10, 0.11)
-                        o:drawRectBorder(0, 0, o.width, o.height, 0.18, 1, 1, 1)
-                        o:drawRect(0, 0, 4, o.height, 1, col.r, col.g, col.b)
-                        o:drawText(s.title, 16, 8, 1, 1, 1, 1, UIFont.Medium)
-                        local fx = (s.rows[1] and EFFECTS[s.rows[1].entry.key]) or {}
-                        local dx = 16 + textW(UIFont.Medium, s.title) + 24
-                        dx = drawDots(o, dx, 8 + math.floor((hM - hS) / 2), "GPU", math.max(0, math.min(3, (fx.gpu or 0) + 1)), C_AMBER)
-                        drawDots(o, dx, 8 + math.floor((hM - hS) / 2), "VRAM", math.max(0, math.min(3, fx.vram or 0)), C_AMBER)
-                        local text = s.blurb or (s.rows[1] and firstSentence(s.rows[1].entry.tip)) or ""
-                        o:drawText(clipText(UIFont.Small, text, o.width - 32), 16, 10 + hM, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
-                    end))
-                    s.card.background = true
-                    s.open = buttonItem("All " .. #s.rows .. " settings  >", "Opens the " .. s.title .. " tab.",
-                        function() navigate(S, "cat", c.id, index) end)
-                else
-                    s.head = single(drawButton(self, function() navigate(S, "cat", c.id, index) end, function(o, hot)
-                        local col = c.group.c
-                        o:drawRect(0, 0, o.width, 1, 1, 0.3, 0.3, 0.33)
-                        o:drawText(s.title, 0, 6, col.r, col.g, col.b, 1, UIFont.Medium)
-                        local hidden = s.headHidden or 0
-                        local more = hidden > 0 and (hidden .. " more in its tab  >") or "Open its tab  >"
-                        local t = hot and 1 or 0.6
-                        o:drawText(more, textW(UIFont.Medium, s.title) + 16, 6 + math.floor((hM - hS) / 2), t, t, t, 1, UIFont.Small)
-                    end))
-                end
-            end
-            cat.resultHead = single(drawPanel(function(o)
-                local col = c.group.c
-                o:drawText(string.upper(c.group.title) .. "  >  " .. c.title, 0, 2, col.r, col.g, col.b, 1, UIFont.Small)
-            end))
-        end
-    end
-    for i, pr in ipairs(tree.problems) do
-        local problem, index = pr, i
-        pr.tile = single(drawButton(self, function() NAV.problem = index; relayout(S) end, function(o, hot)
-            local sel = NAV.problem == index
-            if sel then
-                o:drawRect(0, 0, o.width, o.height, 1, 0.20, 0.14, 0.24)
-            else
-                o:drawRect(0, 0, o.width, o.height, 1, 0.115, 0.115, 0.125)
-            end
-            if sel or hot then
-                o:drawRectBorder(0, 0, o.width, o.height, 0.9, C_HELP.r, C_HELP.g, C_HELP.b)
-            else
-                o:drawRectBorder(0, 0, o.width, o.height, 0.15, 1, 1, 1)
-            end
-            o:drawText(problem.title, 12, 6, 1, 1, 1, 1, UIFont.Medium)
-            o:drawText(clipText(UIFont.Small, problem.cause, o.width - 24), 12, 8 + hM, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
-            local on = 0
-            for _, row in ipairs(problem.rows) do
-                local v = row.option:pzoptCurrent()
-                if v ~= "false" and v ~= "off" and v ~= "0" and v ~= "off (default)" and v ~= "false (default)" then on = on + 1 end
-            end
-            local c = on == #problem.rows and C_OPT or C_AMBER
-            o:drawText(#problem.rows .. " settings, " .. on .. " on", 12, o.height - hS - 8, c.r, c.g, c.b, 1, UIFont.Small)
-        end))
-    end
+    pageBuild.decorations(B)
     -- the real rows, in the tree's order (stand-ins swapped for them)
     local real = {}
     for _, st in ipairs(stand) do

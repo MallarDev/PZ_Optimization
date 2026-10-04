@@ -81,6 +81,11 @@ if [[ -d "$SRC/lua" ]]; then
   python3 "$REPO/scripts/option-dates.py"
   mkdir -p "$OUT/media/lua"
   cp -r "$SRC/lua/." "$OUT/media/lua/"
+  # Every file must compile the way a game launched with -debug compiles it: there a function declaring more than
+  # 200 locals throws and the whole file is skipped (issue #58, 2026-10-04: the options tab vanished for -debug players).
+  mapfile -t lua_files < <(find "$SRC/lua" -name '*.lua' | sort)
+  java -cp "$JAR" "$REPO/scripts/LuaDebugCompile.java" "${lua_files[@]}" \
+    || { echo "LUA DEBUG COMPILE FAILED: split the function named above (scripts/LuaDebugCompile.java)" >&2; exit 1; }
 fi
 # Other loose media (src/media/ui/pzopt/compare/*.gif: the Optimizations tab's stock-vs-optimized clips,
 # harness/menu-gifs.py) lands under the game dir's media/ the same way.
