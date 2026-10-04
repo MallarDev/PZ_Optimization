@@ -1573,7 +1573,7 @@
      "maxWidth": 360
     }
    },
-   "timeFrom": "18d",
+   "timeFrom": "19d",
    "hideTimeOverride": true,
    "id": 5,
    "gridPos": {
@@ -2566,7 +2566,7 @@
      "maxWidth": 360
     }
    },
-   "timeFrom": "18d",
+   "timeFrom": "19d",
    "hideTimeOverride": true,
    "id": 6,
    "gridPos": {
@@ -3320,14 +3320,108 @@
    }
   },
   {
-   "type": "row",
-   "title": "All runs",
-   "collapsed": false,
-   "panels": [],
+   "type": "timeseries",
+   "title": "Run hours, cumulative: every machine and each one",
+   "description": "Hours the game ran under the harness (each run from launch to exit, boot, load and settle included; run.opts run_seconds), summed over every imported run since the archive cut of 2026-09-24. The legend's value is the total so far.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "WITH r AS (SELECT started + make_interval(secs => s) AS t, machine, s / 3600.0 AS h\n           FROM (SELECT started, machine, nullif(opts->>'run_seconds', '')::double precision AS s FROM runs) x\n           WHERE s IS NOT NULL)\nSELECT t AS time, machine AS metric, sum(h) OVER (PARTITION BY machine ORDER BY t) AS value FROM r\nUNION ALL SELECT t, 'total', sum(h) OVER (ORDER BY t) FROM r\nUNION ALL SELECT now(), machine, sum(h) FROM r GROUP BY machine\nUNION ALL SELECT now(), 'total', sum(h) FROM r\nORDER BY 1",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "h",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "pointSize": 4,
+      "showPoints": "never",
+      "fillOpacity": 0,
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "gradientMode": "none",
+      "axisSoftMin": 0,
+      "insertNulls": false,
+      "lineInterpolation": "stepAfter"
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "total"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "text"
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 3
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "showLegend": true,
+     "calcs": [
+      "lastNotNull"
+     ],
+     "sortBy": "Last *",
+     "sortDesc": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "timeFrom": "12d",
+   "hideTimeOverride": true,
    "id": 12,
    "gridPos": {
     "x": 0,
     "y": 39,
+    "w": 24,
+    "h": 8
+   }
+  },
+  {
+   "type": "row",
+   "title": "All runs",
+   "collapsed": false,
+   "panels": [],
+   "id": 13,
+   "gridPos": {
+    "x": 0,
+    "y": 47,
     "w": 24,
     "h": 1
    }
@@ -3392,10 +3486,10 @@
      "valueSize": 26
     }
    },
-   "id": 13,
+   "id": 14,
    "gridPos": {
     "x": 0,
-    "y": 40,
+    "y": 48,
     "w": 6,
     "h": 4
    }
@@ -3461,10 +3555,10 @@
      "valueSize": 20
     }
    },
-   "id": 14,
+   "id": 15,
    "gridPos": {
     "x": 6,
-    "y": 40,
+    "y": 48,
     "w": 18,
     "h": 4
    }
@@ -4327,10 +4421,10 @@
     },
     "sortBy": []
    },
-   "id": 15,
+   "id": 16,
    "gridPos": {
     "x": 0,
-    "y": 44,
+    "y": 52,
     "w": 24,
     "h": 14
    }
@@ -4340,10 +4434,10 @@
    "title": "Trends (one point per run, series = label or machine)",
    "collapsed": false,
    "panels": [],
-   "id": 16,
+   "id": 17,
    "gridPos": {
     "x": 0,
-    "y": 58,
+    "y": 66,
     "w": 24,
     "h": 1
    }
@@ -4421,10 +4515,10 @@
      "sort": "desc"
     }
    },
-   "id": 17,
+   "id": 18,
    "gridPos": {
     "x": 0,
-    "y": 59,
+    "y": 67,
     "w": 12,
     "h": 9
    }
@@ -4506,10 +4600,10 @@
      "sort": "desc"
     }
    },
-   "id": 18,
+   "id": 19,
    "gridPos": {
     "x": 12,
-    "y": 59,
+    "y": 67,
     "w": 12,
     "h": 9
    }
@@ -4591,10 +4685,10 @@
      "sort": "desc"
     }
    },
-   "id": 19,
+   "id": 20,
    "gridPos": {
     "x": 0,
-    "y": 68,
+    "y": 76,
     "w": 12,
     "h": 9
    }
@@ -4658,10 +4752,10 @@
      "sort": "desc"
     }
    },
-   "id": 20,
+   "id": 21,
    "gridPos": {
     "x": 12,
-    "y": 68,
+    "y": 76,
     "w": 12,
     "h": 9
    }
@@ -4725,10 +4819,10 @@
      "sort": "desc"
     }
    },
-   "id": 21,
+   "id": 22,
    "gridPos": {
     "x": 0,
-    "y": 77,
+    "y": 85,
     "w": 12,
     "h": 9
    }
@@ -4790,10 +4884,10 @@
      "sort": "desc"
     }
    },
-   "id": 22,
+   "id": 23,
    "gridPos": {
     "x": 12,
-    "y": 77,
+    "y": 85,
     "w": 12,
     "h": 9
    }
@@ -4855,10 +4949,10 @@
      "sort": "desc"
     }
    },
-   "id": 23,
+   "id": 24,
    "gridPos": {
     "x": 0,
-    "y": 86,
+    "y": 94,
     "w": 12,
     "h": 9
    }
@@ -4920,10 +5014,10 @@
      "sort": "desc"
     }
    },
-   "id": 24,
+   "id": 25,
    "gridPos": {
     "x": 12,
-    "y": 86,
+    "y": 94,
     "w": 12,
     "h": 9
    }
@@ -4933,10 +5027,10 @@
    "title": "Objective findings",
    "collapsed": false,
    "panels": [],
-   "id": 25,
+   "id": 26,
    "gridPos": {
     "x": 0,
-    "y": 95,
+    "y": 103,
     "w": 24,
     "h": 1
    }
@@ -5252,10 +5346,10 @@
     },
     "sortBy": []
    },
-   "id": 26,
+   "id": 27,
    "gridPos": {
     "x": 0,
-    "y": 96,
+    "y": 104,
     "w": 24,
     "h": 8
    }

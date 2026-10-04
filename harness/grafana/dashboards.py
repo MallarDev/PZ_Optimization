@@ -521,9 +521,37 @@ SELECT started AS time, CASE WHEN (SELECT count(DISTINCT label) FROM t) <= {TREN
   ELSE machine || CASE WHEN enabled IS FALSE THEN ' · stock' ELSE ' · optimized' END END AS metric, value FROM t ORDER BY 1"""
 
 
+def run_hours(L):
+    """Cumulative harness run hours, all machines and each one: a step per run at its exit (run.opts run_seconds = launch
+    to exit, boot / load / settle included), held flat to now. All time, whatever the dashboard's range."""
+    sql = """WITH r AS (SELECT started + make_interval(secs => s) AS t, machine, s / 3600.0 AS h
+           FROM (SELECT started, machine, nullif(opts->>'run_seconds', '')::double precision AS s FROM runs) x
+           WHERE s IS NOT NULL)
+SELECT t AS time, machine AS metric, sum(h) OVER (PARTITION BY machine ORDER BY t) AS value FROM r
+UNION ALL SELECT t, 'total', sum(h) OVER (ORDER BY t) FROM r
+UNION ALL SELECT now(), machine, sum(h) FROM r GROUP BY machine
+UNION ALL SELECT now(), 'total', sum(h) FROM r
+ORDER BY 1"""
+    ts = ts_panel("Run hours, cumulative: every machine and each one", [q(sql)], unit="h", fill=0, legend="right",
+                  desc="Hours the game ran under the harness (each run from launch to exit, boot, load and settle included; "
+                       "run.opts run_seconds), summed over every imported run since the archive cut of 2026-09-24. "
+                       "The legend's value is the total so far.",
+                  overrides=[ov("total", color="text")])
+    c = ts["fieldConfig"]["defaults"]["custom"]
+    c.update(lineInterpolation="stepAfter", lineWidth=2, spanNulls=True, insertNulls=False)
+    ts["fieldConfig"]["defaults"]["decimals"] = 1
+    ts["fieldConfig"]["overrides"][0]["properties"].append({"id": "custom.lineWidth", "value": 3})
+    ts["options"]["legend"].update(displayMode="table", calcs=["lastNotNull"], sortBy="Last *", sortDesc=True)
+    # its own window: from the first imported day (harness/grafana/since) to now, regenerated with the dashboards
+    since = datetime.date.fromisoformat((Path(__file__).resolve().parent / "since").read_text().split("#")[0].strip()[:10])
+    ts.update(timeFrom=f"{(datetime.date.today() - since).days + 1}d", hideTimeOverride=True)
+    L.add(ts, 24, 8)
+
+
 def runs_dashboard():
     L = Layout()
     hero(L)
+    run_hours(L)
     L.row("All runs")
     where ="$__timeFilter(started) AND machine IN (${machine:sqlstring}) AND coalesce(mode, '') IN (${mode:sqlstring}) AND label ~ ${label:sqlstring}"
     L.add(stat_panel("Runs", color_mode="none", sql=f"SELECT count(*) AS runs, count(*) FILTER (WHERE valid) AS valid, count(*) FILTER (WHERE verdict = 'invalid' OR NOT valid) AS invalid FROM runs WHERE {where}"), 6, 4)
