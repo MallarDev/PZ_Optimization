@@ -465,6 +465,7 @@ PzoptOptionClasses = {
     mirrorsModels = { "pzopt.Mirrors" },
     mirrorsReach = { "pzopt.Mirrors" },
     mirrorsRefreshBudget = { "pzopt.Mirrors" },
+    mirrorsStandInPct = { "pzopt.Mirrors" },
     mirrorsStatic = { "pzopt.Mirrors" },
     mirrorsStaticEvery = { "pzopt.Mirrors" },
     mirrorsStaticFbo = { "pzopt.Mirrors" },

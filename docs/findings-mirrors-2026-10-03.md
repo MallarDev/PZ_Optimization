@@ -193,6 +193,60 @@ Metal call cost), static pass and model flush higher too; not visible in the fra
 - Window strength (30 %) is a look choice: physical glass reflects ~5 % at the camera's 52-degree angle; the stock
   window sprite's own white-blue tint stays underneath.
 
+## Walking round the mirrors of a real house (2026-10-04)
+
+Maintainer: "use Jev to walk around all the mirrors in the house [of my latest save], analyze all the visual artifacts and
+glitches in the reflection, loop until Jev confirms them fixed". Worktree `~/pzopt-wt/mirrorwalk`, branch `mirror-walk`.
+
+**Rig.** `explore=mirror director=jev` (`pzopt.MirrorWalk` + `harness/explore-director.py`, scene `mirror`): every mirror
+of the building the save starts in (save `Sandbox/2026-10-02_10-30-09`, house 11243,6861-11252,6873: the wall mirror
+`walls_decoration_01_9` overlay on 11249,6864 and the medicine cabinet `fixtures_bathroom_01_29` on 11249,6871; the
+template must be refreshed, `--refresh-template`, or the walk loads an older copy of the save), Jev walks the player on
+foot from mirror to mirror and over the stations in front of each (face the mirror, back to it, one lap), ~33 s for the
+house. Dev view 5 (`devMirrorsView=5`, toggled with the picture every second) paints each glass pixel by how its static
+ray ended; `harness/mirrors/kinds.py`, `walkframes.py`, `mirror-judge.py` (Jev). The first walk (a neighbour's house,
+`find=mirror`) and the first passes of the director (it alternated face / turn every 0.3 s and ping-ponged between
+visited stations) are not counted.
+
+**What was wrong** (screen-space limits that showed as glitches; the reflected player and the floor were right):
+
+| # | Seen | Cause | Fix |
+|---|---|---|---|
+| 1 | grey horizontal bands over the wall mirror's upper half | rays whose floor landing the dining table / chairs hide from the camera found no hit and took the pixel at their reach end, one level *under* the floor, 5-6 squares away: the house's siding | the hidden landing gets a stand-in: the last floor pixel the ray passed over (the floor goes on under the table) |
+| 2 | the medicine cabinet a dark brown slab | its rays marched on under the bathroom floor (`zMin` = level - 1) and "hit" the cut-away outer wall's brick strip | mirrors and ground-floor panes end their rays at their own floor (`d[o + 14]`) |
+| 3 | (intermediate state, fix 1 alone with the landing pixel as stand-in) the dining table's grey top as one flat slab over half the wall mirror | the hiding object's own colour stretched over every hidden ray | the last floor seen stands in, not the hiding object |
+| 4 | the cabinet still showing the brick | a "hit" in the last 0.15 levels above the floor: the 0.8 thickness takes the paper-thin wall stub for a solid | such near-floor hits continue the floor like a hidden landing |
+| 5 | the cabinet a flat lavender pane (Jev: the cabinet the least fixed) | three quarters of its rays are stand-ins (its view across the bathroom is hidden by the bathtub; the floor seen last is the bath mat), drawn at full strength | stand-ins carry a flag (alpha low bit) and draw at `mirrorsStandInPct` (50): the glass's own look shows under the guess |
+
+**Measured** (`mirror-judge.py`, whole-house walks of 33 s, dev view 5 toggled with the picture, windows off; before =
+`devMirrorsSkip=98304`, mid = `65536`, after = defaults; runs `mw-final-before-20261004-024226`, `mw-final-mid3-20261004-025353`,
+`mw-final-after4-*`, stock reference `mw-final-after5-*` with `devMirrorsAlternate=700 devMirrorsCycle=0,4`):
+
+| Mirror | measure | before | mid | after |
+|---|---|---|---|---|
+| wall mirror | glass from a pixel squares away (1) | 46 % | 0 | 0 |
+| wall mirror | hits under its own floor (2) | 3.4 % | 0 | 0 |
+| wall mirror | hidden landing drawn in the hiding object's colour (3) | 0 | 54 % | 0.03 % |
+| wall mirror | largest flat region in the picture / of the stock glass, same frames | 0.03 / - | 0.28 / - | 0.07 / 0.41 |
+| medicine cabinet | glass from a pixel squares away (1) | 40 % | 0 | 0 |
+| medicine cabinet | hits under its own floor (2) | 2.1 % | 0 | 0 |
+| medicine cabinet | glass brightness, luma (4: brick 77 vs the bathroom) | 77 | 119 | 128 |
+| medicine cabinet | guessed glass x drawn strength (5) | 0.40 | 0.71 | 0.36 |
+| medicine cabinet | largest flat region in the picture / stock glass / the scene its rays pass over | 0.29 / - / - | 0.64 / - / - | 0.78 / 0.90 / 0.06 |
+
+Jev (`mirror-judge.py`): artifact 1 fixed 0.96, 2 0.95, 3 0.97, 4 0.93, 5 0.46; overall `partly_fixed` 0.55 (all_fixed 0.41).
+Jev's remaining doubt is artifact 5: the cabinet's picture is no flatter than its stock glass, but much flatter than the
+bathroom it faces (0.78 vs 0.06): two thirds of its rays have their floor landing hidden (the bathtub, the cut-away wall
+stub in front), and what stands in is one floor pixel per ray, faded to half over the stock glass. The surface a ray went
+behind as the stand-in (tried: `mw-final-after6*`) made the wall mirror flatter (0.07 -> 0.28) and the cabinet no better
+(0.79), reverted. What would fix it is geometry the frame does not hold (the bathtub's side, the room's far walls seen
+from the mirror): the "mirrored static sprites" item below, or a second view.
+
+Dev skip bits for A/Bs in one build: 32768 (the old ray end and stand-in), 65536 (the hiding object's colour as stand-in).
+Dev view 5 makes every pane re-march every pass frame (it paints the tiles themselves). The model layer was checked with
+dev view 4: the mirrored character is drawn whole; a body that seems missing is the iso geometry (a point d in front of a
+north pane shows d further along it, so standing in front of the glass puts the reflection off its side).
+
 ## Rigs
 
 - `harness/mirrors/tiles.py` (tile definitions by property), `packsprite.py` (sprites out of the .pack files),
@@ -200,6 +254,7 @@ Metal call cost), static pass and model flush higher too; not visible in the fra
   thickness 1.5 -> 22 % of mirror pixels wrong, 0.8 -> 5.5 %; the rest are object edges).
 - harness `find=mirror` / `find=window` (`find_side=out|in`, `find_dist`, `find_offset`): the player where his own
   reflection falls on the nearest mirror / window, facing it.
-- `devMirrorsAlternate`, `devMirrorsView` (1 reflection only, 2 mask / static hit, 3 hit distance, 4 model layer),
+- `devMirrorsAlternate`, `devMirrorsView` (1 reflection only, 2 mask / static hit, 3 hit distance, 4 model layer, 5 how
+  each static ray ended),
   `devMirrorsSkip` (1 static pass, 2 model pass, 4 composite, 8 constant colour), `devMirrorsLog`; GPU sections
   `mirrors.static`, `mirrors.models`, `mirrors.late`.

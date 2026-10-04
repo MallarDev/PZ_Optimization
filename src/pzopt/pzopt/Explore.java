@@ -49,7 +49,7 @@ public final class Explore {
    private static final String[] DIRS = {"E", "SE", "S", "SW", "W", "NW", "N", "NE"}; // k * 45 deg, 0 = east, +y = south
 
    private static boolean on, director, started, finished, restaurantLit;
-   private static boolean circle, circleJev, stairs;
+   private static boolean circle, circleJev, stairs, mirror;
    private static float circleX, circleY, circleRadius, circleSign, circleTurned, circleLastAngle;
    private static long circleLogNs;
    private static String command = "hold";
@@ -77,7 +77,7 @@ public final class Explore {
 
    /** The harness ends the route when the director (or the autopilot) says done. */
    public static boolean done() {
-      return finished || stairs && StairsWalk.finished() || circleJev && CircleWalk.finished();
+      return finished || stairs && StairsWalk.finished() || circleJev && CircleWalk.finished() || mirror && MirrorWalk.finished();
    }
 
    /** World-ready (game thread): out of harm's way, find the restaurant. */
@@ -86,6 +86,12 @@ public final class Explore {
       if (stairs) {
          on = true;
          StairsWalk.worldReady(p); // explore=stairs: up to the top floor and down to the lowest level (the wall flicker report)
+         return;
+      }
+      mirror = "mirror".equalsIgnoreCase(HarnessFlags.get("explore", "").trim());
+      if (mirror) {
+         on = true;
+         MirrorWalk.worldReady(p); // explore=mirror director=jev: Jev walks the player over the stations in front of find=mirror's mirror
          return;
       }
       walk = "walk".equalsIgnoreCase(HarnessFlags.get("explore", "").trim());
@@ -170,6 +176,7 @@ public final class Explore {
       command = director ? "hold" : "go_to_restaurant";
       if (stairs) StairsWalk.routeStart(p);
       if (circleJev) CircleWalk.routeStart(p);
+      if (mirror) MirrorWalk.routeStart(p);
       circleLastAngle = (float)Math.atan2(p.getY() - circleY, p.getX() - circleX);
    }
 
@@ -178,6 +185,10 @@ public final class Explore {
       if (!on || !started || finished) return;
       if (circleJev) {
          CircleWalk.tick(p, nowNs);
+         return;
+      }
+      if (mirror) {
+         MirrorWalk.tick(p, nowNs);
          return;
       }
       if (circle) {

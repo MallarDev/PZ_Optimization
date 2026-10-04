@@ -800,7 +800,7 @@ public final class Harness {
                // no teleports during the hold: the player may walk away from the end square (manual tests)
                p.teleportTo((int)x, (int)y, routeZ);
             }
-            if (turnDegPerSec != 0f || faceSet) {
+            if ((turnDegPerSec != 0f || faceSet) && !MirrorWalk.active()) { // explore=mirror faces the player itself
                // spin the facing so the vision cone, lighting cone and buildings-in-front scans keep changing
                turnAngle = (turnAngle + turnDegPerSec * Math.min(dt, 0.1f)) % 360f;
                p.setDirectionAngle(turnAngle);

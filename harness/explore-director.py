@@ -2,7 +2,8 @@
 """Jev directs the explore=restaurant scene (2026-09-25, the flip HDR "north-facing bloom" report) and the
 explore=stairs scene (2026-09-25, walls flicker on the stairs: up to the top floor, down to the basement; the state
 says "scene": "stairs") and the explore=circle scene with director=jev (2026-09-29, the gas-station shelves flicker while
-the player walks in circles: circles round the start square and the aisles beside the shelves; "scene": "circle").
+the player walks in circles: circles round the start square and the aisles beside the shelves; "scene": "circle") and the
+explore=mirror scene (2026-10-04, pzopt.MirrorWalk: every mirror of the save's house, stations in front of each; "scene": "mirror").
 
 The game (pzopt.Explore, flags explore=restaurant director=jev) writes the scene's facts every 0.3 s to
 ~/Zomboid/pzopt-explore-state.json; this loop asks TypeSafe's Jev what the character does next and writes
@@ -91,6 +92,38 @@ CIRCLE = choice(
         "hold": "Stand still. Right only while nothing else applies.",
         "done": "Finish the walk. Right when is_last_spot is true and either clockwise_laps_done and "
                 "counterclockwise_laps_done are both true or blocked_here is true.",
+    },
+)
+
+MIRROR = choice(
+    "You direct a character in Project Zomboid who walks around every mirror of a house so that a tester can look for "
+    "glitches in the reflections, one decision at a time, from the scene state. Mirrors are visited one after another "
+    "(mirror.number of mirrors_total). In front of the current mirror the stations form a small grid (map rows from "
+    "nearest the mirror to furthest, columns along the wall). At every station you arrive at: first face the mirror "
+    "(until faced_mirror_here is true), then turn your back to it (until turned_back_here is true). Once per mirror, after "
+    "those checks, walk one small circle (until circled_at_this_mirror is true). Then move one station at a time with "
+    "left, right, closer or back towards the stations not visited yet, until stations_left_to_visit is 0. When "
+    "all_done_here is true, go to the next mirror with next_mirror, or finish with done at the last mirror. Never pick a "
+    "move or next_mirror while arrived_at_station is false: keep the current action with hold. When time_is_up is true, "
+    "finish with done.",
+    {
+        "left": "Walk to the next station to the left along the wall. Right when arrived_at_station and checks_done_here "
+                "are true, circled_at_this_mirror is true, can_go_left is true and unvisited_to_the_left is true.",
+        "right": "Walk to the next station to the right along the wall. Right when arrived_at_station and checks_done_here "
+                 "are true, circled_at_this_mirror is true, can_go_right is true and unvisited_to_the_right is true.",
+        "closer": "Walk one station closer to the mirror. Right when arrived_at_station and checks_done_here are true, "
+                  "circled_at_this_mirror is true, can_go_closer is true and unvisited_closer is true.",
+        "back": "Walk one station further back from the mirror. Right when arrived_at_station and checks_done_here are "
+                "true, circled_at_this_mirror is true, can_go_back is true and unvisited_further_back is true.",
+        "face_mirror": "Stand and face the mirror. Right when arrived_at_station is true and faced_mirror_here is false.",
+        "turn_around": "Stand with the back to the mirror. Right when arrived_at_station is true, faced_mirror_here is "
+                       "true and turned_back_here is false.",
+        "circle": "Walk one small circle round the station. Right when arrived_at_station is true, checks_done_here is "
+                  "true and circled_at_this_mirror is false.",
+        "next_mirror": "Walk to the next mirror of the house. Right when all_done_here is true and is_last_mirror is false.",
+        "hold": "Keep doing the current action. Right while arrived_at_station is false, or while the current check "
+                "(face_mirror, turn_around, circle) is not finished yet.",
+        "done": "Finish the walk. Right when all_done_here is true and is_last_mirror is true, or when time_is_up is true.",
     },
 )
 
@@ -208,7 +241,7 @@ def main():
         last_t = st["t"]
         lat = []
         try:
-            q = {"stairs": STAIRS, "circle": CIRCLE}.get(st.get("scene"), QUESTION)
+            q = {"stairs": STAIRS, "circle": CIRCLE, "mirror": MIRROR}.get(st.get("scene"), QUESTION)
             ans = ask(st, {"action": q}, log=lat)["action"]
         except Exception as e:  # keep the last command; the next state gets another try
             log.write(f"{st['seconds_since_start']:6.1f}s  jev error: {e}\n")
@@ -224,6 +257,13 @@ def main():
             log.write(f"{st['seconds_since_start']:6.1f}s  {act:<12} conf {ans.get('confidence', 0):.2f}  {lat[0]['ms'] if lat else '?'} ms | "
                       f"spot {s['number']}/{s['spots_total']} at {p['at_spot']} dist {p['distance_to_spot_tiles']:.1f} "
                       f"laps cw {s['laps_clockwise_here']:.2f} ccw {s['laps_counterclockwise_here']:.2f} | {probs}\n")
+            continue
+        if st.get("scene") == "mirror":
+            p, m, s = st["player"], st["mirror"], st["station"]
+            log.write(f"{st['seconds_since_start']:6.1f}s  {act:<12} conf {ans.get('confidence', 0):.2f}  {lat[0]['ms'] if lat else '?'} ms | "
+                      f"mirror {m['number']}/{m['mirrors_total']} arrived {p['arrived_at_station']} faced {s['faced_mirror_here']} "
+                      f"turned {s['turned_back_here']} circled {m['circled_at_this_mirror']} left {m['stations_left_to_visit']} "
+                      f"done_here {m['all_done_here']} map {'/'.join(m['map_rows_near_to_far_columns_left_to_right'])} | {probs}\n")
             continue
         if st.get("scene") == "stairs":
             p, g = st["player"], st["progress"]

@@ -548,7 +548,8 @@ public final class Mirrors {
          float iy = Math.max(0F, Math.min(vh, Math.max(qa, qb)) - Math.max(0F, Math.min(qa, qb)));
          float vis = ix * iy / area;
          boolean fresh = tl.refreshed < 0L;
-         boolean due = passFrame && (fresh || vis > tl.vis + 0.05F || Config.MIRRORS_STATIC_REUSE <= 0 || (skipNow & 256) != 0
+         // (dev view 5 paints the tiles themselves: re-marched every pass frame so a toggled picture is never the dev one)
+         boolean due = passFrame && (fresh || vis > tl.vis + 0.05F || Config.MIRRORS_STATIC_REUSE <= 0 || (skipNow & 256) != 0 || Config.DEV_MIRRORS_VIEW == 5
                || frames - tl.refreshed >= Config.MIRRORS_STATIC_REUSE && budget-- > 0);
          if (!due) {
             continue;
@@ -596,7 +597,11 @@ public final class Mirrors {
       d[o + 11] = r.m1y;
       d[o + 12] = r.axis;
       d[o + 13] = r.c - (r.axis == 0 ? f.view.oy : f.view.ox);
-      d[o + 14] = Math.min(r.z, 0F) - 1F; // the lowest floor a ray may reach (squares under the pane: the march ends at its own floor hit first)
+      // the lowest floor a ray may reach. A mirror hangs in a room with its floor in front, a ground-floor pane has no level
+      // under it: their rays end at their own floor (marched further, a ray that passed behind the bathtub "hit" the
+      // cut-away outer wall's brick strip under the bathroom floor: a medicine cabinet showed a dark brown slab, maintainer's
+      // save 2026-10-04). An upper-floor window looks down at the street below its level. (dev skip bit 32768: the old rule)
+      d[o + 14] = (r.mirror || r.z <= 0F) && (skipNow & 32768) == 0 ? r.z : Math.min(r.z, 0F) - 1F;
       d[o + 15] = r.z;
       d[o + 16] = (r.mirror ? Config.MIRRORS_MIRROR_PCT : Config.MIRRORS_WINDOW_PCT) / 100F;
       d[o + 17] = r.alpha;
@@ -1222,7 +1227,7 @@ public final class Mirrors {
       GL20.glUniform4f(u[8], MAP[0], MAP[1], MAP[2], MAP[3]);
       GL20.glUniform4f(u[9], MAP[4], MAP[5], 0F, Math.max(1, Config.MIRRORS_REACH));
       GL20.glUniform4f(u[10], VPF[0], VPF[1], VPF[2], VPF[3]);
-      GL20.glUniform4f(u[11], Math.max(4, Math.min(64, Config.MIRRORS_STEPS)), Config.MIRRORS_THICKNESS_PCT / 100F, 0F, Math.max(2, Config.MIRRORS_STEP_PX));
+      GL20.glUniform4f(u[11], Math.max(4, Math.min(64, Config.MIRRORS_STEPS)), Config.MIRRORS_THICKNESS_PCT / 100F, Config.MIRRORS_STAND_IN_PCT / 100F, Math.max(2, Config.MIRRORS_STEP_PX));
       int view = Config.DEV_MIRRORS_VIEW_TOGGLE_MS > 0 && (System.currentTimeMillis() / Config.DEV_MIRRORS_VIEW_TOGGLE_MS & 1L) == 1L ? 0 : Config.DEV_MIRRORS_VIEW;
       GL20.glUniform4f(u[13], view, f.skip, "off".equals(Config.MIRRORS_STATIC) ? 0F : 1F, 0F);
    }
@@ -1860,7 +1865,7 @@ public final class Mirrors {
          "uniform vec4 mapA;", // kA, cA, kB, cB
          "uniform vec4 mapC;", // kC, cC (iso depth w = kC depth + cC), -, the longest ray (squares)
          "uniform vec4 vp;",
-         "uniform vec4 march;", // most taps, thickness (iso depth units), -, px between taps
+         "uniform vec4 march;", // most taps, thickness (iso depth units), stand-in strength, px between taps
          "uniform vec4 layerMap;", // on, 1 / k, z0, w0: iso depth of a layer texel = w0 + (ndc z - z0) / k
          "uniform vec4 dev;", // view, skip bits, static on
          "flat in int inst;",
@@ -1879,6 +1884,13 @@ public final class Mirrors {
          "bool inside(vec2 px) { return px.x >= vp.x && px.y >= vp.y && px.x < vp.x + vp.z && px.y < vp.y + vp.w; }",
          // the reflected ray from pane point P (x, y, z relative; z in levels): screen line px0 + pxPerT t, iso depth wM - 2t/3,
          // height z - t/3; the first tap where the scene stands in front of the ray within the thickness, refined
+         // dev view 5: how each ray ended (green floor shortcut, blue marched hit, magenta a marched hit under the pane's own
+         // floor, yellow floor landing hidden (the floor seen last stands in), orange the same with the landing pixel, red
+         // reach fallback, black miss)
+         "vec4 kindOut(vec4 r, vec3 k) { return dev.x == 5.0 ? vec4(k, r.a) : r; }",
+         // a hit: colour, and in alpha the distance (t / reach, 127 steps) with a stand-in flag in its lowest bit (the
+         // composite draws a stand-in, the floor guessed where the camera cannot see it, at mirrorsStandInPct); 255 = none
+         "vec4 hitOut(vec3 c, float t, float standIn) { return vec4(c, (floor(clamp(t / mapC.w, 0.0, 0.99) * 126.0 + 0.5) * 2.0 + standIn) / 255.0); }",
          "vec4 marchRay(vec3 P, float axis, float tMax, float zMin, float floorZ) {",
          "   float tEnd = min(tMax, max(0.05, (P.z - zMin) * 3.0));",
          "   vec2 pxPerT = vec2((axis < 0.5 ? -2.0 : 2.0) / mapA.x, 2.0 / mapA.z);",
@@ -1887,8 +1899,8 @@ public final class Mirrors {
          // floor first: the ray meets the pane's own floor at tf; when the frame shows that floor there and half a march's
          // taps find nothing standing in the ray's way before it, that is the hit (no refinement needed)
          "   float tf = (P.z - floorZ) * 3.0;",
-         "   if ((int(dev.y) & 16) == 0 && tf > 0.05 && tf < tEnd) {",
-         "      vec2 pf = px0 + pxPerT * tf;",
+         "   vec2 pf = px0 + pxPerT * tf;",
+         "   if ((int(dev.y) & 16) == 0 && tf > 0.05 && tf < tEnd + 0.01) {",
          "      if (inside(pf) && abs(isoDepth(pf) - (wM - 0.6666667 * tf)) < 0.25) {",
          "         bool clear = true;",
          "         int kk = max(3, int(clamp(length(pxPerT) * tf / march.w, 4.0, march.x)) / 2);", // half the taps a full march of tf takes (harness/mirrors/march_sim.py: same error as the full march)
@@ -1898,24 +1910,40 @@ public final class Mirrors {
          "            float d = isoDepth(px0 + pxPerT * t) - (wM - 0.6666667 * t);",
          "            if (d >= 0.0 && d < march.y) { clear = false; break; }",
          "         }",
-         "         if (clear) return vec4(texelFetch(WorldColor, ivec2(pf), 0).rgb, min(tf / mapC.w, 0.995));",
+         "         if (clear) return kindOut(hitOut(texelFetch(WorldColor, ivec2(pf), 0).rgb, tf, 0.0), vec3(0.0, 1.0, 0.0));",
          "      }",
          "   }",
          "   int n = int(clamp(length(pxPerT) * tEnd / march.w, 4.0, march.x));",
          "   float dt = tEnd / float(n);",
          "   float tLo = 0.0, tHit = -1.0;",
+         "   vec2 lastFloor = vec2(-1.0);", // the last tap whose pixel shows the pane's own floor (iso depth of that floor there)
          "   for (int i = 1; i <= 64; i++) {",
          "      if (i > n) break;",
          "      float t = dt * float(i);",
          "      vec2 px = px0 + pxPerT * t;",
          "      if (!inside(px)) return vec4(0.0, 0.0, 0.0, 1.0);",
-         "      float d = isoDepth(px) - (wM - 0.6666667 * t);",
+         "      float iz = isoDepth(px);",
+         "      float d = iz - (wM - 0.6666667 * t);",
          "      if (d >= 0.0 && d < march.y) { tHit = t; break; }",
+         "      if (t < tf && abs(iz - (P.x + P.y - 6.0 * P.z + 2.0 * t + 8.0 * floorZ)) < 0.25) lastFloor = px;",
          "      tLo = t;",
          "   }",
          "   if (tHit < 0.0) {",
          "      if ((P.z - zMin) * 3.0 > tMax) return vec4(0.0, 0.0, 0.0, 1.0);", // out of reach before any floor
+         // nothing in the ray's way and its landing on the pane's own floor hidden from the camera (a table, chairs, a
+         // bathtub standing there): the floor goes on under what hides it, the last floor pixel the ray passed over stands
+         // in, flagged as a stand-in (drawn at mirrorsStandInPct); without one, the landing pixel. (Maintainer's save,
+         // 2026-10-04: the ray's end one level under the floor, the old stand-in, showed a pixel squares away, the house's
+         // siding as grey bands across a wall mirror's upper half; the landing pixel alone made the dining table's grey top
+         // one flat slab over it.)
+         "      if ((int(dev.y) & 16) == 0 && (int(dev.y) & 32768) == 0 && tf > 0.05 && tf < tEnd + 0.01 && inside(pf)) {",
+         "         vec2 sp = lastFloor.x >= 0.0 && (int(dev.y) & 65536) == 0 ? lastFloor : pf;",
+         "         return kindOut(hitOut(texelFetch(WorldColor, ivec2(sp), 0).rgb, tf, 1.0), sp == pf ? vec3(1.0, 0.5, 0.0) : vec3(1.0, 1.0, 0.0));",
+         "      }",
          "      tHit = tEnd;", // the floor under the ray (hidden from the camera: its colour on screen stands in)
+         "      vec2 pe = px0 + pxPerT * tHit;",
+         "      if (!inside(pe)) return vec4(0.0, 0.0, 0.0, 1.0);",
+         "      return kindOut(hitOut(texelFetch(WorldColor, ivec2(pe), 0).rgb, tHit, 1.0), vec3(1.0, 0.0, 0.0));",
          "   } else {",
          "      float a = tLo, b = tHit;",
          "      for (int k = 0; k < 4; k++) {",
@@ -1924,10 +1952,14 @@ public final class Mirrors {
          "         if (d >= 0.0 && d < march.y) b = m; else a = m;",
          "      }",
          "      tHit = b;",
+         // A "hit" in the last 0.15 levels above the pane's own floor, with a floor seen on the way: the ray reached the
+         // floor behind what hides it. The thickness test took a thin cut-away wall stub there for a solid (a medicine
+         // cabinet reflected the bathroom's outer brick strip, maintainer's save 2026-10-04): the floor goes on instead.
+         "      if ((int(dev.y) & 32768) == 0 && tf > 0.05 && tHit > tf - 0.45 && lastFloor.x >= 0.0) return kindOut(hitOut(texelFetch(WorldColor, ivec2(lastFloor), 0).rgb, tf, 1.0), vec3(1.0, 1.0, 0.0));",
          "   }",
          "   vec2 px = px0 + pxPerT * tHit;",
          "   if (!inside(px)) return vec4(0.0, 0.0, 0.0, 1.0);",
-         "   return vec4(texelFetch(WorldColor, ivec2(px), 0).rgb, min(tHit / mapC.w, 0.995));",
+         "   return kindOut(hitOut(texelFetch(WorldColor, ivec2(px), 0).rgb, tHit, 0.0), tf > 0.05 && tHit > tf + 0.1 ? vec3(1.0, 0.0, 1.0) : vec3(0.0, 0.3, 1.0));",
          "}");
 
    private static String oldMain(boolean stat) {
@@ -1980,8 +2012,10 @@ public final class Mirrors {
          "   if ((int(dev.y) & 8) != 0) { fragColor = vec4(1.0, 0.0, 1.0, 0.5 * mask); return; }",
          "   vec4 r = vec4(0.0, 0.0, 0.0, 1.0);",
          "   if (dev.z > 0.5) r = st.w > 0.5 ? texelFetch(StaticTex, ivec2(tile.xy) + texel, 0) : dev.w < 0.5 ? marchRay(P, pl.x, st.z, pl.z, pl.w) : r;", // (no static yet, live reads off: the reflection starts next frame)
-         "   bool hit = r.a < 0.999;",
-         "   float tS = hit ? r.a * mapC.w : 1e9;",
+         "   float code = floor(r.a * 255.0 + 0.5);", // hitOut's alpha: distance steps and the stand-in bit; 255 = no reflection
+         "   bool hit = code < 254.5;",
+         "   float conf = mod(code, 2.0) > 0.5 ? march.z : 1.0;",
+         "   float tS = hit ? floor(code * 0.5) / 126.0 * mapC.w : 1e9;",
          "   vec3 col = r.rgb;",
          "   vec4 lc = vec4(0.0);",
          "   if (layerMap.x > 0.5) {",
@@ -1989,14 +2023,14 @@ public final class Mirrors {
          "      if (lc.a > 0.01) {",
          "         float wP = layerMap.w + (texelFetch(LayerDepth, ivec2(fc), 0).r * 2.0 - 1.0 - layerMap.z) * layerMap.y;",
          "         float tM = 0.375 * (wM - wP);", // the model's distance in front of the pane (iso depth falls 8/3 a square behind it)
-         "         if (tM < tS + 0.15) { col = mix(col, lc.rgb, lc.a); hit = true; tS = min(tS, tM); }",
+         "         if (tM < tS + 0.15) { col = mix(col, lc.rgb, lc.a); conf = mix(conf, 1.0, lc.a); hit = true; tS = min(tS, tM); }",
          "      }",
          "   }",
          "   if (!hit) discard;",
          "   float fade = 1.0 - smoothstep(0.75, 1.0, tS / mapC.w);",
-         "   float a = mask * st.x * st.y * fade;",
-         "   if (dev.x == 1.0) a = mask;",
-         "   if (dev.x == 2.0) { fragColor = vec4(mask, r.a < 0.999 ? 1.0 : 0.0, 0.0, 1.0); return; }",
+         "   float a = mask * st.x * st.y * fade * conf;",
+         "   if (dev.x == 1.0 || dev.x == 5.0) a = mask;",
+         "   if (dev.x == 2.0) { fragColor = vec4(mask, code < 254.5 ? 1.0 : 0.0, 0.0, 1.0); return; }",
          "   if (dev.x == 3.0) { fragColor = vec4(vec3(tS / mapC.w), mask); return; }",
          "   if (dev.x == 4.0) { fragColor = vec4(lc.rgb, mask * lc.a); return; }",
          "   fragColor = vec4(col, a);",
