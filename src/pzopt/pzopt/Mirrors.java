@@ -240,6 +240,80 @@ public final class Mirrors {
       return null;
    }
 
+   // the cutaway flag each mirror-carrying wall was last drawn with (its bake): the reflection follows the wall on screen
+   private static final java.util.WeakHashMap<IsoObject, Integer> DRAWN_CUT = new java.util.WeakHashMap<>();
+
+   /** Game thread, FBORenderCell.renderMinusFloor_DoorOrWall: a wall drawn (into its chunk texture, or per frame) with this cut. */
+   public static void wallDrawn(IsoObject wall, int cut) {
+      if (Config.MIRRORS && !failed && Config.MIRRORS_DRAWN_CUT && attachedMirror(wall) != null) {
+         DRAWN_CUT.put(wall, cut);
+      }
+   }
+
+   /** The cut a wall mirror's wall shows on screen: the one it was last drawn with, else the live flag. */
+   public static int drawnCut(IsoObject wall, int live) {
+      if (!Config.MIRRORS_DRAWN_CUT) {
+         return live;
+      }
+      Integer c = DRAWN_CUT.get(wall);
+      return c == null ? live : c;
+   }
+
+   /** The cutaway bits (1 north, 2 west) of a square's walls that carry a mirror the camera sees: a map overlay or a mirror tile. */
+   public static int mirrorWallBits(IsoGridSquare sq) {
+      if (!Config.MIRRORS || failed || sq == null) {
+         return 0;
+      }
+      int bits = 0;
+      for (int i = 0, n = sq.getObjects().size(); i < n; i++) {
+         IsoObject o = sq.getObjects().get(i);
+         zombie.iso.sprite.IsoSpriteInstance att = attachedMirror(o);
+         if (att != null) {
+            bits |= att.getParentSprite().getProperties().has(zombie.iso.SpriteDetails.IsoFlagType.attachedN) ? 1 : 2;
+            continue;
+         }
+         float[] info = o == null ? null : mirrorInfo(o.getSprite());
+         if (info != null) {
+            bits |= info[0] == 0F ? 1 : 2;
+         }
+      }
+      return bits;
+   }
+
+   // dev (devMirrorsLog): why each wall's mirror overlay was or was not captured this frame, logged when it changes
+   private static final IdentityHashMap<IsoObject, String> DEV_ATT = new IdentityHashMap<>(), DEV_ATT_NOW = new IdentityHashMap<>();
+
+   public static void devAttached(IsoObject wall, String why) {
+      if (Config.DEV_MIRRORS_LOG && wall != null && wall.square != null && attachedMirror(wall) != null) {
+         String had = DEV_ATT_NOW.get(wall);
+         if (had == null || !had.startsWith("captured")) { // (a level group's other level passes the square too: a capture wins)
+            DEV_ATT_NOW.put(wall, why);
+         }
+      }
+   }
+
+   private static void devAttachedFrame() {
+      for (java.util.Map.Entry<IsoObject, String> e : DEV_ATT.entrySet()) {
+         DEV_ATT_NOW.putIfAbsent(e.getKey(), "absent");
+      }
+      for (java.util.Map.Entry<IsoObject, String> e : DEV_ATT_NOW.entrySet()) {
+         String old = DEV_ATT.put(e.getKey(), e.getValue());
+         if (!e.getValue().equals(old)) {
+            IsoGridSquare sq = e.getKey().square;
+            zombie.iso.sprite.IsoSpriteInstance s = attachedMirror(e.getKey());
+            boolean north = s != null && s.getParentSprite().getProperties().has(zombie.iso.SpriteDetails.IsoFlagType.attachedN);
+            float ax = north ? sq.x + 0.5F : sq.x, ay = north ? sq.y : sq.y + 0.5F, az = sq.z + 0.4F; // the glass's middle, roughly
+            IsoCamera.FrameState fs = IsoCamera.frameState;
+            float zoom = fs.zoom > 0F ? fs.zoom : 1F;
+            String at = String.format(java.util.Locale.ROOT, " screen %.0f,%.0f", (zombie.iso.IsoUtils.XToScreen(ax, ay, az, 0) - fs.offX) / zoom,
+               (zombie.iso.IsoUtils.YToScreen(ax, ay, az, 0) - fs.offY) / zoom);
+            Log.info("mirrors: dev attached " + (s != null ? s.getParentSprite().getName() : "?") + " on " + e.getKey().getSprite().getName() + " at " + sq.x + "," + sq.y + "," + sq.z
+               + ": " + old + " -> " + e.getValue() + " (frame " + frames + at + ", epoch_ms=" + System.currentTimeMillis() + ")");
+         }
+      }
+      DEV_ATT_NOW.clear();
+   }
+
    /**
     * Game thread, FBORenderCell's animated-attachments pass: a wall's mirror overlay about to be drawn transparent, for its
     * quad (the baked copy is what shows; the reflection is composited over it like over a mirror object).
@@ -413,6 +487,7 @@ public final class Mirrors {
       // composites: this frame's reflectors, one batch per level
       final float[] lData = new float[MAXR * TEX * 4];
       final Tile[] lTile = new Tile[MAXR]; // the pane of each composite row (its visibility count comes back here)
+      final String[] lName = new String[MAXR]; // dev (devMirrorsLog): each composite row's square, for the rects log
       final Texture[] lTex = new Texture[MAXR];
       int nL, nBatches;
       final LateDrawer[] late = new LateDrawer[MAX_BATCHES];
@@ -457,6 +532,9 @@ public final class Mirrors {
    public static void beginFrame(int playerIndex) {
       if (Config.MIRRORS && !failed) {
          SpriteRenderer.instance.drawGeneric(DROP_STALE);
+      }
+      if (Config.DEV_MIRRORS_LOG) {
+         devAttachedFrame();
       }
       // last frame's capture becomes the static pass's list
       for (Refl r : prev) {
@@ -937,6 +1015,9 @@ public final class Mirrors {
          Tile t = TILES.get(r.key);
          f.lTile[f.nL] = t;
          pack(f, r, f.lData, f.nL, t != null && t.refreshed >= 0L && t.gen == atlasGen && (skipNow & 1) == 0);
+         if (Config.DEV_MIRRORS_LOG) {
+            f.lName[f.nL] = r.key instanceof IsoObject ko && ko.square != null ? ko.square.x + "," + ko.square.y + "," + ko.square.z : "?";
+         }
          f.lTex[f.nL++] = r.tex;
       }
       if (f.nL == start) {
@@ -1478,7 +1559,7 @@ public final class Mirrors {
             }
             ensureStatic();
             mapping(this.f);
-            if (Config.DEV_MIRRORS_LOG && this.f.serial % 120 < 3) {
+            if (Config.DEV_MIRRORS_LOG && this.f.serial % Math.max(1, Config.DEV_MIRRORS_RECTS_EVERY) < Math.min(3, Math.max(1, Config.DEV_MIRRORS_RECTS_EVERY))) {
                // dev: each reflector's window px rect (GL origin bottom-left; image rows = viewport height - y), for crops
                StringBuilder sb = new StringBuilder("mirrors: dev rects (viewport " + VPI[2] + "x" + VPI[3] + "):");
                for (int k = 0, shown = 0; k < 2 * this.count && shown < 16; k++) {
@@ -1490,10 +1571,10 @@ public final class Mirrors {
                   shown++;
                   float x0 = (this.f.lData[o] - MAP[1]) / MAP[0], x1 = (this.f.lData[o + 2] - MAP[1]) / MAP[0];
                   float y0 = (this.f.lData[o + 1] - MAP[3]) / MAP[2], y1 = (this.f.lData[o + 3] - MAP[3]) / MAP[2];
-                  sb.append(String.format(java.util.Locale.ROOT, " [%s %.0f,%.0f %.0fx%.0f]", this.f.lData[o + 24] > 0.5F ? "mirror" : "window",
-                     Math.min(x0, x1), VPI[3] - Math.max(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)));
+                  sb.append(String.format(java.util.Locale.ROOT, " [%s %.0f,%.0f %.0fx%.0f @%s]", this.f.lData[o + 24] > 0.5F ? "mirror" : "window",
+                     Math.min(x0, x1), VPI[3] - Math.max(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0), this.f.lName[this.start + i]));
                }
-               Log.info(sb.toString());
+               Log.info(sb.append(" epoch_ms=").append(System.currentTimeMillis()).toString());
             }
             long tu = System.nanoTime();
             upload(this.f, 1, this.f.lData, this.start, this.count);

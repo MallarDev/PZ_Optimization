@@ -6226,3 +6226,32 @@ its place in the loop and compares every saved field and the moving square (the 
 ### pzopt.BakeScheduler (census)
 - While an alternation runs, the grants of each frame by tier (must / level-change burst, arrival quota, overdue, normal)
   and the levels offered go to the `bake_t0..3` / `bake_offered` columns.
+
+## Mirrors by a room corner: the wall's cutaway lock (2026-10-06, maintainer report on the flip; docs/findings-mirror-corner-2026-10-06.md)
+
+The game cuts a room's walls away round the player. At a room corner the visitor's cut of a wall flips every 0.1-0.7 s
+while the player walks (its points of interest are the squares the player can see, which change with every turn; the
+same with every pzopt cutaway key off, so stock behaviour). Stock's `IsoGridSquare.setPlayerCutawayFlag` keeps a 750 ms
+lock, but with `fboRenderChunk` `getPlayerCutawayFlag` returns the target flag and the lock is never read. On a wall
+carrying a mirror the reflection made every flip a visible pop (the upstairs bathroom mirror of the flip save).
+
+### zombie.iso.fboRenderChunk.FBORenderCutaways
+- `doCutawayVisitSquares(int, ArrayList)`: after the exterior-wall pass, before the change detection, calls
+  `pzoptHoldMirrorWalls` (`mirrorsCutawayHoldMs`, default 750, 0 = stock). For every square whose walls carry a mirror
+  (`Mirrors.mirrorWallBits`: a map wall-mirror overlay or a mirror tile; both walls of a corner square) it keeps, per
+  cut bit, what the visit wanted and what is applied: a change applies at most once per hold (the first cut at once),
+  and the wall comes back only after visits have not wanted it for twice the hold. The applied state goes into the
+  visitor's result sets (this frame's cuts and the next visit's squares to clear), so the stock flag loops and the
+  change detection run on it unchanged. First player only (split screen: the others stock).
+- New `pzoptHoldTick(long)`: the visit runs only when something changed, so a change that became due without one is
+  applied here (flag set / cleared, its chunk level invalidated with 2048). A forced visit was tried first: it gave
+  another verdict than the last visit and the wall came back for 0.1 s.
+
+### zombie.iso.fboRenderChunk.FBORenderCell
+- After the cutaway visit: `FBORenderCutaways.pzoptHoldTick` every frame for the first player.
+- `renderMinusFloor_DoorOrWall`: `Mirrors.wallDrawn(object, cutawaySelf)` records the cut a wall carrying a mirror
+  overlay was drawn (baked) with; `pzoptCaptureAttachedMirror` captures by that cut (`mirrorsDrawnCut`, default on)
+  instead of the live flag, so the reflection follows the wall on screen even when a re-bake lags the flag.
+- Dev (`devMirrorsLog`): `renderOneLevel_AnimatedAttachments` / `renderAnimatedAttachments` / `pzoptCaptureAttachedMirror`
+  report why a wall's mirror overlay was or was not captured (`Mirrors.devAttached`; the console line `mirrors: dev
+  attached ... A -> B (frame N screen X,Y, epoch_ms=T)` on every change).

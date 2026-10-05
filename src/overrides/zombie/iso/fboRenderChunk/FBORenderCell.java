@@ -562,6 +562,7 @@ public final class FBORenderCell {
             if (var38) {
                FBORenderCutaways.getInstance().doCutawayVisitSquares(playerIndex, this.pzoptCutawayVisitChunks(perPlayerData1));
             }
+            if (playerIndex == 0) FBORenderCutaways.getInstance().pzoptHoldTick(this.currentTimeMillis); // pzopt: mirrors, a held mirror wall whose hold ran out gets its wall back (mirrorsCutawayHoldMs)
          } catch (Throwable var29) {
             if (var41 != null) {
                try {
@@ -4532,6 +4533,7 @@ public final class FBORenderCell {
       int cutawayS = squareS == null ? 0 : squareS.getPlayerCutawayFlag(playerIndex, this.currentTimeMillis);
       int cutawayW = squareW == null ? 0 : squareW.getPlayerCutawayFlag(playerIndex, this.currentTimeMillis);
       int cutawayE = squareE == null ? 0 : squareE.getPlayerCutawayFlag(playerIndex, this.currentTimeMillis);
+      pzopt.Mirrors.wallDrawn(object, cutawaySelf); // pzopt: mirrors, the cut a wall mirror's wall is drawn (baked) with
       IsoObjectType t = IsoObjectType.MAX;
       if (object.sprite != null) {
          t = object.sprite.getTileType();
@@ -5608,7 +5610,9 @@ public final class FBORenderCell {
             IsoGridSquare square = squares.get(i);
             if (square.z == level && levelData.shouldRenderSquare(playerIndex, square) && square.IsOnScreen()) {
                this.renderAnimatedAttachments(square);
-            }
+            } else if (pzopt.Config.DEV_MIRRORS_LOG && square.z == level) { // pzopt: mirrors, dev: why a wall mirror was not captured
+               for (int k = 0; k < square.getObjects().size(); k++) pzopt.Mirrors.devAttached(square.getObjects().get(k), "square skipped (level " + (square.z == level) + ", shouldRender " + levelData.shouldRenderSquare(playerIndex, square) + ", onScreen " + square.IsOnScreen() + ")"); // pzopt
+            } // pzopt
          }
       }
    }
@@ -5630,6 +5634,8 @@ public final class FBORenderCell {
          }
          if (renderLayer != ObjectRenderLayer.None) { // pzopt: mirrors
             this.pzoptCaptureAttachedMirror(object); // pzopt
+         } else if (pzopt.Config.DEV_MIRRORS_LOG) { // pzopt: mirrors, dev
+            pzopt.Mirrors.devAttached(object, "render layer None"); // pzopt
          } // pzopt
       }
 
@@ -5651,12 +5657,19 @@ public final class FBORenderCell {
       }
       int playerIndex = IsoCamera.frameState.playerIndex;
       boolean north = s.getParentSprite().getProperties().has(IsoFlagType.attachedN);
-      if ((wall.square.getPlayerCutawayFlag(playerIndex, this.currentTimeMillis) & (north ? 1 : 2)) != 0) {
+      // the cut the wall is drawn with: its baked chunk texture follows the live flag frames later (the bake scheduler), so
+      // the live flag turned the reflection off while the wall still showed, and on over the gap before the wall was back:
+      // at a corner the flag flips every few tenths of a second as the player walks (flip save, upstairs bathroom mirror)
+      int cut = pzopt.Mirrors.drawnCut(wall, wall.square.getPlayerCutawayFlag(playerIndex, this.currentTimeMillis));
+      if ((cut & (north ? 1 : 2)) != 0) {
+         pzopt.Mirrors.devAttached(wall, "cut away (drawn " + cut + ", live " + wall.square.getPlayerCutawayFlag(playerIndex, this.currentTimeMillis) + ", north " + north + ")");
          return;
       }
       if (!pzopt.Mirrors.beginCaptureAttached(wall, s)) {
+         pzopt.Mirrors.devAttached(wall, "beginCaptureAttached false");
          return;
       }
+      pzopt.Mirrors.devAttached(wall, "captured (drawn " + cut + ", live " + wall.square.getPlayerCutawayFlag(playerIndex, this.currentTimeMillis) + ", north " + north + ")");
       try {
          this.pzoptMirrorCol.set(1.0F, 1.0F, 1.0F, 0.001F);
          s.getParentSprite().render(s, wall, wall.getX(), wall.getY(), wall.getZ(), IsoDirections.N, wall.offsetX,

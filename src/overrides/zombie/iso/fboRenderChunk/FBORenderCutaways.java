@@ -40,6 +40,133 @@ public final class FBORenderCutaways {
       pzopt.Overrides.onClassLoaded("zombie.iso.fboRenderChunk.FBORenderCutaways");
    }
 
+   // pzopt: mirrors (Config.MIRRORS_CUTAWAY_HOLD_MS). At a room corner the visitor's cut of a wall flips every 0.1-0.7 s
+   // while the player walks (its points of interest are the squares the player can see, which change with every turn);
+   // on a wall carrying a mirror the reflection made every flip a visible pop. Such a square (both its walls: at a corner
+   // the one beside the mirror flapped as well) gets stock's own 750 ms cutaway lock back, which the fboRenderChunk path
+   // never reads: its cut changes at most once per hold (the first cut at once), and the wall returns only after visits
+   // have not wanted it for twice the hold. The visit runs only when something changed, so pzoptHoldTick applies a change that
+   // became due without one (a forced visit gave another verdict than the last one: the wall came back for 0.1 s).
+   private static final class PzoptMirrorCut {
+      final boolean[] cut = new boolean[2], wanted = new boolean[2];
+      final long[] changedAt = new long[2], wantedAt = new long[2]; // (wantedAt: when wanted last changed)
+   }
+
+   private final java.util.IdentityHashMap<IsoGridSquare, PzoptMirrorCut> pzoptMirrorCut = new java.util.IdentityHashMap<>();
+   private long pzoptHoldNext;
+   public static long pzoptMirrorCutsHeld, pzoptMirrorCutsDelayed, pzoptMirrorCutsReleased;
+
+   /** The cut a mirror wall's bit should show now (k.cut updated, the change time stamped); false = no change. */
+   private static boolean pzoptDecide(PzoptMirrorCut k, int b, long now, int hold) {
+      boolean want = k.wanted[b];
+      if (want == k.cut[b]) {
+         return false;
+      }
+      boolean lockOver = now - k.changedAt[b] >= hold;
+      if (want ? lockOver : lockOver && now - k.wantedAt[b] >= 2L * hold) { // (the wall returns after twice the hold unwanted: a corner wanted the cut 0.4 s, not 0.75 s, then again)
+         k.cut[b] = want;
+         k.changedAt[b] = now;
+         return true;
+      }
+      return false;
+   }
+
+   private void pzoptHoldMirrorWalls(int playerIndex, FBORenderCutaways.PerPlayerData pd, long now) {
+      int hold = pzopt.Overrides.enabled() ? pzopt.Config.MIRRORS_CUTAWAY_HOLD_MS : 0;
+      if (playerIndex != 0) {
+         return; // (split screen: the first player's view only)
+      }
+      if (hold <= 0) {
+         this.pzoptHoldNext = 0L;
+         this.pzoptMirrorCut.clear();
+         return;
+      }
+      for (int b = 0; b < 2; b++) {
+         for (IsoGridSquare square : b == 0 ? pd.cutawayVisitorResultsNorth : pd.cutawayVisitorResultsWest) {
+            if (!this.pzoptMirrorCut.containsKey(square) && pzopt.Mirrors.mirrorWallBits(square) != 0) {
+               this.pzoptMirrorCut.put(square, new PzoptMirrorCut());
+            }
+         }
+      }
+      long next = 0L;
+      java.util.Iterator<java.util.Map.Entry<IsoGridSquare, PzoptMirrorCut>> it = this.pzoptMirrorCut.entrySet().iterator();
+      while (it.hasNext()) {
+         java.util.Map.Entry<IsoGridSquare, PzoptMirrorCut> e = it.next();
+         IsoGridSquare square = e.getKey();
+         PzoptMirrorCut k = e.getValue();
+         boolean onLevel = square.z == PZMath.fastfloor(IsoCamera.frameState.camCharacterZ);
+         for (int b = 0; b < 2; b++) {
+            java.util.HashSet<IsoGridSquare> set = b == 0 ? pd.cutawayVisitorResultsNorth : pd.cutawayVisitorResultsWest;
+            boolean want = set.contains(square) && onLevel;
+            if (want != k.wanted[b]) {
+               k.wanted[b] = want;
+               k.wantedAt[b] = now;
+            }
+            pzoptDecide(k, b, now, hold);
+            if (k.cut[b] && onLevel) {
+               if (!want) {
+                  pzoptMirrorCutsHeld++;
+               }
+               set.add(square); // cut: the visitor's sets are this frame's cut, and the next visit's squares to clear
+            } else {
+               if (want) {
+                  pzoptMirrorCutsDelayed++;
+               }
+               set.remove(square);
+               k.cut[b] = false;
+            }
+            if (k.cut[b] != k.wanted[b]) {
+               long due = Math.max(k.changedAt[b], k.cut[b] ? k.wantedAt[b] + hold : 0L) + hold;
+               next = next == 0L ? due : Math.min(next, due);
+            }
+         }
+         if (!k.cut[0] && !k.cut[1] && !k.wanted[0] && !k.wanted[1] && now - Math.max(k.changedAt[0], k.changedAt[1]) >= hold) {
+            it.remove();
+         }
+      }
+      this.pzoptHoldNext = next;
+   }
+
+   /** pzopt: every frame, the first player: a mirror wall's cut change that became due without a visit is applied here. */
+   public void pzoptHoldTick(long now) {
+      if (this.pzoptHoldNext == 0L || now < this.pzoptHoldNext) {
+         return;
+      }
+      FBORenderCutaways.PerPlayerData pd = this.perPlayerData[0];
+      int hold = pzopt.Config.MIRRORS_CUTAWAY_HOLD_MS;
+      long next = 0L;
+      for (java.util.Map.Entry<IsoGridSquare, PzoptMirrorCut> e : this.pzoptMirrorCut.entrySet()) {
+         IsoGridSquare square = e.getKey();
+         PzoptMirrorCut k = e.getValue();
+         for (int b = 0; b < 2; b++) {
+            if (pzoptDecide(k, b, now, hold)) {
+               int bit = b + 1;
+               java.util.HashSet<IsoGridSquare> set = b == 0 ? pd.cutawayVisitorResultsNorth : pd.cutawayVisitorResultsWest;
+               int flags = square.getPlayerCutawayFlag(0, 0L);
+               int nf = k.cut[b] ? flags | bit : flags & ~bit;
+               if (k.cut[b]) {
+                  set.add(square);
+               } else {
+                  set.remove(square);
+                  pzoptMirrorCutsReleased++;
+               }
+               if (nf != flags) {
+                  square.setPlayerCutawayFlag(0, nf, now);
+                  IsoChunk chunk = square.getChunk();
+                  if (chunk != null) {
+                     chunk.getRenderLevels(0).invalidateLevel(square.z, 2048L);
+                  }
+               }
+            }
+            if (k.cut[b] != k.wanted[b]) {
+               long due = Math.max(k.changedAt[b], k.cut[b] ? k.wantedAt[b] + hold : 0L) + hold;
+               next = next == 0L ? due : Math.min(next, due);
+            }
+         }
+      }
+      this.pzoptHoldNext = next;
+   }
+
    // pzopt: cutaway change detection (Config.CUTAWAY_INVALIDATE_CHANGED): target flags of last frame's result
    // squares before they are cleared, and the chunks whose square flags really changed this visit
    private final java.util.IdentityHashMap<IsoGridSquare, Integer> pzoptOldFlags = new java.util.IdentityHashMap<>();
@@ -416,6 +543,8 @@ public final class FBORenderCutaways {
             }
          }
       }
+
+      this.pzoptHoldMirrorWalls(playerIndex, perPlayerData1, currentTimeMillis); // pzopt: mirrors, a mirror's wall stays cut through a corner's flapping
 
       if (pzoptChanged) { // pzopt: squares entering the result sets keep their pre-visit flag as the "old" value
          for (IsoGridSquare square : perPlayerData1.cutawayVisitorResultsNorth) {
