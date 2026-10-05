@@ -60,6 +60,7 @@ public final class PuddleVbo {
       int z;
       float jx;
       float jy;
+      float jdepth; // the camera jiggle's share of the depth (PuddleCache.jiggleDepth), added by the earlyZ shader
       final ArrayList<Item> items = new ArrayList<>();
 
       @Override
@@ -95,7 +96,7 @@ public final class PuddleVbo {
       return PuddleCache.enabled() && Config.PUDDLE_VBO;
    }
 
-   static Frame begin(int playerIndex, int z, float jx, float jy) {
+   static Frame begin(int playerIndex, int z, float jx, float jy, float jdepth) {
       Frame f = framePool.poll();
       if (f == null) {
          f = new Frame();
@@ -104,6 +105,7 @@ public final class PuddleVbo {
       f.z = z;
       f.jx = jx;
       f.jy = jy;
+      f.jdepth = jdepth;
       return f;
    }
 
@@ -188,6 +190,7 @@ public final class PuddleVbo {
          // the jiggle stock adds to every vertex, as a translation of the same matrix
          mvp.set(projection).mul(modelView).translate(f.jx, f.jy, 0.0F);
          program.setValue("ModelViewProjection", mvp);
+         program.setValue("pzoptDepthShift", f.jdepth); // the jiggle's depth (pzopt_puddles_common.vert; absent in stock's programs)
 
          // the state of IsoPuddles.renderSome
          GL15.glBindBuffer(34963, ebo);
@@ -248,6 +251,7 @@ public final class PuddleVbo {
          SpriteRenderer.ringBuffer.restoreVbos = true;
          Core.getInstance().projectionMatrixStack.pop();
          Core.getInstance().modelViewMatrixStack.pop();
+         program.setValue("pzoptDepthShift", 0.0F); // the CPU paths share the program and pack the jiggle into the vertices
          ShaderHelper.glUseProgramObjectARB(0);
          GL11.glPopAttrib();
          GL11.glPopClientAttrib();

@@ -4248,7 +4248,16 @@ public final class FBORenderCell {
       }
    }
 
-   public void renderFloor(IsoObject object) {
+   public void renderFloor(IsoObject object) { // pzopt
+      boolean pzoptFloor = pzopt.Sway.floorBegin(); // pzopt: swayFloorExact, a floor bakes its depth exactly as stock
+      try { // pzopt
+         this.pzoptRenderFloor(object); // pzopt
+      } finally { // pzopt
+         if (pzoptFloor) pzopt.Sway.floorEnd(); // pzopt
+      } // pzopt
+   } // pzopt
+
+   private void pzoptRenderFloor(IsoObject object) { // pzopt: stock renderFloor's body
       int playerIndex = IsoCamera.frameState.playerIndex;
       ObjectRenderInfo renderInfo = object.getRenderInfo(playerIndex);
       IsoGridSquare square = object.square;

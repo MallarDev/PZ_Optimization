@@ -122,7 +122,7 @@ public final class Sway {
    /** texd.c tag of a StartShader that draws foliage (read on the render thread). */
    public static final int TAG = 0x53574159;
 
-   public static long foliageDraws, rigidDraws, bakesWithFoliage, auxCreated, auxFreed, auxCleared, treeQuads;
+   public static long foliageDraws, rigidDraws, floorDraws, bakesWithFoliage, auxCreated, auxFreed, auxCleared, treeQuads;
 
    /**
     * Game thread, FBORenderCell.renderMinusFloor right before {@code object.render}: is this a plant that sways, baked
@@ -228,6 +228,21 @@ public final class Sway {
       return m != null && rc != null ? m : null;
    }
 
+   /** Game thread: FBORenderCell.renderFloor draws a floor object until {@link #floorEnd()} (swayFloorExact). */
+   private static boolean floorOn;
+
+   public static boolean floorBegin() {
+      if (!frameOn || floorOn) {
+         return false;
+      }
+      floorOn = true;
+      return true;
+   }
+
+   public static void floorEnd() {
+      floorOn = false;
+   }
+
    public static void end() {
       objOn = false;
       SpriteRenderer.instance.drawGeneric(RESET); // the plant's uniforms off the program: a sprite drawn without its own shader start inherits them
@@ -307,10 +322,19 @@ public final class Sway {
       }
       ShaderUniformSetter a;
       ShaderUniformSetter b;
-      if (!objOn && CLEAN.contains(program)) {
+      if (!objOn && floorOn && Config.SWAY_FLOOR_EXACT) {
+         // a floor (a flat roof is one): sway off for its draws, the depth written exactly as stock writes it. The rigid flag
+         // (the depth's lowest bit cleared) moved half the texels one DEPTH16 step nearer, and the puddle pass, 1e-4 in
+         // front of the floor, lost to the corrugation of the flat roofs' depth: white dashes flickering over the roofs in
+         // the rain (2026-10-05, Discord). An odd floor texel reads as "sways" to the composite; the attribute it writes
+         // has weight 0, so the lookup lands on the texel itself.
+         CLEAN.remove(program);
+         a = ShaderUniformSetter.uniform4f(l1, 0F, 0F, 0F, 0F);
+         b = null;
+         floorDraws++;
+      } else if (!objOn && CLEAN.contains(program)) {
          return uniforms; // the program's sway uniform already says "rigid"
-      }
-      if (objOn) {
+      } else if (objOn) {
          CLEAN.remove(program);
          FBORenderChunk rc = FBORenderChunkManager.instance.renderChunk;
          float texScale = rc != null && rc.highRes ? 2F : 1F;
@@ -2415,7 +2439,7 @@ public final class Sway {
    // ------------------------------------------------------------------------------------------------ status
 
    public static String stats() {
-      return "foliage sway: on=" + frameOn + " foliageDraws=" + foliageDraws + " rigidDraws=" + rigidDraws + " bakesWithFoliage=" + bakesWithFoliage
+      return "foliage sway: on=" + frameOn + " foliageDraws=" + foliageDraws + " rigidDraws=" + rigidDraws + " floorDraws=" + floorDraws + " bakesWithFoliage=" + bakesWithFoliage
          + " aux=" + BY_INDEX.size() + " (" + (auxBytes >> 20) + " MB, created " + auxCreated + ", freed " + auxFreed + " of them " + auxReleasedEmpty + " empty bakes, " + auxEvicted + " evicted; cleared " + auxCleared + ")"
          + " composite draws=" + compositeDraws + " with sway=" + compositeSwayDraws + " variant=" + variantDraws + " twin=" + twinDraws + " mvFrames=" + mvFrames + " mvClears=" + mvClears + " pushQueued=" + pushQueued + " pushers=" + PUSH_BY_ID.size() + " treeQuads=" + treeQuads;
    }

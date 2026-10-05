@@ -42,6 +42,22 @@ import zombie.iso.fboRenderChunk.ObjectRenderLayer;
 public final class PuddleCache {
    /** Floats per square in IsoPuddles.RenderData: 4 vertices x (4 dir flags, x, y, colour, depth). */
    static final int FLOATS = 32;
+
+   /**
+    * The camera jiggle's share of a puddle vertex's depth (2026-10-05, Discord "white roofs flicker in the rain"). Stock packs
+    * each vertex's depth at the square corner moved by the jiggle (camera.fixJigglyModelsSquareX/Y, up to ~0.06 of a square
+    * at the widest zoom), and the depth falls by CHUNK_DEPTH / 16 per square along x and along y (linear across chunk edges:
+    * the chunk term and calculateDepth's wrap cancel). A cached batch kept the jiggle of the frame it was packed in while the
+    * screen position took the current one, so its depth was off by up to ~1.7e-4 against the 1e-4 the puddle sits in front of
+    * the floor: on a flat roof (roofs_04_* drawn as the floor, corrugation in its depth texture) the puddle showed through in
+    * white dashes along the ridges, a chunk at a time, whenever a batch's jiggle and the frame's differed.
+    */
+   static float jiggleDepth(PlayerCamera camera) {
+      if (!Config.PUDDLE_JIGGLE_DEPTH) {
+         return 0.0F; // the batches keep the jiggle of their build (before 2026-10-05)
+      }
+      return -(camera.fixJigglyModelsSquareX + camera.fixJigglyModelsSquareY) * (IsoDepthHelper.CHUNK_DEPTH / 16.0F);
+   }
    private static final int LEVELS = 64;
 
    public static final class Batch {
@@ -52,6 +68,7 @@ public final class PuddleCache {
       long flagMask;
       float jx;
       float jy;
+      float jdepth; // the camera jiggle's share of the packed depth (jiggleDepth at the build; 0 when normalised for the VBO shader)
       int camChunkX;
       int camChunkY;
       int builtFrame;
@@ -177,6 +194,7 @@ public final class PuddleCache {
       PlayerCamera camera = IsoCamera.cameras[playerIndex];
       float jx = camera.fixJigglyModelsX * camera.zoom;
       float jy = camera.fixJigglyModelsY * camera.zoom;
+      float jd = jiggleDepth(camera);
       int camChunkX = PZMath.fastfloor(PZMath.fastfloor(IsoCamera.frameState.camCharacterX) / 8.0F);
       int camChunkY = PZMath.fastfloor(PZMath.fastfloor(IsoCamera.frameState.camCharacterY) / 8.0F);
       boolean noLighting = DebugOptions.instance.fboRenderChunk.nolighting.getValue();
@@ -228,8 +246,9 @@ public final class PuddleCache {
 
             if (rebuild) {
                build(puddles, b, chunk, z, playerIndex, squares, levelData, mask, jx, jy, camChunkX, camChunkY, interval);
+               b.jdepth = jd;
             } else if (b.count > 0) {
-               reuse(puddles, b, chunk, z, playerIndex, jx, jy, camChunkX, camChunkY, noLighting);
+               reuse(puddles, b, chunk, z, playerIndex, jx, jy, jd, camChunkX, camChunkY, noLighting);
             }
          }
 
@@ -250,6 +269,10 @@ public final class PuddleCache {
       PlayerCamera camera = IsoCamera.cameras[playerIndex];
       float jx = camera.fixJigglyModelsX * camera.zoom;
       float jy = camera.fixJigglyModelsY * camera.zoom;
+      float jd = jiggleDepth(camera);
+      // the earlyZ programs (pzopt_puddles_*) add the frame's jiggle depth as a uniform; stock's programs (puddleEarlyZ=false)
+      // have none, so there a batch is patched and re-uploaded when the jiggle moved
+      boolean shaderShift = Config.PUDDLE_EARLY_Z;
       int camChunkX = PZMath.fastfloor(PZMath.fastfloor(IsoCamera.frameState.camCharacterX) / 8.0F);
       int camChunkY = PZMath.fastfloor(PZMath.fastfloor(IsoCamera.frameState.camCharacterY) / 8.0F);
       boolean noLighting = DebugOptions.instance.fboRenderChunk.nolighting.getValue();
@@ -259,7 +282,7 @@ public final class PuddleCache {
          if (!puddles.pzoptCanRender(z)) {
             continue;
          }
-         PuddleVbo.Frame f = PuddleVbo.begin(playerIndex, z, jx, jy);
+         PuddleVbo.Frame f = PuddleVbo.begin(playerIndex, z, jx, jy, shaderShift ? jd : 0.0F);
 
          for (int i = 0; i < onScreenChunks.size(); i++) {
             IsoChunk chunk = onScreenChunks.get(i);
@@ -305,12 +328,15 @@ public final class PuddleCache {
                puddles.pzoptTruncate(before, z); // the RenderData was only scratch space
                // normalise the packed jiggle to zero; the frame's jiggle is a translation on the render thread
                float[] data = b.data;
+               float dd = shaderShift ? -jd : 0.0F; // the depth too, when the shader adds the frame's jiggle depth
                for (int v = 0; v < b.count * FLOATS; v += 8) {
                   data[v + 4] -= jx;
                   data[v + 5] -= jy;
+                  data[v + 7] += dd;
                }
                b.jx = 0.0F;
                b.jy = 0.0F;
+               b.jdepth = shaderShift ? 0.0F : jd;
                b.lightsDirty = false;
                b.dirty = true;
             } else {
@@ -322,20 +348,22 @@ public final class PuddleCache {
                   }
                   lightPatches++;
                }
+               float ddepth = shaderShift ? 0.0F : jd - b.jdepth;
+               b.jdepth = shaderShift ? 0.0F : jd;
                if (camChunkX != b.camChunkX || camChunkY != b.camChunkY) {
                   float now = IsoDepthHelper.getChunkDepthData(camChunkX, camChunkY, chunk.wx, chunk.wy, z).depthStart;
                   float then = IsoDepthHelper.getChunkDepthData(b.camChunkX, b.camChunkY, chunk.wx, chunk.wy, z).depthStart;
-                  float ddepth = now - then;
+                  ddepth += now - then;
                   b.camChunkX = camChunkX;
                   b.camChunkY = camChunkY;
-                  if (ddepth != 0.0F) {
-                     float[] data = b.data;
-                     for (int v = 0; v < b.count * FLOATS; v += 8) {
-                        data[v + 7] += ddepth;
-                     }
-                     b.dirty = true;
-                     depthUploads++;
+               }
+               if (ddepth != 0.0F) {
+                  float[] data = b.data;
+                  for (int v = 0; v < b.count * FLOATS; v += 8) {
+                     data[v + 7] += ddepth;
                   }
+                  b.dirty = true;
+                  depthUploads++;
                }
             }
             if (b.count > 0) {
@@ -451,17 +479,17 @@ public final class PuddleCache {
 
    /** Copy the batch into RenderData and patch lights, jiggle and depth for this frame. */
    private static void reuse(IsoPuddles puddles, Batch b, IsoChunk chunk, int z, int playerIndex,
-                             float jx, float jy, int camChunkX, int camChunkY, boolean noLighting) {
+                             float jx, float jy, float jd, int camChunkX, int camChunkY, boolean noLighting) {
       int n = b.count;
       int base = puddles.pzoptAppend(b.data, n, z);
       float[] data = puddles.pzoptData();
       float dx = jx - b.jx;
       float dy = jy - b.jy;
-      float ddepth = 0.0F;
+      float ddepth = jd - b.jdepth;
       if (camChunkX != b.camChunkX || camChunkY != b.camChunkY) {
          float now = IsoDepthHelper.getChunkDepthData(camChunkX, camChunkY, chunk.wx, chunk.wy, z).depthStart;
          float then = IsoDepthHelper.getChunkDepthData(b.camChunkX, b.camChunkY, chunk.wx, chunk.wy, z).depthStart;
-         ddepth = now - then;
+         ddepth += now - then;
       }
       boolean move = dx != 0.0F || dy != 0.0F;
       int o = base * FLOATS;

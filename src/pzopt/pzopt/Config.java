@@ -956,6 +956,7 @@ public final class Config {
    public static final boolean MIPMAP_ARRAYS = bool("mipmapArrays", true);
    public static final boolean PUDDLE_CACHE = bool("puddleCache", true); // FBORenderCell.renderPuddles reuses packed puddle vertices per chunk level (pzopt.PuddleCache)
    public static final int PUDDLE_CACHE_FRAMES = integer("puddleCacheFrames", 60); // backstop rebuild interval of a cached puddle batch, staggered per chunk
+   public static final boolean PUDDLE_JIGGLE_DEPTH = bool("puddleJiggleDepth", true); // a cached puddle batch's depth follows the camera jiggle as stock's packing does (it kept its build frame's: up to 1.7e-4 off against the puddle's 1e-4 lift, puddles flickered through flat roofs, 2026-10-05)
    public static final boolean PUDDLE_EARLY_Z = bool("puddleEarlyZ", true); // puddle shaders take their depth from the vertex, no gl_FragDepth write: early depth test rejects occluded wet ground (media/shaders/pzopt_puddles_*)
    public static final boolean RAIN_SPLASHES_FAST = bool("rainSplashesFast", true); // splash starts by geometric skipping with a local generator instead of Rand.NextBool per idle square per frame (pzopt.RainSplashes)
    // --- render-resolution upscaling (docs/plan-upscalers.md, pzopt.RenderScale / pzopt.Upscaler) ---
@@ -1172,6 +1173,7 @@ public final class Config {
    public static final int DEV_SWAY_SKIP = integer("devSwaySkip", 0); // dev: composite cost bisection (compile time), bits: 4 no gust noise, 8 one fixed-point step inside plants, 32 DLSS motion written as zero (no motion math), 64 the sway function returns at once (a twin / variant that binds and fetches like the stock one)
    public static final boolean DEV_SWAY_VARIANT_STOCK = bool("devSwayVariantStock", false); // dev: the sway variant program is a plain copy of the game's composite and gets no uniforms or textures (what switching programs costs)
    public static final boolean SWAY_DEPTH_CHECK = bool("swayDepthCheck", true); // foliage sway: a texel's sway attribute counts only while its depth is still the plant's (something drawn over it later by a program that does not write the attribute)
+   public static final boolean SWAY_FLOOR_EXACT = bool("swayFloorExact", true); // foliage sway: floors (flat roofs too) bake with sway off, their depth exactly as stock writes it; the rigid flag (lowest DEPTH16 bit cleared) moved half their texels a step nearer and puddles flickered on corrugated flat roofs (2026-10-05, Discord)
    public static final boolean SWAY_BINDLESS = bool("swayBindless", false); // foliage sway: the composite variant reads its attribute and mask textures through bindless handles (ARB_bindless_texture; launch)
    public static final String SWAY_GUST = string("swayGust", "sines").trim().toLowerCase(java.util.Locale.ROOT); // foliage sway: the gust field, sines (two travelling waves, no fetch) | texture (32 x 32 periodic value noise)
    public static final int SWAY_AUX_BUDGET_MB = integer("swayAuxBudgetMb", 160); // foliage sway: VRAM for the plants' attribute textures above which the ones not shown for 3 s are freed (their chunk re-bakes when it is shown again)

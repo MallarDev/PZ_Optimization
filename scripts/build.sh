@@ -110,10 +110,13 @@ if [[ -f "$sh/puddles_common.frag.glsl" && -f "$sh/puddles_common.vert.glsl" ]];
   done
   cp "$sh/puddles_common.vert.h" "$osh/pzopt_puddles_common.vert.h"
   cp "$sh/puddles_common.frag.h" "$osh/pzopt_puddles_common.frag.h"
-  sed 's/^\(\s*\)vDepth = aFragDepth;/\1vDepth = aFragDepth;\n\1gl_Position.z = (aFragDepth * 2.0 - 1.0) * gl_Position.w; \/\/ pzopt: depth from the vertex (puddleEarlyZ, drawn with GL_DEPTH_CLAMP)/' \
+  # pzoptDepthShift: the camera jiggle's share of the depth for puddleVbo batches packed without it (PuddleVbo; 0 otherwise)
+  sed -e 's/^\(\s*\)vDepth = aFragDepth;/\1vDepth = aFragDepth + pzoptDepthShift;\n\1gl_Position.z = (vDepth * 2.0 - 1.0) * gl_Position.w; \/\/ pzopt: depth from the vertex (puddleEarlyZ, drawn with GL_DEPTH_CLAMP)/' \
+      -e 's/^uniform mat4 ModelViewProjection;/uniform mat4 ModelViewProjection;\nuniform float pzoptDepthShift;/' \
     "$sh/puddles_common.vert.glsl" > "$osh/pzopt_puddles_common.vert.glsl"
   grep -v 'gl_FragDepth = vDepth;' "$sh/puddles_common.frag.glsl" > "$osh/pzopt_puddles_common.frag.glsl"
-  grep -q 'gl_Position.z = (aFragDepth' "$osh/pzopt_puddles_common.vert.glsl" && ! grep -q 'gl_FragDepth' "$osh/pzopt_puddles_common.frag.glsl" \
+  grep -q 'gl_Position.z = (vDepth' "$osh/pzopt_puddles_common.vert.glsl" && grep -q '^uniform float pzoptDepthShift;' "$osh/pzopt_puddles_common.vert.glsl" \
+    && ! grep -q 'gl_FragDepth' "$osh/pzopt_puddles_common.frag.glsl" \
     || { echo "puddles_common shader units changed shape; puddleEarlyZ shaders not generated" >&2; exit 1; }
 else
   echo "puddle shaders not found next to the jar; the puddleEarlyZ shaders are not generated" >&2

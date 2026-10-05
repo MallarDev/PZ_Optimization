@@ -1426,6 +1426,21 @@ frames (default 60, staggered per chunk). The per-square `IsOnScreen` cull is no
 cached batches (the GPU clips the squares outside the viewport; same picture). Result: puddles
 4.5 -> 0.96 ms, storm route 70 -> 109 fps with the profiler on (`storm-vbo` -> `storm-puddle`).
 
+Since 2026-10-05 (`puddleJiggleDepth`, default on; Discord "Flickering textures on white roofs when
+it's raining", the West Point GigaMart and car wash): the depth slot also follows the camera jiggle.
+Stock packs each vertex's depth at the square corner moved by `fixJigglyModelsSquareX/Y` (up to
+~0.06 of a square at the widest zoom), exactly as the chunk composite moves its `chunkDepth` by the
+same jiggle; a cached batch kept its build frame's jiggle in the depth while x/y took the current
+one, up to 1.7e-4 off against the 1e-4 the puddle sits in front of the floor. On a flat roof
+(`roofs_04_*` drawn as the floor, the corrugation in its depth texture) the puddle and the roof traded
+places in white dashes along the ridges, a chunk at a time. The depth falls by `CHUNK_DEPTH / 16` per
+square along x and along y, linear across chunk edges (the chunk term and `calculateDepth`'s wrap
+cancel), so `PuddleCache.jiggleDepth` patches it exactly: the CPU path adds the delta to the copied
+depth; `puddleVbo` packs the depth at zero jiggle and the generated `pzopt_puddles_common.vert` adds the
+frame's as the uniform `pzoptDepthShift` (build.sh; reset to 0 after the draw, the CPU paths share the
+program); with `puddleEarlyZ=false` (stock's programs, no uniform) a moved jiggle re-uploads the batch.
+Roof dashes (`harness/roof-dashes.py`): 1,741 -> 263 px a frame; the rest was `swayFloorExact` (below).
+
 ## zombie.iso.weather.fx.ParticleRectangle (added 2026-09-20 night, rain tiles)
 
 `render()`: after the stock cell arithmetic and `StartShader`, when `Config.rainTiles` is on and
@@ -5301,6 +5316,16 @@ programs' extra outputs go to no draw buffer, the game's chunk composite is neve
   (its rows as fractions of the tree's height, amplitude, phase; one more parameter, the tree's square); the frame calls
   `Sway.beforeComposite` (the wind) and `Sway.afterComposite` (the motion attachment's draw buffers) around the composite and
   names the `composite` / `chunks` GPU sections by `devSwayAlternate`'s half.
+  Since 2026-10-05 (`swayFloorExact`, default on): `renderFloor(IsoObject)`'s stock body moved into `pzoptRenderFloor`; the
+  new method wraps it in `Sway.floorBegin` / `floorEnd`, and while a floor draws the patched bake programs get sway "off"
+  (`pzSwObj.w` 0: the depth written exactly as stock writes it, a zero-weight attribute) instead of "rigid" (`w` 2: the depth
+  rounded to DEPTH16 with its lowest bit cleared, the composite's free "this texel sways" flag). The rigid flag moved half a
+  floor's texels one DEPTH16 step nearer; on corrugated flat roofs (`roofs_04_*`, drawn as the floor, depth right at the
+  puddle's 1e-4 lift) the puddle lost to the ridges in dashes that changed with the camera (Discord "white roofs flicker in the
+  rain"). An odd floor texel now reads as "sways" to the composite and finds weight 0 (lands on itself): spin-uncapped
+  composite 151-173 us either way, 118-119 fps. With `puddleJiggleDepth` (above): roof dashes 1,741 -> 29 px a frame in
+  clear weather (stock 33), 2,803 -> 33 in rain (stock 49); Jev fixed 0.92 / 0.71. Video
+  `docs/media/roof-puddle-flicker-before-vs-fix.mp4` (`harness/stitch-roof-puddles.sh`).
 - `zombie.iso.fboRenderChunk.FBORenderTrees.addTree`: a tree the game draws per frame (faded near the player) without an
   effect of its own gets the wind at its top as stock's corner offsets (`Sway.shearTop`, the composite's wind on the CPU).
 - `pzopt.TreeBake` (ours): the drawer carries each quad's sway and, while sway is on, draws the baked trees with
