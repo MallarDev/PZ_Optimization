@@ -438,6 +438,7 @@ public final class Sway {
       }
       boolean veg = sq.getProperties().has(zombie.iso.SpriteDetails.IsoFlagType.canBeRemoved) || sq.hasBush();
       if (veg) {
+         PostupdateBatch.hazard(PostupdateBatch.H_SWAY); // postupdateParallel: the push queue is filled on the game thread
          pushQueuedFrame++;
          MOVED.add(new float[] {System.identityHashCode(o), o.getX(), o.getY(), o.getZ(), o instanceof zombie.vehicles.BaseVehicle ? 2.2F : 0.9F});
          pushQueued++;

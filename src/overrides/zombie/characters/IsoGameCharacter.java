@@ -10629,12 +10629,47 @@ public abstract class IsoGameCharacter
    }
 
    private void postUpdateInternal() {
+      if (pzopt.PostupdateBatch.take(this)) { // pzopt: postupdateParallel — the movement was computed on a worker before the loop; its square move is committed here
+      } else if (pzopt.GtAb.TIMING && this instanceof IsoZombie) { // pzopt: Louisville 120 plan B census (dev, only while an alternation runs)
+         this.pzoptCensusMove(); // pzopt: Louisville 120 plan B census
+      } else { // pzopt: Louisville 120 plan B census
       super.postupdate();
+      } // pzopt: Louisville 120 plan B census
       this.postUpdateAnimating();
       this.clearHitInfo();
       this.clearAttackVars();
       if (this.ballisticsController != null) {
          this.ballisticsController.postUpdate();
+      }
+   }
+
+   /** pzopt: postupdateParallel, IsoMovingObject.postupdate (stock's movement body) for pzopt.PostupdateBatch. */
+   public void pzoptMovingPostupdate() {
+      super.postupdate();
+   }
+
+   /** pzopt: postupdateParallel, no animation-player swap or ragdoll pending (isRagdollSimulationActive is then a pure read). */
+   public boolean pzoptAnimPlayerSettled() {
+      return this.animPlayer == null || this.animPlayer.getModel() == ModelManager.instance.getBodyModel(this) && !this.animPlayer.isRagdollSimulationActive();
+   }
+
+   // pzopt: Louisville 120 plan B census. A zombie's IsoMovingObject.postupdate, timed on one call in GtAb.PU_SAMPLE (scaled),
+   // with the counts of zombies, of square changes and of collisions (pzopt-gtab.out columns pu_move .. pu_collided).
+   private static int pzoptCensusTick;
+
+   private void pzoptCensusMove() {
+      boolean timed = ++pzoptCensusTick % pzopt.GtAb.PU_SAMPLE == 0;
+      long t0 = timed ? System.nanoTime() : 0L;
+      super.postupdate();
+      if (timed) {
+         pzopt.GtAb.add(pzopt.GtAb.S_PU_MOVE, (System.nanoTime() - t0) * pzopt.GtAb.PU_SAMPLE);
+      }
+      pzopt.GtAb.add(pzopt.GtAb.C_PU_ZOMBIES, 1L);
+      if (this.current != this.last) {
+         pzopt.GtAb.add(pzopt.GtAb.C_PU_MOVED, 1L);
+      }
+      if (this.isCollidedThisFrame() || this.isCollidedN() || this.isCollidedS() || this.isCollidedW() || this.isCollidedE() || this.isCollidedWithVehicle()) {
+         pzopt.GtAb.add(pzopt.GtAb.C_PU_COLLIDED, 1L);
       }
    }
 

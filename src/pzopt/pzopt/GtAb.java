@@ -33,9 +33,10 @@ public final class GtAb {
    public static final int SLACK_WORK = 524288; // slackWork
    public static final int MODEL_ADDS = 1048576; // zombieModelAddBudgetUs
    public static final int BAKE_GUARD = 2097152; // bakeTimeGuardPct
+   public static final int POSTUPDATE = 4194304; // postupdateParallel (Louisville 120 plan B)
 
    private static final String[] NAMES = {"renderPrepParallel", "pplPackParallel", "schedulerClassifyParallel", "animalLosFast",
-      "weatherParticlesParallel", "entityUpdateParallel", "bakePrepParallel", "pplTorchNearChunk", "zombieStatsFold", "losLightPrefetch", "visPolyAsync", "aoContextParallel", "translucentOrderCache", "torchSource", "profilerIdleFast", "zombieSimLod", "animalLosSnapshot", "lootDefer", "zombieSpawnSpread", "slackWork", "zombieModelAddBudget", "bakeTimeGuard"};
+      "weatherParticlesParallel", "entityUpdateParallel", "bakePrepParallel", "pplTorchNearChunk", "zombieStatsFold", "losLightPrefetch", "visPolyAsync", "aoContextParallel", "translucentOrderCache", "torchSource", "profilerIdleFast", "zombieSimLod", "animalLosSnapshot", "lootDefer", "zombieSpawnSpread", "slackWork", "zombieModelAddBudget", "bakeTimeGuard", "postupdateParallel"};
 
    private static final int MASK = parse(Config.DEV_GT_ALTERNATE_KEYS);
    private static long t0;
@@ -118,7 +119,7 @@ public final class GtAb {
          if (out == null) {
             java.io.File f = new java.io.File(zombie.ZomboidFileSystem.instance.getCacheDir(), "pzopt-gtab.out");
             out = new java.io.BufferedWriter(new java.io.FileWriter(f));
-            out.write("# epoch_ms on(1)/off(0) game_thread_cpu_ns process_cpu_ns wall_ns zombie_updates, then ns per section: startFrame schedUpdate animalLos playerLos pplBeforeComposite renderMovingObjects performRenderTiles postupdate visPolyRenderMain aoFlush chunkMapUpdate popmanUpdate lightingUpdate logic finishAnimation renderInternal sceneCull atlases cellRender  (per frame, devGtAlternate " + Config.DEV_GT_ALTERNATE + " ms, keys "
+            out.write("# epoch_ms on(1)/off(0) game_thread_cpu_ns process_cpu_ns wall_ns zombie_updates, then ns per section: startFrame schedUpdate animalLos playerLos pplBeforeComposite renderMovingObjects performRenderTiles postupdate visPolyRenderMain aoFlush chunkMapUpdate popmanUpdate lightingUpdate logic finishAnimation renderInternal sceneCull atlases cellRender pu_loop pu_move pu_flush pu_zombies pu_moved pu_collided  (per frame, devGtAlternate " + Config.DEV_GT_ALTERNATE + " ms, keys "
                + Config.DEV_GT_ALTERNATE_KEYS + ")\n");
          }
          out.write(LOG.toString());
@@ -132,7 +133,12 @@ public final class GtAb {
    // ---- per-frame section timers (dev, only while an alternation runs): the ns each section took this frame, one column each ----
    public static final int S_START_FRAME = 0, S_SCHED_UPDATE = 1, S_ANIMAL_LOS = 2, S_PLAYER_LOS = 3, S_PPL = 4, S_MOVING = 5, S_TILES = 6, S_POSTUPDATE = 7;
    public static final int S_VISPOLY = 8, S_AO_FLUSH = 9, S_CHUNKMAP = 10, S_POPMAN = 11, S_LIGHTING = 12, S_LOGIC = 13, S_FINISH_ANIM = 14, S_RENDER = 15, S_CULL = 16, S_ATLAS = 17, S_CELL = 18;
-   private static final int SECTIONS = 19;
+   // Louisville 120 plan B: inside postupdate, the bucket loop, the zombies' IsoMovingObject.postupdate (timed on one zombie in
+   // PU_SAMPLE, scaled), the ActionEval / AnimBatch flush; then counts, not ns: zombies through the movement, zombies whose
+   // square changed, zombies that collided
+   public static final int S_PU_LOOP = 19, S_PU_MOVE = 20, S_PU_FLUSH = 21, C_PU_ZOMBIES = 22, C_PU_MOVED = 23, C_PU_COLLIDED = 24;
+   public static final int PU_SAMPLE = 8;
+   private static final int SECTIONS = 25;
    private static final long[] SECTION_NS = new long[SECTIONS];
    public static final boolean TIMING = Config.DEV_GT_ALTERNATE > 0 && MASK != 0;
 
@@ -146,6 +152,11 @@ public final class GtAb {
       if (t != 0L) {
          SECTION_NS[section] += System.nanoTime() - t;
       }
+   }
+
+   /** Game thread: add a count (or scaled ns) to a column of this frame. */
+   public static void add(int section, long v) {
+      SECTION_NS[section] += v;
    }
 
    /** False in the off half of an alternation for a listed key: the caller takes its old path this frame. */

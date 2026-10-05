@@ -115,8 +115,13 @@ def main():
             sec = {1: [], 0: []}
             sec_k = {}
             per_k = {}
+            names = ["startFrame", "schedUpdate", "animalLos", "playerLos", "pplBeforeComposite", "renderMovingObjects", "performRenderTiles", "postupdate", "visPolyRenderMain", "aoFlush", "chunkMapUpdate", "popmanUpdate", "lightingUpdate", "logic", "finishAnimation", "renderInternal", "sceneCull", "atlases", "cellRender"]
             for line in open(gp):
                 if line.startswith("#"):
+                    # the header names the section columns (newer builds append columns: read them from here)
+                    m = re.search(r"ns per section: (.*?)\s+\(", line)
+                    if m:
+                        names = m.group(1).split()
                     continue
                 f = line.split()
                 if len(f) < 5:
@@ -133,7 +138,8 @@ def main():
                 if len(f) >= 6:
                     zu[ph].append(int(f[5]))
                 if len(f) >= 14:
-                    v = [int(x) / 1e6 for x in f[6:16]] + [0.0] * (16 - min(len(f), 16))
+                    v = [int(x) / 1e6 for x in f[6:6 + len(names)]]
+                    v += [0.0] * (len(names) - len(v))
                     sec[ph].append(v)
                     sec_k.setdefault(k, []).append(v)
                 per_k.setdefault(k, []).append(c / 1e6)
@@ -148,8 +154,7 @@ def main():
                 if zu[1] and zu[0]:
                     print("  zombie updates a frame: on %.1f  off %.1f" % (statistics.mean(zu[1]), statistics.mean(zu[0])))
                 if sec[1] and sec[0]:
-                    names = ["startFrame", "schedUpdate", "animalLos", "playerLos", "pplBeforeComposite", "renderMovingObjects", "performRenderTiles", "postupdate", "visPolyRenderMain", "aoFlush", "chunkMapUpdate", "popmanUpdate", "lightingUpdate", "logic", "finishAnimation", "renderInternal", "sceneCull", "atlases", "cellRender"]
-                    print("  sections, ms a frame (on / off / on - off, paired per period +- SE):")
+                    print("  sections, ms a frame (count columns pu_zombies / pu_moved / pu_collided: millionths of a count) (on / off / on - off, paired per period +- SE):")
                     for j, nm in enumerate(names):
                         a1 = statistics.mean(r[j] for r in sec[1])
                         a0 = statistics.mean(r[j] for r in sec[0])

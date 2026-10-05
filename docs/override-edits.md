@@ -6159,3 +6159,41 @@ the maintainer's decision). With every key off the edited methods run the stock 
 - `CorePlacement`: `coreIsolate=N` reserves N physical cores for the game / render threads on non-hybrid SMT CPUs (off: no
   measured gain on the 9800X3D).
 - `BakeScheduler`: `bakeTimeGuardPct` (default 0: at 55 the deferred levels cost more than the bakes, 118 -> 88 fps).
+
+## Louisville 120 plan B: zombie postupdate movement on the workers (2026-10-06; branch `lou120-postupdate`, docs/findings-louisville-120-postupdate-2026-10-06.md)
+
+Key `postupdateParallel` (default off), dev rig `devPostupdateCheck`. With the key off the edited methods run the stock
+bodies (every new branch tests `pzopt.PostupdateBatch.computing()`, false outside a movement task).
+
+### zombie.MovingObjectUpdateScheduler, third edit
+- `postupdate`: before the bucket loop, `pzopt.PostupdateBatch.prepass` runs `IsoMovingObject.postupdate` of this frame's
+  eligible zombies (not reused, alive, on a square, not in a vehicle, not grappled / grappling, no reanimated player, no
+  animation-player swap or ragdoll pending, not climbing a fence / window / wall) on the frame workers; after the loop
+  `finish` puts back a computed zombie the loop never reached. Section timers `pu_loop`, `pu_move`, `pu_flush` and counts
+  `pu_zombies`, `pu_moved`, `pu_collided` for the A/B rig.
+
+### zombie.characters.IsoGameCharacter, census and commit
+- `postUpdateInternal`: a zombie whose movement was computed this frame (`PostupdateBatch.take`) only commits the latched
+  `setMovingSquare` at its place in the loop; otherwise stock (`super.postupdate()`), or, while an A/B alternation runs, the
+  same call through `pzoptCensusMove` (one in eight timed, counts of square changes and collisions).
+- `pzoptMovingPostupdate` (the stock movement body for the batch), `pzoptAnimPlayerSettled` (the eligibility test that keeps
+  `isRagdollSimulationActive` a pure read on a worker).
+
+### zombie.iso.IsoMovingObject, movement task points
+- `pzoptMoveSave` / `pzoptMoveRestore` / `pzoptMoveDiff`: the fields `postupdate` writes (position, next, last, impulse,
+  squares, collision flags and object, `altCollide`, `firstUpdate`, `collideType`, attack bookkeeping).
+- In a task, every point where stock touches shared state throws the batch's stackless bail (`PostupdateBatch.hazard`): the
+  task restores the fields and the zombie runs stock inline at its place. Points: the virtualisation at the loaded area's
+  edge, the fence climb / thump-target checks after a `DoCollide` collision (both branches), tree noises / rustle in
+  `getGlobalMovementMod` (both squares), `collideWith` (the special-object hook and its Lua event).
+- `setMovingSquare` in a task latches the square (`pzoptMoveSq`) for the commit.
+- The vehicle resolution in a task: `PostupdateBatch.vehicleFree` returns the next position unchanged when no vehicle's
+  polygon (the corners `VehiclePoly.init` takes, plus 0.75) meets the move's bounds grown by a square, which is what
+  `CollideWithObstacles.resolveCollision` returns with no obstacle; a hazard otherwise.
+- The static `tempo` scratch (impulse clamp, `getFeelerTile`) is per thread in a task.
+
+### zombie.characters.IsoZombie, third edit
+- `collideWith`: the bail point above (zombies override the hook).
+
+Rig: `--prop devPostupdateCheck=true` re-runs one computed zombie in seven through the stock body from the saved fields at
+its place in the loop and compares every saved field and the moving square (the zombie keeps the stock result).

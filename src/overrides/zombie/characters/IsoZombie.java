@@ -1484,6 +1484,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public void collideWith(IsoObject obj) {
+      pzopt.PostupdateBatch.hazard(pzopt.PostupdateBatch.H_COLLIDE_WITH); // pzopt: postupdateParallel — the collide hooks stay on the game thread
       if (!this.ghost && obj != null) {
          if (obj.rerouteCollide != null) {
             obj = this.rerouteCollide;

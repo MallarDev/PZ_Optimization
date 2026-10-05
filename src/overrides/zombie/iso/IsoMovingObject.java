@@ -120,6 +120,47 @@ implements Mover {
     // applied by the game thread right after the join — see UpdateBatch.deferMovingSquare.
     public IsoGridSquare pzoptDeferredSquare; // pzopt: entityUpdateParallel
     public long pzoptDeferredSquareFrame; // pzopt: entityUpdateParallel
+    // pzopt: postupdateParallel (Louisville 120 plan B). The frame stamp of a movement computed by pzopt.PostupdateBatch, the
+    // square its setMovingSquare was latched with, and the fields saved before the task (restored on a hazard).
+    public long pzoptMoveFrame; // pzopt: postupdateParallel
+    public IsoGridSquare pzoptMoveSq; // pzopt: postupdateParallel
+    public boolean pzoptMoveSqSet; // pzopt: postupdateParallel
+    public pzopt.PostupdateBatch.Snap pzoptMoveSnap; // pzopt: postupdateParallel
+
+    /** pzopt: postupdateParallel, the fields a postupdate writes, saved. */
+    public void pzoptMoveSave(pzopt.PostupdateBatch.Snap s) {
+        s.x = this.x; s.y = this.y; s.z = this.z; s.nx = this.nx; s.ny = this.ny; s.lx = this.lastX; s.ly = this.ly; s.lz = this.lz;
+        s.impulsex = this.impulsex; s.impulsey = this.impulsey; s.current = this.current; s.last = this.last; s.square = this.square;
+        s.collidedN = this.collidedN; s.collidedS = this.collidedS; s.collidedW = this.collidedW; s.collidedE = this.collidedE;
+        s.collidedThisFrame = this.collidedThisFrame; s.collidedWithDoor = this.collidedWithDoor; s.collidedWithVehicle = this.collidedWithVehicle;
+        s.altCollide = this.altCollide; s.firstUpdate = this.firstUpdate; s.collidedObject = this.collidedObject; s.collideType = this.collideType;
+        s.timeSinceZombieAttack = this.timeSinceZombieAttack; s.lastTargettedBy = this.lastTargettedBy;
+    }
+
+    /** pzopt: postupdateParallel, the saved fields put back. */
+    public void pzoptMoveRestore(pzopt.PostupdateBatch.Snap s) {
+        this.x = s.x; this.y = s.y; this.z = s.z; this.nx = s.nx; this.ny = s.ny; this.lastX = s.lx; this.ly = s.ly; this.lz = s.lz;
+        this.impulsex = s.impulsex; this.impulsey = s.impulsey; this.current = s.current; this.last = s.last; this.square = s.square;
+        this.collidedN = s.collidedN; this.collidedS = s.collidedS; this.collidedW = s.collidedW; this.collidedE = s.collidedE;
+        this.collidedThisFrame = s.collidedThisFrame; this.collidedWithDoor = s.collidedWithDoor; this.collidedWithVehicle = s.collidedWithVehicle;
+        this.altCollide = s.altCollide; this.firstUpdate = s.firstUpdate; this.collidedObject = s.collidedObject; this.collideType = s.collideType;
+        this.timeSinceZombieAttack = s.timeSinceZombieAttack; this.lastTargettedBy = s.lastTargettedBy;
+    }
+
+    /** pzopt: devPostupdateCheck, the first field that differs from a saved result, or null. */
+    public String pzoptMoveDiff(pzopt.PostupdateBatch.Snap s) {
+        if (Float.floatToIntBits(this.x) != Float.floatToIntBits(s.x) || Float.floatToIntBits(this.y) != Float.floatToIntBits(s.y) || Float.floatToIntBits(this.z) != Float.floatToIntBits(s.z)) return "xyz";
+        if (Float.floatToIntBits(this.nx) != Float.floatToIntBits(s.nx) || Float.floatToIntBits(this.ny) != Float.floatToIntBits(s.ny)) return "next";
+        if (Float.floatToIntBits(this.lastX) != Float.floatToIntBits(s.lx) || Float.floatToIntBits(this.ly) != Float.floatToIntBits(s.ly) || Float.floatToIntBits(this.lz) != Float.floatToIntBits(s.lz)) return "last xyz";
+        if (this.impulsex != s.impulsex || this.impulsey != s.impulsey) return "impulse";
+        if (this.current != s.current || this.last != s.last || this.square != s.square) return "squares";
+        if (this.collidedN != s.collidedN || this.collidedS != s.collidedS || this.collidedW != s.collidedW || this.collidedE != s.collidedE
+            || this.collidedThisFrame != s.collidedThisFrame || this.collidedWithDoor != s.collidedWithDoor || this.collidedWithVehicle != s.collidedWithVehicle) return "collided";
+        if (this.altCollide != s.altCollide || this.firstUpdate != s.firstUpdate) return "altCollide/firstUpdate";
+        if (this.collidedObject != s.collidedObject || this.collideType != s.collideType) return "collidedObject/type";
+        if (this.timeSinceZombieAttack != s.timeSinceZombieAttack || this.lastTargettedBy != s.lastTargettedBy) return "attack bookkeeping";
+        return null;
+    }
 
     public static TreeSoundManager treeSoundMgr = new TreeSoundManager();
     public static final int MAX_ZOMBIES_EATING = 3;
@@ -295,6 +336,7 @@ implements Mover {
     }
 
     public void collideWith(IsoObject obj) {
+        pzopt.PostupdateBatch.hazard(pzopt.PostupdateBatch.H_COLLIDE_WITH); // pzopt: postupdateParallel — the collide hooks and their Lua events stay on the game thread
         if (this instanceof IsoGameCharacter && obj instanceof IsoGameCharacter) {
             LuaEventManager.triggerEvent("OnCharacterCollide", this, obj);
         } else {
@@ -576,6 +618,9 @@ implements Mover {
     }
 
     public void setMovingSquare(IsoGridSquare newMovingSquare) {
+        if (pzopt.PostupdateBatch.deferMove(this, newMovingSquare)) { // pzopt: postupdateParallel — latched in a movement task, committed at the zombie's place in the loop
+            return; // pzopt: postupdateParallel
+        }
         if (pzopt.UpdateBatch.deferMovingSquare(this, newMovingSquare)) { // pzopt: entityUpdateParallel — latched during the window, replayed on the game thread after the join
             return; // pzopt: entityUpdateParallel
         }
@@ -790,6 +835,7 @@ implements Mover {
         if (this.current != null && this.getZ() - (float)PZMath.fastfloor(this.getZ()) < 0.5f) {
             IsoGridSquare feeler;
             if (this.current.has(IsoObjectType.tree) || this.current.hasBush()) {
+                pzopt.PostupdateBatch.hazard(pzopt.PostupdateBatch.H_TREE); // pzopt: postupdateParallel — tree noises and the rustle stay on the game thread
                 if (bDoNoises) {
                     this.doTreeNoises();
                 }
@@ -804,6 +850,7 @@ implements Mover {
                 }
             }
             if ((feeler = this.getFeelerTile(this.feelersize)) != null && feeler != this.current && (feeler.has(IsoObjectType.tree) || feeler.hasBush())) {
+                pzopt.PostupdateBatch.hazard(pzopt.PostupdateBatch.H_TREE); // pzopt: postupdateParallel — tree noises and the rustle stay on the game thread
                 if (bDoNoises) {
                     this.doTreeNoises();
                 }
@@ -875,6 +922,7 @@ implements Mover {
         this.collidedObject = null;
         this.setNextX(this.getNextX() + this.impulsex);
         this.setNextY(this.getNextY() + this.impulsey);
+        Vector2 tempo = pzopt.PostupdateBatch.computing() ? pzopt.PostupdateBatch.tempo() : IsoMovingObject.tempo; // pzopt: postupdateParallel — the static scratch is per thread in a movement task
         tempo.set(this.getNextX() - this.getX(), this.getNextY() - this.getY());
         if (tempo.getLength() > 1.0f) {
             tempo.normalize();
@@ -884,6 +932,7 @@ implements Mover {
         this.impulsex = 0.0f;
         this.impulsey = 0.0f;
         if (thisZombie != null && PZMath.fastfloor(this.getZ()) == 0 && this.getCurrentBuilding() == null && !this.isInLoadedArea(PZMath.fastfloor(this.getNextX()), PZMath.fastfloor(this.getNextY())) && (thisZombie.isCurrentState(PathFindState.instance()) || thisZombie.isCurrentState(WalkTowardState.instance()))) {
+            pzopt.PostupdateBatch.hazard(pzopt.PostupdateBatch.H_VIRTUALIZE); // pzopt: postupdateParallel — the virtualisation stays on the game thread
             ZombiePopulationManager.instance.virtualizeZombie(thisZombie);
             return;
         }
@@ -903,7 +952,7 @@ implements Mover {
             int toY = PZMath.fastfloor(this.getNextY());
             int toZ = fromZ = PZMath.fastfloor(this.getZ());
             if (thisChr.getCurrentState() == null || !thisChr.getCurrentState().isIgnoreCollide(thisChr, fromX, fromY, fromZ, toX, toY, toZ)) {
-                Vector2f v = PolygonalMap2.instance.resolveCollision(thisChr, this.getNextX(), this.getNextY(), L_postUpdate.vector2f);
+                Vector2f v = pzopt.PostupdateBatch.computing() ? pzopt.PostupdateBatch.vehicleFree(thisChr, this.getNextX(), this.getNextY()) : PolygonalMap2.instance.resolveCollision(thisChr, this.getNextX(), this.getNextY(), L_postUpdate.vector2f); // pzopt: postupdateParallel — in a task: unchanged with no vehicle near (a hazard otherwise)
                 if (v.x != this.getNextX() || v.y != this.getNextY()) {
                     this.setNextX(v.x);
                     this.setNextY(v.y);
@@ -1459,6 +1508,7 @@ implements Mover {
                     this.collidedN = true;
                 }
                 this.setCurrent(this.last);
+                pzopt.PostupdateBatch.hazard(pzopt.PostupdateBatch.H_FENCE); // pzopt: postupdateParallel — the fence climb / thump target after a collision stay on the game thread
                 this.checkBreakHoppable();
                 this.checkHitHoppable();
                 this.checkBreakBendableFence(this.current);
@@ -1531,6 +1581,7 @@ implements Mover {
                         if (this.current.getY() > feeler.getY()) {
                             this.collidedN = true;
                         }
+                        pzopt.PostupdateBatch.hazard(pzopt.PostupdateBatch.H_FENCE); // pzopt: postupdateParallel — the fence climb / thump target after a collision stay on the game thread
                         this.checkBreakHoppable();
                         this.checkHitHoppable();
                         this.checkBreakBendableFence(this.current);
@@ -1780,7 +1831,7 @@ implements Mover {
     }
 
     public IsoGridSquare getFeelerTile(float dist) {
-        Vector2 vec = tempo;
+        Vector2 vec = pzopt.PostupdateBatch.computing() ? pzopt.PostupdateBatch.tempo() : tempo; // pzopt: postupdateParallel — the static scratch is per thread in a movement task
         vec.x = this.getNextX() - this.getLastX();
         vec.y = this.getNextY() - this.getLastY();
         vec.setLength(dist);

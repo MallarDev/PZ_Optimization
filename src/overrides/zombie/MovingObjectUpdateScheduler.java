@@ -269,11 +269,22 @@ public final class MovingObjectUpdateScheduler {
          pzopt.AnimBatch.begin();
          pzopt.ActionEval.begin();
       }
+      long pzoptPu = pzopt.GtAb.begin(); // pzopt: Louisville 120 plan B census, the bucket loop and the flush timed apart
+      if (pzoptBatch) { // pzopt: postupdateParallel
+         pzopt.PostupdateBatch.prepass(this.simulationLevels, (int)this.frameCounter); // pzopt: postupdateParallel — the eligible zombies' movement on the workers, committed in the loop
+         pzopt.GtAb.end(pzopt.GtAb.S_PU_MOVE, pzoptPu); // pzopt: Louisville 120 plan B census
+         pzoptPu = pzopt.GtAb.begin(); // pzopt: Louisville 120 plan B census
+      } // pzopt: postupdateParallel
       try {
          for (MovingObjectUpdateSchedulerUpdateBucket simulation : this.simulationLevels) {
             simulation.postupdate((int)this.frameCounter);
          }
       } finally {
+         if (pzoptBatch) { // pzopt: postupdateParallel
+            pzopt.PostupdateBatch.finish(); // pzopt: postupdateParallel — a computed zombie the loop never reached is put back
+         } // pzopt: postupdateParallel
+         pzopt.GtAb.end(pzopt.GtAb.S_PU_LOOP, pzoptPu); // pzopt: Louisville 120 plan B census
+         pzoptPu = pzopt.GtAb.begin(); // pzopt: Louisville 120 plan B census
          if (pzoptBatch) {
             try {
                pzopt.ActionEval.flush();
@@ -281,6 +292,7 @@ public final class MovingObjectUpdateScheduler {
                pzopt.AnimBatch.flush();
             }
          }
+         pzopt.GtAb.end(pzopt.GtAb.S_PU_FLUSH, pzoptPu); // pzopt: Louisville 120 plan B census
       }
 
       if (pzopt.SimChecksum.ENABLED) {

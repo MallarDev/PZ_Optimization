@@ -31,6 +31,11 @@ Target of both changes together: ~1.5-2 ms off the heavy frames, i.e. frames ove
 
 ## B. Zombie postupdate movement on the workers
 
+**Status 2026-10-06** (docs/findings-louisville-120-postupdate-2026-10-06.md): B0-B2 done, key `postupdateParallel` (off).
+Exact (0 differences in 72k rig checks), but postupdate only 0.773 -> 0.711 ms: the movement itself is ~0.14 ms of the
+section (the 0.62 below was the whole section), so the B2 gate (-50 %, kill under -0.2 ms) is not met. 3 + 3 whole runs:
+> 9 ms 13.9 -> 13.3 %, inside the noise. The > 12 ms frames are chunk hand-off / population / lighting bursts.
+
 ### What runs today
 
 `MovingObjectUpdateScheduler.postupdate` walks the buckets; per zombie `IsoGameCharacter.postupdate` ->
