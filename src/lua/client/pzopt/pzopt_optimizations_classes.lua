@@ -344,6 +344,7 @@ PzoptOptionClasses = {
     fileThreads = { "FileSystemImpl", "pzopt.BootPump" },
     fileThreadsWait = { "pzopt.BootPump" },
     fliesToggleFix = { "FliesSound" },
+    floorDecalsPerFrame = { "FBORenderCell" },
     fmodAsync = { "pzopt.BootAsync" },
     fogDepthCopy = { "pzopt.FogPass" },
     fogMaskFrames = { "ImprovedFog" },

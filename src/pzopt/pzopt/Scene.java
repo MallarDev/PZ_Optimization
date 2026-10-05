@@ -195,13 +195,13 @@ public final class Scene {
       }
       if (!weather.isEmpty()) {
          ClimateManager cm = ClimateManager.getInstance();
-         if ("storm".equals(weather) || "clear".equals(weather)) {
+         if ("storm".equals(weather) || "clear".equals(weather) || "rain".equals(weather)) {
             cm.stopWeatherAndThunder();          // the save's own weather period would fight the overrides
             cm.setEnabledWeatherGeneration(false); // ... and no new one may start mid-route
             assertWeather(cm);
             Log.info("harness: weather forced to " + weather + ("storm".equals(weather) ? ", lightning every " + thunderSecs + " s" : ""));
          } else {
-            Log.warn("harness: unknown weather '" + weather + "' (storm|clear); leaving the save's weather");
+            Log.warn("harness: unknown weather '" + weather + "' (storm|rain|clear); leaving the save's weather");
             weather = "";
          }
       }
@@ -829,7 +829,8 @@ public final class Scene {
       // the values WeatherPeriod.update pins during STAGE_STORM with a strength-0.95 front (see the decompiled
       // zombie.iso.weather.WeatherPeriod, case 3): full rain and cloud, strong wind, dim desaturated light
       boolean storm = "storm".equals(weather);
-      set(cm, ClimateManager.FLOAT_PRECIPITATION_INTENSITY, storm ? 1.0f : 0.0f);
+      // rain (2026-10-05, the manhole report): full rain in daylight, the storm's dim light left out so the puddles show
+      set(cm, ClimateManager.FLOAT_PRECIPITATION_INTENSITY, storm || "rain".equals(weather) ? 1.0f : 0.0f);
       set(cm, ClimateManager.FLOAT_CLOUD_INTENSITY, cloud >= 0f ? Math.min(1f, cloud) : storm ? 1.0f : 0.0f);
       set(cm, ClimateManager.FLOAT_WIND_INTENSITY, storm ? 0.9f : 0.1f);
       set(cm, ClimateManager.FLOAT_WIND_ANGLE_INTENSITY, storm ? 0.7f : 0.0f);

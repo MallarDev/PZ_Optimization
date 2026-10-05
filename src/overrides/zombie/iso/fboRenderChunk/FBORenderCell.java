@@ -3116,7 +3116,7 @@ public final class FBORenderCell {
       if (this.isObjectRenderLayer_MinusFloor(object)) {
          return ObjectRenderLayer.MinusFloor;
       } else if (this.isObjectRenderLayer_MinusFloorSE(object)) {
-         return pzoptPerFrameTranslucentTile(object.getSprite()) ? ObjectRenderLayer.TranslucentSE : ObjectRenderLayer.MinusFloorSE;
+         return pzoptPerFrameTranslucentTile(object) ? ObjectRenderLayer.TranslucentSE : ObjectRenderLayer.MinusFloorSE;
       } else {
          return this.isObjectRenderLayer_Translucent(object) ? ObjectRenderLayer.Translucent : ObjectRenderLayer.None;
       }
@@ -3197,7 +3197,7 @@ public final class FBORenderCell {
 
    private boolean isObjectRenderLayer_MinusFloor(IsoObject object) {
       IsoSprite sprite = object.getSprite();
-      if (pzoptPerFrameTranslucentTile(sprite)) {
+      if (pzoptPerFrameTranslucentTile(object)) {
          return false;
       }
 
@@ -3372,9 +3372,12 @@ public final class FBORenderCell {
     * to win over its own baked lamp, and a ceiling fixture's top lies in the plane of the floor above, so the lit tubes of the
     * Fossoil canopy showed through its roof and flickered with the zoom (2026-09-28). Per frame, like stock, no pull. Glass
     * tiles stay per frame with glassTilesPerFrame (pzopt.GlassTiles): baked, the pane writes its depth and hides the
-    * characters standing behind it, which stock draws first and blends the pane over (2026-10-01).
+    * characters standing behind it, which stock draws first and blends the pane over (2026-10-01). Tiles lying on the floor
+    * stay per frame with floorDecalsPerFrame (pzopt.FloorDecals): baked, a manhole cover sat under the puddle pass, which
+    * z-fought with it in bands; stock draws it after the puddles (2026-10-05).
     */
-   private static boolean pzoptPerFrameTranslucentTile(IsoSprite sprite) {
+   private static boolean pzoptPerFrameTranslucentTile(IsoObject object) {
+      IsoSprite sprite = object.getSprite();
       if (pzopt.Mirrors.perFrame(sprite)) { // pzopt: mirrors, a mirror tile draws per frame (its glass gets the reflection over it)
          return true; // pzopt
       } // pzopt
@@ -3387,12 +3390,15 @@ public final class FBORenderCell {
       if (pzopt.Config.GLASS_TILES_PER_FRAME && pzopt.GlassTiles.isGlass(sprite)) {
          return true; // glassTilesPerFrame: baked glass hid the characters behind it (2026-10-01)
       }
+      if (pzopt.Config.FLOOR_DECALS_PER_FRAME && pzopt.FloorDecals.underPuddles(object, sprite)) {
+         return true; // floorDecalsPerFrame: a baked manhole cover z-fought with the puddle drawn over it (2026-10-05)
+      }
       return pzopt.Config.TRANSLUCENT_LIGHTS_PER_FRAME && sprite.getProperties().has(IsoFlagType.HasLightOnSprite);
    }
 
    private boolean isObjectRenderLayer_Translucent(IsoObject object) {
       IsoSprite sprite = object.getSprite();
-      if (pzoptPerFrameTranslucentTile(sprite)) {
+      if (pzoptPerFrameTranslucentTile(object)) {
          return true;
       }
 

@@ -254,6 +254,32 @@ objects, chunks by lighting counter, translucent squares). Every fix is marked
    behind the glass were 2.5-7.3x the stock-to-stock difference before, 0.67-0.98x after,
    in both scenes (shelter windows, placed `location_shop_mall_01_24` balustrade); Jev:
    balustrade fixed 0.88, shelter fixed 0.51 vs not_fixed 0.43 on the same numbers.
+   Since 2026-10-05 the helper (now taking the object) also keeps Translucent tiles
+   that lie on the floor of a puddle square per frame while
+   `pzopt.Config.FLOOR_DECALS_PER_FRAME` (`floorDecalsPerFrame`, default on) is set:
+   `pzopt.FloorDecals` says a sprite lies on the floor when its texture's opaque
+   rectangle fits the floor diamond at the bottom of the tile (half the tile's width
+   high, plus a sixteenth of the width for a rim; cached per sprite: manhole covers,
+   drains, litter, broken glass), and the square draws puddles (a floor, puddle
+   geometry that renders: the same test the bake walk caches the puddle squares
+   with). Stock draws such a tile in the translucent pass after the puddles, so it
+   covers the water. Baked, it sat in the chunk texture under the puddle pass,
+   which is depth-tested against it: the cover's object depth (no tile geometry,
+   `UseObjectDepthTexture`) lies within the puddle's 1e-4 lift over the floor, and
+   the two traded places in horizontal bands that moved with the camera
+   (maintainer's report "manholes flicker zoomed out all the way, in the rain
+   puddles", `street_decoration_01_15`). Bisected with `harness/manhole-flicker.py`
+   (Jev walks circles at max zoom, puddles pinned full): stock clean, puddle keys,
+   enhancements, fogPass, tileDepthFix, zoomRetain all innocent,
+   `translucentTilesInChunkTexture=false` alone clean. Before: bands in 436 of 520
+   frames, 31 % of the cover changing per frame; after: 0 band frames, 1.2 %
+   (stock 0.3 %); Jev fixed 0.95. In daylight rain (`weather=rain`): bands in 107
+   of 520 frames before, 0 after, 0 in stock; the cover adds 8.5 % flips over the
+   road beside it before, 0.6 % after (stock -2.5 %; our rain streaks flicker the
+   road itself ~2 points more than stock's); Jev fixed 0.83.
+   Video: `docs/media/manhole-puddle-flicker-before-vs-fix.mp4` (`harness/stitch-manhole.sh`). Cost: the per-frame translucent pass draws ~200
+   more tiles a frame on the wet spin route (420-480 vs 200-280; nothing baked
+   would be ~3,000); uncapped spin 352 vs 377 fps over four noisy pairs.
 5. **Dev counters** (only with `instrument=true`): `renderTranslucent(IsoObject)`
    and `renderTranslucent(IsoGridSquare)` count what the per-frame pass draws
    by kind (window, door, tree, Translucent-flagged tile with a per-tileset
