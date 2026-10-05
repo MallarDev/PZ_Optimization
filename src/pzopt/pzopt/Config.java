@@ -572,6 +572,7 @@ public final class Config {
    public static final int ZOMBIE_SPAWN_DRAIN_FRAMES = Math.max(1, integer("zombieSpawnDrainFrames", 240)); // zombieSpawnSpread: the budget grows so any backlog is created within this many frames (up to zombieSpawnMaxUs a frame)
    public static final int ZOMBIE_SPAWN_MAX_US = Math.max(0, integer("zombieSpawnMaxUs", 1500));
    public static final int ZOMBIE_SPAWN_LOAD_MS = Math.max(0, integer("zombieSpawnLoadMs", 3000)); // zombieSpawnSpread: for this long after the first population update (the load's mass spawn) every queued zombie is created at once, as stock
+   public static final int ZOMBIE_SPAWN_MAX_AGE_MS = Math.max(0, integer("zombieSpawnMaxAgeMs", 1000)); // zombieSpawnSpread: a queued zombie waits at most this long (wall time), so a slow machine's small per-frame budget never thins the horde (the flip / Mac test of 2026-10-06 had half the zombies at route start)
    public static final int ZOMBIE_SPAWN_NEAR = Math.max(0, integer("zombieSpawnNear", 25)); // zombieSpawnSpread: a zombie this close (squares) to a player is created at once, as stock
    public static final int ZOMBIE_SPAWN_MIN = Math.max(1, integer("zombieSpawnMin", 2));
    public static final boolean LOOT_DEFER = bool("lootDefer", false); // time-sliced loot: a chunk arriving lootDeferDistance squares or more from every player queues its unexplored containers and they roll under lootDeferBudgetUs a frame (pzopt.LootDefer; single player). A downtown chunk's loot roll was up to 32 ms of one frame. Changes the order of random draws (an intended edit)

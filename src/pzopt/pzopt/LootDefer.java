@@ -145,7 +145,8 @@ public final class LootDefer {
       IsoChunk chunk = CHUNKS.poll();
       FRAMES.poll();
       IsoGridSquare sq = object.getSquare();
-      if (sq == null || sq.getChunk() != chunk || !chunk.loaded || object.getContainer() != container || container.isExplored()) {
+      if (sq == null || sq.getChunk() != chunk || !chunk.loaded || object.getContainer() != container || container.isExplored()
+            || object.getSprite() == null || object.getSprite().getName() == null) { // the hand-off's own preconditions, re-checked: the object may have changed since
          dropped++;
          return false;
       }

@@ -787,6 +787,7 @@ PzoptOptionClasses = {
     zombieSpawnBudgetUs = { "ZombiePopulationManager" },
     zombieSpawnDrainFrames = { "ZombiePopulationManager" },
     zombieSpawnLoadMs = { "ZombiePopulationManager" },
+    zombieSpawnMaxAgeMs = { "ZombiePopulationManager" },
     zombieSpawnMaxUs = { "ZombiePopulationManager" },
     zombieSpawnMin = { "ZombiePopulationManager" },
     zombieSpawnNear = { "ZombiePopulationManager" },

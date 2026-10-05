@@ -6143,6 +6143,13 @@ the maintainer's decision). With every key off the edited methods run the stock 
 - `devGtAlternate` section timers around `logic`, `IsoWorld.FinishAnimation`, `renderInternal` and `LightingJNI.update`
   (the stock body moved into `pzoptUpdateBody`).
 
+### Fixes after the flip / Mac test (2026-10-06)
+- `ZombiePopulationManager`, `zombieSpawnSpread`: a queued zombie waits at most `zombieSpawnMaxAgeMs` (1000) of wall time,
+  whatever the per-frame budget: on the flip and the Mac (25-35 ms frames) the budget alone let a third to a half of the
+  horde still wait at the route start.
+- `pzopt.LootDefer`: a deferred roll re-checks the hand-off's own preconditions (the object still has a sprite with a
+  name); a container whose object changed meanwhile threw in `ItemPickerJava` (caught by SlackWork's job isolation).
+
 ### pzopt (not overrides)
 - `SlackWork`: deferred game-thread jobs run in the step's slack at the start of `Pacing.limiterWait` while each job's
   learned cost (running mean, a share of a decaying peak) fits the time left less `slackMarginUs`; an overdue job

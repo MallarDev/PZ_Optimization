@@ -673,6 +673,7 @@ public final class ZombiePopulationManager {
    private IsoDirections[] pzoptSpDir = new IsoDirections[256]; // pzopt
    private ZombieStateFlags[] pzoptSpState = new ZombieStateFlags[256]; // pzopt
    private int[] pzoptSpDesc = new int[256], pzoptSpTx = new int[256], pzoptSpTy = new int[256], pzoptSpPid = new int[256], pzoptSpFrame = new int[256]; // pzopt
+   private long[] pzoptSpNs = new long[256]; // pzopt: when each entry was queued
    private final pzopt.SlackWork.Cost pzoptSpawnSlackCost = new pzopt.SlackWork.Cost(300_000.0, 0.0); // pzopt: slackWork, one zombie's creation (the mean: one size of job)
    private final pzopt.SlackWork.Producer pzoptSpawnProducer = new pzopt.SlackWork.Producer() { // pzopt: slackWork, the queue below
       public boolean pending() { // pzopt
@@ -707,6 +708,7 @@ public final class ZombiePopulationManager {
          this.pzoptSpTy = java.util.Arrays.copyOfRange(this.pzoptSpTy, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
          this.pzoptSpPid = java.util.Arrays.copyOfRange(this.pzoptSpPid, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
          this.pzoptSpFrame = java.util.Arrays.copyOfRange(this.pzoptSpFrame, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpNs = java.util.Arrays.copyOfRange(this.pzoptSpNs, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
          this.pzoptSpTail = n; // pzopt
          this.pzoptSpHead = 0; // pzopt
       } // pzopt
@@ -714,6 +716,7 @@ public final class ZombiePopulationManager {
       this.pzoptSpX[i] = x; this.pzoptSpY[i] = y; this.pzoptSpZ[i] = z; this.pzoptSpDir[i] = dir; this.pzoptSpState[i] = state; // pzopt
       this.pzoptSpDesc[i] = desc; this.pzoptSpTx[i] = tx; this.pzoptSpTy[i] = ty; this.pzoptSpPid[i] = pid; // pzopt
       this.pzoptSpFrame[i] = pzopt.SlackWork.frame(); // pzopt
+      this.pzoptSpNs[i] = System.nanoTime(); // pzopt
       pzoptSpawnQueued++; // pzopt
       pzoptSpawnMax = Math.max(pzoptSpawnMax, this.pzoptSpTail - this.pzoptSpHead); // pzopt
    } // pzopt
@@ -755,7 +758,9 @@ public final class ZombiePopulationManager {
       long backlogNs = (long)((this.pzoptSpTail - this.pzoptSpHead) * this.pzoptSpawnCostNs / Math.max(1, pzopt.Config.ZOMBIE_SPAWN_DRAIN_FRAMES)); // pzopt
       budget = Math.max(budget, Math.min(backlogNs, pzopt.Config.ZOMBIE_SPAWN_MAX_US * 1000L)); // pzopt: never more than zombieSpawnMaxUs a frame
       int made = 0; // pzopt
-      while (this.pzoptSpHead < this.pzoptSpTail && (made < pzopt.Config.ZOMBIE_SPAWN_MIN || System.nanoTime() - t0 < budget)) { // pzopt
+      long pzoptOld = System.nanoTime() - pzopt.Config.ZOMBIE_SPAWN_MAX_AGE_MS * 1_000_000L; // pzopt: an entry older than this goes now, whatever the budget
+      while (this.pzoptSpHead < this.pzoptSpTail
+            && (made < pzopt.Config.ZOMBIE_SPAWN_MIN || System.nanoTime() - t0 < budget || this.pzoptSpNs[this.pzoptSpHead] < pzoptOld)) { // pzopt
          this.pzoptSpawnOne(); // pzopt
          made++; // pzopt
       } // pzopt
