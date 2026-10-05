@@ -2619,6 +2619,8 @@ public final class IsoWorld {
       this.drawWorld = b;
    }
 
+   public static long pzoptAddsDeferred; // pzopt: zombieModelAddBudgetUs, promotions put off a frame
+
    public void sceneCullZombies() {
       this.zombieWithModel.clear();
       this.zombieWithoutModel.clear();
@@ -2673,10 +2675,30 @@ public final class IsoWorld {
          pzoptBlended = pzopt.ZombieLod.blended(pzoptBlended); // pzopt
       } // pzopt
       PerformanceSettings.animationSkip = 0;
+      // pzopt: zombieModelAddBudgetUs (2026-10-05, Louisville 120 fps pass). A zombie getting a 3D model builds its model
+      // instance and every clothing model in ModelManager.Add; when many win a slot at once (a turn, a crowd coming into
+      // view, the dynamic LOD raising its count) that was a 4 ms frame. Past the budget the rest wait a frame as sprites.
+      boolean pzoptAddBudget = pzopt.Config.ZOMBIE_MODEL_ADD_BUDGET_US > 0 && pzopt.Overrides.enabled() && pzopt.GtAb.on(pzopt.GtAb.MODEL_ADDS); // pzopt
+      int pzoptAdds = 0; // pzopt
+      long pzoptAddT0 = 0L; // pzopt
 
       for (int n = 0; n < this.zombieWithModel.size(); n++) {
          IsoZombie z = (IsoZombie)this.zombieWithModel.get(n);
          if (tcount < 510 && tcount < tcountMax) { // pzopt: zombieLodDynamic's cap (510 without it)
+            if (pzoptAddBudget && !z.ghost && !z.hasActiveModel()) { // pzopt: zombieModelAddBudgetUs, a zombie that would get its model now
+               if (pzoptAdds > 0 && System.nanoTime() - pzoptAddT0 > pzopt.Config.ZOMBIE_MODEL_ADD_BUDGET_US * 1000L) { // pzopt: past the frame's budget
+                  z.setSceneCulled(true); // pzopt: stays a flat sprite this frame, as past the cap below
+                  if (z.hasAnimationPlayer()) { // pzopt
+                     z.getAnimationPlayer().doBlending = false; // pzopt
+                  } // pzopt
+                  pzoptAddsDeferred++; // pzopt
+                  continue; // pzopt: its model slot goes to the next zombie this frame
+               } // pzopt
+               if (pzoptAdds == 0) { // pzopt
+                  pzoptAddT0 = System.nanoTime(); // pzopt
+               } // pzopt
+               pzoptAdds++; // pzopt
+            } // pzopt
             if (!z.ghost) {
                count++;
                tcount++;
@@ -2821,8 +2843,10 @@ public final class IsoWorld {
                ProfileArea t = profiler.profile("Cull");
 
                try {
+                  long pzoptCullT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
                   this.sceneCullZombies();
                   this.sceneCullAnimals();
+                  pzopt.GtAb.end(pzopt.GtAb.S_CULL, pzoptCullT); // pzopt
                } catch (Throwable var16) {
                   if (t != null) {
                      try {
@@ -2845,11 +2869,15 @@ public final class IsoWorld {
             try {
                WeatherFxMask.initMask();
                pzopt.GpuSections.begin("atlas"); // pzopt: GPU section
+               long pzoptAtlasT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
                DeadBodyAtlas.instance.render();
                WorldItemAtlas.instance.render();
+               pzopt.GtAb.end(pzopt.GtAb.S_ATLAS, pzoptAtlasT); // pzopt
                pzopt.GpuSections.end("atlas"); // pzopt: GPU section
                pzopt.GpuSections.begin("cell"); // pzopt: GPU section
+               long pzoptCellT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
                this.currentCell.render();
+               pzopt.GtAb.end(pzopt.GtAb.S_CELL, pzoptCellT); // pzopt
                pzopt.GpuSections.end("cell"); // pzopt: GPU section
                Gizmos.getInstance().render(IsoCamera.frameState.playerIndex);
                this.DrawIsoCursorHelper();

@@ -43,12 +43,41 @@ public final class GameProfiler {
    private boolean pzoptValidThread;
    private boolean pzoptValidThreadKnown;
 
+   // pzopt: profilerIdleFast. A probe asks isValidThread and isRunning on the way in and out, each a ThreadLocal lookup;
+   // with ~2,200 zombies that was 2.2 % of the game thread on the Louisville horde while nothing records. The two valid
+   // threads are remembered by identity once the memo has said yes for them, our frame workers are never valid, and
+   // isRunning is false for every thread until some thread's isRunning first turns true (it only does from
+   // gameProfilerEnabled, in startFrame / endFrame), so until then the lookups are skipped with the same answers.
+   private static volatile Thread pzoptValidA; // pzopt
+   private static volatile Thread pzoptValidB; // pzopt
+   private static volatile boolean pzoptAnyRunning; // pzopt: some thread's isRunning has been true
+
+   private static boolean pzoptIdleFast() { // pzopt
+      return pzopt.Config.PROFILER_IDLE_FAST && pzopt.Overrides.enabled() && pzopt.GtAb.on(pzopt.GtAb.PROFILER_IDLE); // pzopt
+   } // pzopt
+
    public static boolean isValidThread() {
+      if (pzoptIdleFast()) { // pzopt: profilerIdleFast
+         Thread t = Thread.currentThread(); // pzopt
+         if (t == pzoptValidA || t == pzoptValidB) { // pzopt
+            return true; // pzopt
+         } // pzopt
+         if (t instanceof pzopt.FrameBatch.Worker) { // pzopt: "pzopt-frame-N" is not in the list
+            return false; // pzopt
+         } // pzopt
+      } // pzopt
       if (pzopt.Config.PROFILER_THREAD_MEMO && pzopt.Overrides.enabled()) {
          GameProfiler profiler = s_instance.get();
          if (!profiler.pzoptValidThreadKnown) {
             profiler.pzoptValidThread = m_validThreadNames.contains(Thread.currentThread().getName());
             profiler.pzoptValidThreadKnown = true;
+            if (profiler.pzoptValidThread) { // pzopt: profilerIdleFast, remembered by identity (a thread keeps its name, as the memo assumes)
+               if (pzoptValidA == null) { // pzopt
+                  pzoptValidA = Thread.currentThread(); // pzopt
+               } else if (pzoptValidB == null && pzoptValidA != Thread.currentThread()) { // pzopt
+                  pzoptValidB = Thread.currentThread(); // pzopt
+               } // pzopt
+            } // pzopt
          }
 
          return profiler.pzoptValidThread;
@@ -76,6 +105,9 @@ public final class GameProfiler {
 
       this.isInFrame = true;
       this.isRunning = DebugOptions.instance.gameProfilerEnabled.getValue();
+      if (this.isRunning) { // pzopt: profilerIdleFast
+         pzoptAnyRunning = true; // pzopt
+      } // pzopt
       if (!this.stack.empty()) {
          throw new RuntimeException("Recording stack should be empty at the start of a frame.");
       }
@@ -117,6 +149,9 @@ public final class GameProfiler {
       } finally {
          this.isInFrame = false;
          this.isRunning = DebugOptions.instance.gameProfilerEnabled.getValue();
+         if (this.isRunning) { // pzopt: profilerIdleFast
+            pzoptAnyRunning = true; // pzopt
+         } // pzopt
       }
    }
 
@@ -132,6 +167,9 @@ public final class GameProfiler {
    }
 
    public static boolean isRunning() {
+      if (!pzoptAnyRunning && pzoptIdleFast()) { // pzopt: profilerIdleFast, no thread has run the profiler yet
+         return false; // pzopt
+      } // pzopt
       return getInstance().isRunning;
    }
 

@@ -6068,3 +6068,87 @@ Rig: `--source-save Sandbox/2026-09-26_03-37-09 --flag zombies=off --flag route=
 --shot-at 3`, crops of `shot-desktop.png`; `--prop devPplDumpAt=8` (the square dump now lists object alphas and `pcf=`).
 Left: the porch gutter's top reads darker than stock with the player's settings (pixelLight, aoEdgeShade and the HDR /
 grading tone each add to it; defaults match stock).
+
+## Louisville 120 fps pass (2026-10-05; branch `lou120`, docs/findings-louisville-120-2026-10-05.md)
+
+Defaults: `profilerIdleFast`, `statsNoBox`, `stateMachineNoIter`, `worldgenPatternCache` on (same results as stock);
+`animalLosSnapshot`, `lootDefer`, `zombieSpawnSpread`, `slackWork`, `zombieModelAddBudgetUs` off (intended differences,
+the maintainer's decision). With every key off the edited methods run the stock bodies.
+
+### zombie.GameProfiler, second edit
+- `profilerIdleFast` (default on): `isValidThread` answers from two remembered thread identities (filled when the
+  per-thread memo first says yes) and returns false for `pzopt.FrameBatch.Worker` threads without a ThreadLocal lookup;
+  `isRunning` returns false without one until some thread's `isRunning` has been true (set only in `startFrame` /
+  `endFrame` from `gameProfilerEnabled`, which now also raise a static flag). Same answers; every zombie update and
+  postupdate probe skipped two ThreadLocal lookups (2.2 % of the game thread on the Louisville horde).
+
+### zombie.characters.Stats (new override)
+- `statsNoBox`: `get` reads the map with a plain `get` and returns the stat's default only for an absent key, instead of
+  `getOrDefault` with a freshly boxed default (10 % of the sampled allocation). A key mapped to null still throws on the
+  unboxing, as stock.
+
+### zombie.ai.StateMachine (new override)
+- `stateMachineNoIter`: `getMinimumSimulationLevel` walks the substates by index instead of an iterator (10 % of the
+  sampled allocation once tiered updates classify every object every frame).
+- Decompiler fix: the `stateAnimEvent` lambda's parameter types written out (Vineflower lost them; javap
+  `lambda$stateAnimEvent$0`).
+
+### zombie.characters.animals.IsoAnimal, second edit
+- `animalLosSnapshot` (with `animalLosFast`): `updateLOS` scans `pzopt.AnimalLosSnapshot`, built once per scheduler frame
+  from the cell's object set in its own order (zombies passing the grapple / square filters with their position, non-animal
+  players, animals), instead of walking the whole set per animal; zombies fold into ticks or a near `spotted` call as
+  before, players take the stock body with live reads, the animal's own entry adds it to its spotted list. Intended
+  difference: the zombies' positions and filters are those of the frame's first animal update. 0.80 -> 0.25 ms a frame.
+
+### zombie.MovingObjectUpdateScheduler, second edit
+- `zombieSimLodTiles` now honours the A/B rig (`GtAb.SIM_LOD`); with `instrument` the number of zombies per simulation
+  level is logged every 600 frames (`sim levels`).
+
+### zombie.LoadGridsquarePerformanceWorkaround (new override)
+- `lootDefer`: in `checkObject`, an unexplored container of a chunk arriving `lootDeferDistance` (20) squares or more from
+  every player is queued (`pzopt.LootDefer`) instead of rolled; the queue rolls it later with the same calls (fill,
+  explored, overlay sprite), in the frame's slack at a cap (`slackWork`) or under `lootDeferBudgetUs` a frame uncapped.
+  Intended difference: the order of the game's random draws. Single player only.
+
+### zombie.iso.IsoChunkMap, second edit
+- The hand-off loop body of `updateInternal` moved verbatim into `pzoptHandOffChunk(chunk)` (true when the chunk joined).
+- `chunkHandoffSlackWork`: at a cap with fewer than `chunkHandoffSlackBacklog` (24) chunks queued, no chunk is handed off
+  inside the frame; a `SlackWork` producer takes them off the queue one at a time and hands them off in the step's slack
+  when the learned cost per square times the chunk's squares fits (then `calculateZExtentsForChunkMap` on each player's
+  map). A larger backlog (world load, teleport) or no cap takes the stock path; a chunk the producer staged goes first.
+- `LootDefer.drain` once a frame; section timer `chunkMapUpdate` for the A/B rig.
+
+### zombie.popman.ZombiePopulationManager, second edit
+- `zombieSpawnSpread`: the zombies the native population turns real are decoded and filtered as stock, then those farther
+  than `zombieSpawnNear` (25) squares from every player are queued and created oldest first under `zombieSpawnBudgetUs`
+  (600) a frame, the budget growing with the backlog (drain within `zombieSpawnDrainFrames`, at most `zombieSpawnMaxUs`);
+  for `zombieSpawnLoadMs` (3000) after the session's first population update everything goes at once, as stock (the
+  load's mass spawn). Intended difference: a far zombie appears a few frames later. (A slack-time variant crashed once in
+  `createZombieOutsideWorld` with a zero direction vector and was dropped.) Section timer `popmanUpdate`.
+
+### zombie.iso.IsoWorld, second edit
+- `zombieModelAddBudgetUs` (500): in `sceneCullZombies`, zombies getting a 3D model this frame (`ModelManager.Add`: the
+  model and every clothing model) stop after that much time; the rest stay flat sprites for the frame (their model slot goes
+  to the next zombie in score order). Section timers `sceneCull`, `atlases`, `cellRender`.
+
+### zombie.iso.worldgen.WorldGenUtils (new override)
+- `worldgenPatternCache`: `canPlace` keeps each placement glob's compiled `Pattern` (same rewrite as stock) instead of
+  compiling it in every `String.matches` (~5 % of the allocation, on the world streamer).
+
+### zombie.iso.fboRenderChunk.FBORenderCell, dev counter
+- The instrument-only translucent census (`pzoptCountTranslucent`) runs one frame in 16 (it was 1.7 % of a harness run's
+  game thread and 4 % of its allocation); counts are scaled by 16.
+
+### zombie.GameWindow, zombie.iso.LightingJNI (section timers only)
+- `devGtAlternate` section timers around `logic`, `IsoWorld.FinishAnimation`, `renderInternal` and `LightingJNI.update`
+  (the stock body moved into `pzoptUpdateBody`).
+
+### pzopt (not overrides)
+- `SlackWork`: deferred game-thread jobs run in the step's slack at the start of `Pacing.limiterWait` while each job's
+  learned cost (running mean, a share of a decaying peak) fits the time left less `slackMarginUs`; an overdue job
+  (`slackMaxWaitFrames`) runs in a light frame (half the interval free), any frame at four times the wait; a job's
+  exception is logged and skipped. Producers: `LootDefer`, the chunk hand-off.
+- `GtAb`: ABBA periods (`devGtAbba`, default on; plain alternation biased an A/A placebo by 0.6 ms) and nine more sections.
+- `CorePlacement`: `coreIsolate=N` reserves N physical cores for the game / render threads on non-hybrid SMT CPUs (off: no
+  measured gain on the 9800X3D).
+- `BakeScheduler`: `bakeTimeGuardPct` (default 0: at 55 the deferred levels cost more than the bakes, 118 -> 88 fps).

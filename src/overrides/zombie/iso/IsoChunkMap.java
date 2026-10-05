@@ -199,7 +199,12 @@ public final class IsoChunkMap {
       AbstractPerformanceProfileProbe var1 = ppp_update.profile();
 
       try {
-         this.updateInternal();
+         long pzoptT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
+         try { // pzopt
+            this.updateInternal();
+         } finally { // pzopt
+            pzopt.GtAb.end(pzopt.GtAb.S_CHUNKMAP, pzoptT); // pzopt
+         } // pzopt
       } catch (Throwable var5) {
          if (var1 != null) {
             try {
@@ -219,6 +224,7 @@ public final class IsoChunkMap {
 
    private void updateInternal() {
       boolean bChanged = false;
+      pzopt.LootDefer.drain(); // pzopt: lootDefer, this frame's share of the queued far containers
       int count = IsoChunk.loadGridSquare.size();
       if (count != 0) {
          count = 1 + count * 3 / chunkGridWidth;
@@ -234,10 +240,114 @@ public final class IsoChunkMap {
             count = 0; // pzopt
          } // pzopt
       }
+      if (pzopt.Config.CHUNK_HANDOFF_SLACK_WORK && pzopt.Overrides.enabled() && pzopt.SlackWork.active()
+            && IsoChunk.loadGridSquare.size() < pzopt.Config.CHUNK_HANDOFF_SLACK_BACKLOG && !GameClient.client && !GameServer.server) { // pzopt: chunkHandoffSlackWork,
+         count = 0; // pzopt: the chunks join in the step's slack, one at a time (a world load / teleport backlog goes as above)
+         pzopt.SlackWork.register(PZOPT_HANDOFF); // pzopt
+      } else if (pzoptStaged != null) { // pzopt: a chunk the slack producer took off the queue goes first, in queue order
+         IsoChunk pzoptChunk = pzoptStaged; // pzopt
+         pzoptStaged = null; // pzopt
+         if (this.pzoptHandOffChunk(pzoptChunk)) { // pzopt
+            bChanged = true; // pzopt
+         } // pzopt
+      } // pzopt
 
       while (count > 0) {
          IsoChunk chunk = (IsoChunk)IsoChunk.loadGridSquare.poll();
          if (chunk != null) {
+            if (this.pzoptHandOffChunk(chunk)) { // pzopt: the body moved to pzoptHandOffChunk
+               bChanged = true; // pzopt
+            } // pzopt
+         }
+
+         count--;
+      }
+
+      if (bChanged) {
+         this.calculateZExtentsForChunkMap();
+      }
+
+      boolean hotSave = !GameClient.client && !GameServer.server && this.hotSaveFrequency.Check();
+
+      for (int y = 0; y < chunkGridWidth; y++) {
+         for (int x = 0; x < chunkGridWidth; x++) {
+            IsoChunk chunk = this.getChunk(x, y);
+            if (chunk != null) {
+               chunk.update();
+               if (hotSave && chunk.requiresHotSave && ChunkSaveWorker.instance.toSaveQueue.size() < 10) {
+                  ChunkSaveWorker.instance.AddHotSave(chunk);
+                  chunk.requiresHotSave = false;
+               }
+            }
+         }
+      }
+
+      if (GameClient.client && this.checkVehiclesFrequency.Check()) {
+         this.checkVehicles();
+      }
+   }
+
+   // pzopt: chunkHandoffSlackWork (2026-10-05, Louisville 120 fps pass). A chunk's hand-off (doLoadGridsquare: the border
+   // recalc with its neighbours, building randomisation, vehicles, rats; 1 to 50 ms downtown) ran inside the frame, where a
+   // chunk row's arrival also brought its lighting and its first bakes. At a cap the queued chunks now join in the step's
+   // slack (pzopt.SlackWork), one at a time while the learned cost per level times the chunk's levels fits the time left.
+   private static IsoChunk pzoptStaged; // pzopt: the next chunk, taken off the queue (it has no peek) to size it
+   private static int pzoptStagedFrame; // pzopt
+   private static final pzopt.SlackWork.Cost PZOPT_LEVEL_COST = new pzopt.SlackWork.Cost(20_000.0, 0.5); // pzopt: hand-off ns per square (levels of a downtown tower are mostly empty)
+   private static int pzoptStagedSquares; // pzopt
+   private static final pzopt.SlackWork.Producer PZOPT_HANDOFF = new pzopt.SlackWork.Producer() { // pzopt
+      public boolean pending() { // pzopt
+         if (pzoptStaged == null) { // pzopt
+            pzoptStaged = (IsoChunk)IsoChunk.loadGridSquare.poll(); // pzopt
+            pzoptStagedFrame = pzopt.SlackWork.frame(); // pzopt
+            pzoptStagedSquares = pzoptSquares(pzoptStaged); // pzopt
+         } // pzopt
+         return pzoptStaged != null; // pzopt
+      } // pzopt
+      public long nextCostNs() { // pzopt
+         return PZOPT_LEVEL_COST.estimate() * pzoptStagedSquares; // pzopt
+      } // pzopt
+      public int nextAgeFrames() { // pzopt
+         return pzopt.SlackWork.frame() - pzoptStagedFrame; // pzopt
+      } // pzopt
+      public void runNext() { // pzopt
+         IsoChunk chunk = pzoptStaged; // pzopt
+         int squares = pzoptStagedSquares; // pzopt
+         pzoptStaged = null; // pzopt
+         IsoChunkMap cm = IsoWorld.instance.currentCell.chunkMap[0]; // pzopt
+         long t0 = System.nanoTime(); // pzopt
+         if (cm.pzoptHandOffChunk(chunk)) { // pzopt
+            for (int n = 0; n < IsoPlayer.numPlayers; n++) { // pzopt: the loop's calculateZExtentsForChunkMap, for each player's map
+               IsoChunkMap m = IsoWorld.instance.currentCell.chunkMap[n]; // pzopt
+               if (m != null && !m.ignore) { // pzopt
+                  m.calculateZExtentsForChunkMap(); // pzopt
+               } // pzopt
+            } // pzopt
+         } // pzopt
+         PZOPT_LEVEL_COST.learn((System.nanoTime() - t0) / squares); // pzopt
+      } // pzopt
+   }; // pzopt
+
+   private static int pzoptSquares(IsoChunk c) { // pzopt: the chunk's squares, its hand-off's size
+      if (c == null || c.squares == null) { // pzopt
+         return 64; // pzopt
+      } // pzopt
+      int n = 0; // pzopt
+      for (IsoGridSquare[] level : c.squares) { // pzopt
+         if (level != null) { // pzopt
+            for (IsoGridSquare sq : level) { // pzopt
+               if (sq != null) { // pzopt
+                  n++; // pzopt
+               } // pzopt
+            } // pzopt
+         } // pzopt
+      } // pzopt
+      return Math.max(16, n); // pzopt
+   } // pzopt
+
+   /** pzopt: one chunk's hand-off, the stock loop body of updateInternal (true when the chunk joined the world); also run from the frame's slack (chunkHandoffSlackWork). */
+   private boolean pzoptHandOffChunk(IsoChunk chunk) { // pzopt
+      boolean bChanged = false; // pzopt
             boolean loaded = false;
 
             for (int n = 0; n < IsoPlayer.numPlayers; n++) {
@@ -249,8 +359,7 @@ public final class IsoChunkMap {
 
             if (!loaded) {
                WorldReuserThread.instance.addReuseChunk(chunk);
-               count--;
-               continue;
+               return false; // pzopt: the stock loop's count-- / continue
             }
 
             chunk.loaded = true;
@@ -298,34 +407,8 @@ public final class IsoChunkMap {
                   player.dirtyRecalcGridStackTime = 20.0F;
                }
             }
-         }
-
-         count--;
-      }
-
-      if (bChanged) {
-         this.calculateZExtentsForChunkMap();
-      }
-
-      boolean hotSave = !GameClient.client && !GameServer.server && this.hotSaveFrequency.Check();
-
-      for (int y = 0; y < chunkGridWidth; y++) {
-         for (int x = 0; x < chunkGridWidth; x++) {
-            IsoChunk chunk = this.getChunk(x, y);
-            if (chunk != null) {
-               chunk.update();
-               if (hotSave && chunk.requiresHotSave && ChunkSaveWorker.instance.toSaveQueue.size() < 10) {
-                  ChunkSaveWorker.instance.AddHotSave(chunk);
-                  chunk.requiresHotSave = false;
-               }
-            }
-         }
-      }
-
-      if (GameClient.client && this.checkVehiclesFrequency.Check()) {
-         this.checkVehicles();
-      }
-   }
+      return bChanged; // pzopt
+   } // pzopt
 
    private void checkVehicles() {
       for (int y = 0; y < chunkGridWidth; y++) {

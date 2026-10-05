@@ -476,6 +476,7 @@ public final class Config {
     */
    /** bakeScheduler: a step that used more than this share (%) of its interval before the bakes are planned grants no normal-tier bake (0 = off). */
    public static final int BAKE_DEADLINE_PCT = Math.max(0, integer("bakeDeadlinePct", 0));
+   public static final int BAKE_TIME_GUARD_PCT = Math.max(0, integer("bakeTimeGuardPct", 0)); // bakeScheduler at a frame cap: once the step used this share of its interval, arrival / strong / redraw / light bakes wait for the next frame (0 = off; measured 2026-10-05 at 55: 118 -> 88 fps on Louisville, the deferred levels cost more than the bakes)
    public static final boolean BAKE_SMOOTH = bool("bakeSmooth", false);
    public static final int BAKE_SMOOTH_MIN = Math.max(0, integer("bakeSmoothMin", 1)); // bakeSmooth: normal-tier bakes granted a frame at least (when any wait)
    /** bakeScheduler: a chunk's seam re-bake after a neighbour loads is urgent only for a south / east neighbour (the squares SeamFix2 reads). */
@@ -563,7 +564,22 @@ public final class Config {
    public static final int CUTAWAY_RADIUS = integer("cutawayRadius", 6);
    public static final int GRID_STACK_INTERVAL = integer("gridStackInterval", 8);
    public static final boolean WEATHER_MASK_IDLE_SKIP = bool("weatherMaskIdleSkip", true);
+   public static final boolean SLACK_WORK = bool("slackWork", false); // at a frame cap, deferred game-thread jobs (far loot rolls, far zombie spawns, far chunk hand-offs) run in the step's slack before the limiter's park, each while its learned cost fits the time left (pzopt.SlackWork)
+   public static final int SLACK_MARGIN_US = Math.max(0, integer("slackMarginUs", 700)); // slackWork: time kept free before the next step
+   public static final int SLACK_MAX_WAIT_FRAMES = Math.max(1, integer("slackMaxWaitFrames", 600)); // slackWork: a job that waited this long runs whatever its cost (one a frame)
+   public static final boolean ZOMBIE_SPAWN_SPREAD = bool("zombieSpawnSpread", false); // the zombies the native population turns real in one frame are created from a queue under zombieSpawnBudgetUs a frame (ZombiePopulationManager.updateMain): a chunk row next to a horde made dozens of IsoZombies in one frame. They appear a few frames later (an intended edit)
+   public static final int ZOMBIE_SPAWN_BUDGET_US = Math.max(0, integer("zombieSpawnBudgetUs", 600));
+   public static final int ZOMBIE_SPAWN_DRAIN_FRAMES = Math.max(1, integer("zombieSpawnDrainFrames", 240)); // zombieSpawnSpread: the budget grows so any backlog is created within this many frames (up to zombieSpawnMaxUs a frame)
+   public static final int ZOMBIE_SPAWN_MAX_US = Math.max(0, integer("zombieSpawnMaxUs", 1500));
+   public static final int ZOMBIE_SPAWN_LOAD_MS = Math.max(0, integer("zombieSpawnLoadMs", 3000)); // zombieSpawnSpread: for this long after the first population update (the load's mass spawn) every queued zombie is created at once, as stock
+   public static final int ZOMBIE_SPAWN_NEAR = Math.max(0, integer("zombieSpawnNear", 25)); // zombieSpawnSpread: a zombie this close (squares) to a player is created at once, as stock
+   public static final int ZOMBIE_SPAWN_MIN = Math.max(1, integer("zombieSpawnMin", 2));
+   public static final boolean LOOT_DEFER = bool("lootDefer", false); // time-sliced loot: a chunk arriving lootDeferDistance squares or more from every player queues its unexplored containers and they roll under lootDeferBudgetUs a frame (pzopt.LootDefer; single player). A downtown chunk's loot roll was up to 32 ms of one frame. Changes the order of random draws (an intended edit)
+   public static final int LOOT_DEFER_DISTANCE = Math.max(0, integer("lootDeferDistance", 20));
+   public static final int LOOT_DEFER_BUDGET_US = Math.max(0, integer("lootDeferBudgetUs", 400));
    public static final int CHUNK_HANDOFF_DIVISOR = integer("chunkHandoffDivisor", 8);
+   public static final boolean CHUNK_HANDOFF_SLACK_WORK = bool("chunkHandoffSlackWork", true); // slackWork: at a cap, queued chunks join the world in the step's slack, one at a time while their learned cost fits (IsoChunkMap.pzoptHandOffChunk)
+   public static final int CHUNK_HANDOFF_SLACK_BACKLOG = Math.max(1, integer("chunkHandoffSlackBacklog", 24)); // chunkHandoffSlackWork: with this many queued (a world load, a teleport) the in-frame hand-off runs as before
    public static final boolean CHUNK_HANDOFF_SLACK = bool("chunkHandoffSlack", false); // pzopt.ChunkHandoff: after a heavy frame the chunk hand-off waits for one with headroom
    public static final int CHUNK_HANDOFF_SLACK_PCT = integer("chunkHandoffSlackPct", 60); // chunkHandoffSlack: a game step above this share of the cap interval is heavy
    public static final int CHUNK_HANDOFF_SLACK_QUEUE = integer("chunkHandoffSlackQueue", 8); // chunkHandoffSlack: never wait with this many chunks queued
@@ -620,7 +636,12 @@ public final class Config {
    public static final int DEV_PIPELINE_ALTERNATE = integer("devPipelineAlternate", 0); // seconds per window, 0 = off: the bucket seam alternates entityUpdatePipeline on/off every N seconds inside ONE run and logs each flip with its epoch, so the frame log splits into paired on/off distributions over the identical zombie population (the repo's devPplAlternate pattern; cross-run comparisons are confounded because a faster build loads more zombies by route start)
    public static final boolean ACTION_GROUP_CACHE = bool("actionGroupCache", true); // IsoZombie holds the "zombie" and "zombie-crawler" ActionGroups instead of asking ActionGroup for them by name (a lower-cased copy of the string and a HashMap probe) twice per zombie per frame
    public static final boolean PROFILER_THREAD_MEMO = bool("profilerThreadMemo", true); // GameProfiler.isValidThread memoised per thread: every performance probe in the game calls it twice and the valid-thread list is an ArrayList of names scanned with String.equals
+   public static final boolean PROFILER_IDLE_FAST = bool("profilerIdleFast", true); // GameProfiler probes while nothing records: the two valid threads known by identity, our frame workers never valid, isRunning false until some thread has run the profiler; every zombie update / postupdate asked two ThreadLocals per probe (2.2 % of the game thread on the Louisville horde)
+   public static final boolean WORLDGEN_PATTERN_CACHE = bool("worldgenPatternCache", true); // WorldGenUtils.canPlace keeps each placement glob's compiled regex instead of compiling it on every String.matches (~5 % of the allocation, world streamer)
+   public static final boolean STATS_NO_BOX = bool("statsNoBox", true); // Stats.get without getOrDefault's boxed default: a new Float on every stat read (10 % of the sampled allocation on the Louisville horde)
+   public static final boolean STATE_MACHINE_NO_ITER = bool("stateMachineNoIter", true); // StateMachine.getMinimumSimulationLevel walks its substates by index instead of an iterator (10 % of the sampled allocation with tiered zombie updates)
    public static final int ZOMBIE_SIM_LOD_STEPS = Math.max(1, integer("zombieSimLodSteps", 1)); // how many extra simulation-level steps zombieSimLodTiles may take, each at twice the distance of the previous one
+   public static final int ZOMBIE_MODEL_ADD_BUDGET_US = Math.max(0, integer("zombieModelAddBudgetUs", 0)); // IsoWorld.sceneCullZombies: zombies getting a 3D model this frame (ModelManager.Add, model + clothing) stop after this much time; the rest stay flat sprites a frame longer (0 = stock, all at once; 500 measured on Louisville, off by default until the maintainer decides)
    public static final boolean ZOMBIE_LOD_DYNAMIC = bool("zombieLodDynamic", false); // how many zombies get a 3D model (stock 510) and blend their animations (stock 20) follows the frame cap: lowered while frames miss it, raised back while there is headroom (pzopt.ZombieLod)
    public static final int ZOMBIE_LOD_MIN_3D = Math.max(0, integer("zombieLodMin3d", 128)); // zombieLodDynamic's floor for zombies drawn as 3D models (the rest are flat sprites)
    public static final int ZOMBIE_LOD_MIN_BLEND = Math.max(0, integer("zombieLodMinBlend", 6)); // zombieLodDynamic's floor for zombies that blend their animations
@@ -645,6 +666,7 @@ public final class Config {
    public static final boolean PPL_TORCH_NEAR_CHUNK = bool("pplTorchNearChunk", true); // pixelLight: the torch reach tested once per chunk level, the per-square test only in a chunk a torch reaches
    public static final boolean SCHEDULER_CLASSIFY_PARALLEL = bool("schedulerClassifyParallel", true); // the update scheduler's per-object simulation level computed on the frame workers, the buckets filled by the game thread in list order (MovingObjectUpdateScheduler.startFrame)
    public static final boolean ANIMAL_LOS_FAST = bool("animalLosFast", true); // IsoAnimal.updateLOS: a zombie whose spotted() call can only clear spottedChr and tick lastAlerted (an animal that does not flee zombies, or a zombie farther than 10 squares at the stock distance) is counted instead of called, the ticks applied in one exact step before the next call that can act (the same fold as PR #35's far-zombie skip)
+   public static final boolean ANIMAL_LOS_SNAPSHOT = bool("animalLosSnapshot", false); // IsoAnimal.updateLOS (with animalLosFast) scans one per-frame snapshot of the zombies and players (pzopt.AnimalLosSnapshot) instead of walking the cell's whole object set per animal: 10 % of the game thread on the Louisville horde. Zombie positions are the frame's first animal update's (an intended edit)
    public static final boolean WEATHER_PARTICLES_PARALLEL = bool("weatherParticlesParallel", false); // the weather particle cells built on the frame workers
    public static final boolean BAKE_PREP_PARALLEL = bool("bakePrepParallel", false); // chunk-level bake preparation (render lists, occlusion) on the frame workers (pzopt.BakePrep)
    public static final boolean ZOMBIE_STATS_FOLD = bool("zombieStatsFold", true); // the zombies' distance statistics (walked / ran / crawled) summed in the zombies' order through the update loop and written back once after it, the achievement check once per statistic instead of once per zombie (pzopt.ZombieStats; bitwise the same totals)
@@ -669,6 +691,7 @@ public final class Config {
    public static final int TORCH_SOURCE_BODY_PCT = integer("torchSourceBodyPct", 22); // torchSourceSelfShadow: the body's radius, hundredths of a square
    public static final boolean TORCH_SOURCE_FAST = bool("torchSourceFast", true); // torchSource: the item chain's fixed part cached per model instance, one sin / cos for the world mapping (false: the game's helpers every frame) // dev: torchSource draws the lens (yellow), the beam (orange) and the native's position (cyan)
    public static final String DEV_GT_ALTERNATE_KEYS = string("devGtAlternateKeys", ""); // dev: comma list of the offload keys the alternation switches (or "all")
+   public static final boolean DEV_GT_ABBA = bool("devGtAbba", true); // devGtAlternate: on, off, off, on periods instead of on, off (cancels a linear scene trend)
    public static final int CHAR_DRAW_THREADS = Math.max(1, integer("charDrawThreads", 14)); // threads of the characters draw pre-pass pool (pzopt.CharDraw; clamped to cores - 2): the ~480 zombies' draw data must finish inside the chunk bakes, eight threads left the game thread waiting 0.2 ms a frame, twelve 0.13
    public static final boolean DEV_SIM_CHECKSUM = bool("devSimChecksum", false); // dev: one line per frame in Zomboid/pzopt-sim.out hashing every zombie's position, target, action state and animation state after postupdate (pzopt.SimChecksum, harness/simdiff.py)
    public static final String THREAD_NICE = string("threadNice", ""); // pzopt.ThreadNice rules "<comm prefix>=<nice|idle|batch>,...": lower the CPU priority of JIT / GC / background threads (empty = off)
@@ -938,6 +961,7 @@ public final class Config {
     * corePlacement: the CPUs background threads may use instead of every efficient core (a list like "4-7,16-19"; empty =
     * the efficient class). Packing them onto fewer cores lets the others reach their deepest idle state.
     */
+   public static final int CORE_ISOLATE = Math.max(0, integer("coreIsolate", 0)); // corePlacement on a CPU whose cores are alike: reserve this many physical cores (best boost rank first) for the game and render threads, their SMT siblings idle, every other thread on the rest (0 = off)
    public static final String CORE_BACKGROUND_CPUS = string("coreBackgroundCpus", "");
    /** corePlacement: the CPUs the game / render / GL threads use when they are on the fast class (a list; empty = the fast class). */
    public static final String CORE_CRITICAL_CPUS = string("coreCriticalCpus", "");

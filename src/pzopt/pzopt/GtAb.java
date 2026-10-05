@@ -25,9 +25,17 @@ public final class GtAb {
    public static final int AO_CONTEXT = 2048; // aoContextParallel
    public static final int TL_ORDER = 4096; // translucentOrderCache
    public static final int TORCH_SOURCE = 8192; // torchSource (an Enhancements key: the cost of the lens solve and its visuals)
+   public static final int PROFILER_IDLE = 16384; // profilerIdleFast
+   public static final int SIM_LOD = 32768; // zombieSimLodTiles (the extra distance steps)
+   public static final int ANIMAL_SNAP = 65536; // animalLosSnapshot
+   public static final int LOOT_DEFER = 131072; // lootDefer
+   public static final int SPAWN_SPREAD = 262144; // zombieSpawnSpread
+   public static final int SLACK_WORK = 524288; // slackWork
+   public static final int MODEL_ADDS = 1048576; // zombieModelAddBudgetUs
+   public static final int BAKE_GUARD = 2097152; // bakeTimeGuardPct
 
    private static final String[] NAMES = {"renderPrepParallel", "pplPackParallel", "schedulerClassifyParallel", "animalLosFast",
-      "weatherParticlesParallel", "entityUpdateParallel", "bakePrepParallel", "pplTorchNearChunk", "zombieStatsFold", "losLightPrefetch", "visPolyAsync", "aoContextParallel", "translucentOrderCache", "torchSource"};
+      "weatherParticlesParallel", "entityUpdateParallel", "bakePrepParallel", "pplTorchNearChunk", "zombieStatsFold", "losLightPrefetch", "visPolyAsync", "aoContextParallel", "translucentOrderCache", "torchSource", "profilerIdleFast", "zombieSimLod", "animalLosSnapshot", "lootDefer", "zombieSpawnSpread", "slackWork", "zombieModelAddBudget", "bakeTimeGuard"};
 
    private static final int MASK = parse(Config.DEV_GT_ALTERNATE_KEYS);
    private static long t0;
@@ -97,7 +105,11 @@ public final class GtAb {
       lastCpu = cpu;
       lastProc = proc;
       lastWall = wall;
-      off = ((now - t0) / Config.DEV_GT_ALTERNATE & 1L) == 1L;
+      long period = (now - t0) / Config.DEV_GT_ALTERNATE;
+      // ABBA (devGtAbba, default on): on, off, off, on, on, off, ... so a scene that grows heavier along the route weighs
+      // both halves alike; plain alternation put every off half after its on half (an A/A placebo read 0.6 ms / 7 points
+      // of misses "better" on, 2026-10-05)
+      off = Config.DEV_GT_ABBA ? ((period + 1L) >> 1 & 1L) == 1L : (period & 1L) == 1L;
       lastOff = off;
    }
 
@@ -106,7 +118,7 @@ public final class GtAb {
          if (out == null) {
             java.io.File f = new java.io.File(zombie.ZomboidFileSystem.instance.getCacheDir(), "pzopt-gtab.out");
             out = new java.io.BufferedWriter(new java.io.FileWriter(f));
-            out.write("# epoch_ms on(1)/off(0) game_thread_cpu_ns process_cpu_ns wall_ns zombie_updates, then ns per section: startFrame schedUpdate animalLos playerLos pplBeforeComposite renderMovingObjects performRenderTiles postupdate visPolyRenderMain aoFlush  (per frame, devGtAlternate " + Config.DEV_GT_ALTERNATE + " ms, keys "
+            out.write("# epoch_ms on(1)/off(0) game_thread_cpu_ns process_cpu_ns wall_ns zombie_updates, then ns per section: startFrame schedUpdate animalLos playerLos pplBeforeComposite renderMovingObjects performRenderTiles postupdate visPolyRenderMain aoFlush chunkMapUpdate popmanUpdate lightingUpdate logic finishAnimation renderInternal sceneCull atlases cellRender  (per frame, devGtAlternate " + Config.DEV_GT_ALTERNATE + " ms, keys "
                + Config.DEV_GT_ALTERNATE_KEYS + ")\n");
          }
          out.write(LOG.toString());
@@ -119,8 +131,8 @@ public final class GtAb {
 
    // ---- per-frame section timers (dev, only while an alternation runs): the ns each section took this frame, one column each ----
    public static final int S_START_FRAME = 0, S_SCHED_UPDATE = 1, S_ANIMAL_LOS = 2, S_PLAYER_LOS = 3, S_PPL = 4, S_MOVING = 5, S_TILES = 6, S_POSTUPDATE = 7;
-   public static final int S_VISPOLY = 8, S_AO_FLUSH = 9;
-   private static final int SECTIONS = 10;
+   public static final int S_VISPOLY = 8, S_AO_FLUSH = 9, S_CHUNKMAP = 10, S_POPMAN = 11, S_LIGHTING = 12, S_LOGIC = 13, S_FINISH_ANIM = 14, S_RENDER = 15, S_CULL = 16, S_ATLAS = 17, S_CELL = 18;
+   private static final int SECTIONS = 19;
    private static final long[] SECTION_NS = new long[SECTIONS];
    public static final boolean TIMING = Config.DEV_GT_ALTERNATE > 0 && MASK != 0;
 

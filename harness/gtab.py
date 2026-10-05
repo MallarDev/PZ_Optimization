@@ -148,7 +148,7 @@ def main():
                 if zu[1] and zu[0]:
                     print("  zombie updates a frame: on %.1f  off %.1f" % (statistics.mean(zu[1]), statistics.mean(zu[0])))
                 if sec[1] and sec[0]:
-                    names = ["startFrame", "schedUpdate", "animalLos", "playerLos", "pplBeforeComposite", "renderMovingObjects", "performRenderTiles", "postupdate", "visPolyRenderMain", "aoFlush"]
+                    names = ["startFrame", "schedUpdate", "animalLos", "playerLos", "pplBeforeComposite", "renderMovingObjects", "performRenderTiles", "postupdate", "visPolyRenderMain", "aoFlush", "chunkMapUpdate", "popmanUpdate", "lightingUpdate", "logic", "finishAnimation", "renderInternal", "sceneCull", "atlases", "cellRender"]
                     print("  sections, ms a frame (on / off / on - off, paired per period +- SE):")
                     for j, nm in enumerate(names):
                         a1 = statistics.mean(r[j] for r in sec[1])

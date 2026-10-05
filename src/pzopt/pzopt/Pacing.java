@@ -417,6 +417,7 @@ public final class Pacing {
     * rest, so a late wake costs nothing but the spin it replaces.
     */
    public static void limiterWait(long stepNs) {
+      SlackWork.run(stepNs); // slackWork: deferred game-thread jobs that fit before the next step
       if (!slackSet) {
          slackSet = true;
          timerSlack1ns();

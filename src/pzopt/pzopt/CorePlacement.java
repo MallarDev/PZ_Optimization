@@ -214,7 +214,7 @@ public final class CorePlacement {
       } catch (Throwable t) {
          Log.warn("corePlacement: render thread not registered (" + t + ")");
       }
-      criticalFast = !MODE.equals("efficient") && !MODE.equals("auto");
+      criticalFast = isolate || !MODE.equals("efficient") && !MODE.equals("auto");
       Log.info("corePlacement=" + MODE + ": fast cores " + fastList + ", efficient cores " + slowList + "; game tid " + gameTid
             + ", render tid " + renderTid);
       Thread th = new Thread(CorePlacement::loop, "pzopt-cores");
@@ -283,6 +283,9 @@ public final class CorePlacement {
       allMask = new long[words];
       if (n < 2 || hi <= lo || hi < lo * 1.15) { // one class (a few percent of boost-ranking spread is not a hybrid CPU)
          hybrid = false;
+         if (Config.CORE_ISOLATE > 0) {
+            isolateMasks(cpus, rank, max, words); // coreIsolate: reserved physical cores for the game and render threads
+         }
          return;
       }
       long cut = (hi + lo) / 2;
@@ -316,6 +319,61 @@ public final class CorePlacement {
          slowList = slowList + " (background on " + Config.CORE_BACKGROUND_CPUS + ")";
       }
    }
+
+   /**
+    * coreIsolate (2026-10-05, Louisville 120 fps pass): on a CPU whose cores are alike but run two threads each (SMT), a busy
+    * background thread (the world streamer, the recalc pool, the lighting thread, the frame workers in a chunk-loading burst)
+    * on the game thread's sibling slows it by a third. The coreIsolate best-ranked physical cores (CPPC highest-perf order) are
+    * reserved: the game and render threads (and Mesa's GL threads) on one logical CPU of each, their siblings left idle, every
+    * other thread on the remaining cores (GC threads keep every CPU: the game thread is stopped during a pause).
+    */
+   private static void isolateMasks(File[] cpus, long[] rank, int max, int words) {
+      java.util.TreeMap<Long, List<Integer>> cores = new java.util.TreeMap<>(); // (package << 32 | core id) -> logical CPUs
+      for (File c : cpus) {
+         int id = Integer.parseInt(c.getName().substring(3));
+         long core = readLong(c, "topology/core_id");
+         long pkg = Math.max(0L, readLong(c, "topology/physical_package_id"));
+         if (core < 0) {
+            return;
+         }
+         cores.computeIfAbsent(pkg << 32 | core, k -> new ArrayList<>()).add(id);
+      }
+      if (cores.size() < Config.CORE_ISOLATE + 2) {
+         return;
+      }
+      List<List<Integer>> order = new ArrayList<>(cores.values());
+      for (List<Integer> l : order) {
+         java.util.Collections.sort(l);
+      }
+      order.sort((x, y) -> Long.compare(rank[y.get(0)], rank[x.get(0)])); // best boost rank first; ties keep core order
+      fastMask = new long[words];
+      slowMask = new long[words];
+      List<Integer> f = new ArrayList<>(), s = new ArrayList<>();
+      for (int i = 0; i < order.size(); i++) {
+         List<Integer> l = order.get(i);
+         for (int cpu : l) {
+            allMask[cpu >> 6] |= 1L << (cpu & 63);
+            if (i >= Config.CORE_ISOLATE) {
+               slowMask[cpu >> 6] |= 1L << (cpu & 63);
+               s.add(cpu);
+            }
+         }
+         if (i < Config.CORE_ISOLATE) {
+            int cpu = l.get(0);
+            fastMask[cpu >> 6] |= 1L << (cpu & 63);
+            f.add(cpu);
+         }
+      }
+      fastList = compact(f);
+      slowList = compact(s);
+      criticalFastMask = fastMask;
+      backgroundMask = slowMask;
+      ratio = 1.0F;
+      isolate = true;
+      hybrid = true;
+   }
+
+   private static boolean isolate;
 
    private static long[] parseMask(String spec, int words, long[] rank, int max) {
       long[] m = new long[words];
@@ -445,12 +503,12 @@ public final class CorePlacement {
             if (behindNow) {
                lastBehind = now;
             }
-            boolean wantWide = uncapped || behindWindows >= 2 || wide && now - lastBehind < 3_000_000_000L;
+            boolean wantWide = !isolate && (uncapped || behindWindows >= 2 || wide && now - lastBehind < 3_000_000_000L); // coreIsolate: never onto the reserved cores
             if (wide) {
                wideMs += wall / 1_000_000L;
             }
             boolean want = criticalFast;
-            if (MODE.equals("performance")) {
+            if (isolate || MODE.equals("performance")) {
                want = true;
             } else if (MODE.equals("efficient")) {
                want = false;

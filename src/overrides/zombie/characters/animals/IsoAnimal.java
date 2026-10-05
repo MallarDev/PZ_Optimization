@@ -3628,6 +3628,10 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
          && pzoptBehavior != null && this.adef != null; // pzopt
       boolean pzoptNoFlee = pzoptFold && !this.adef.fleeZombies; // pzopt
       int pzoptTicks = 0; // pzopt: zombies spotted since the last flush
+      if (pzoptFold && pzopt.AnimalLosSnapshot.enabled()) { // pzopt: animalLosSnapshot, the same fold over the frame's snapshot
+         this.pzoptUpdateLosSnapshot(pzoptBehavior, pzoptNoFlee, locX, locY); // pzopt
+         return; // pzopt
+      } // pzopt
 
       for (IsoMovingObject movingObject : this.getCell().getObjectList()) {
          if (pzoptFold && movingObject instanceof IsoZombie pzoptZombie) { // pzopt: animalLosFast, the stock filters for a zombie
@@ -3684,6 +3688,70 @@ public class IsoAnimal extends IsoPlayer implements IAnimalVisual {
          this.pzoptSpottedTicks(pzoptBehavior, pzoptTicks); // pzopt
       } // pzopt
    }
+
+   /**
+    * pzopt: animalLosSnapshot. The walk above over {@link pzopt.AnimalLosSnapshot}'s arrays (the cell's object set in its
+    * own order, zombies passing the stock filters with their positions, non-animal players, animals): zombies fold into ticks
+    * or a near spotted call exactly as above, players take the stock per-object body with live reads, the animal's own
+    * entry adds it to its spotted list. Other objects only had a distance computed and dropped, so they are left out.
+    */
+   private void pzoptUpdateLosSnapshot(zombie.characters.animals.behavior.BaseAnimalBehavior behavior, boolean noFlee, float locX, float locY) { // pzopt
+      pzopt.AnimalLosSnapshot.ensure(this.getCell().getObjectList()); // pzopt
+      final int n = pzopt.AnimalLosSnapshot.n; // pzopt
+      final byte[] kind = pzopt.AnimalLosSnapshot.kind; // pzopt
+      final float[] xs = pzopt.AnimalLosSnapshot.x; // pzopt
+      final float[] ys = pzopt.AnimalLosSnapshot.y; // pzopt
+      final float[] zs = pzopt.AnimalLosSnapshot.z; // pzopt
+      final IsoMovingObject[] objs = pzopt.AnimalLosSnapshot.obj; // pzopt
+      final float myZ = this.getZ(); // pzopt
+      int ticks = 0; // pzopt
+      for (int i = 0; i < n; i++) { // pzopt
+         byte k = kind[i]; // pzopt
+         if (k == pzopt.AnimalLosSnapshot.ZOMBIE) { // pzopt
+            if (PZMath.abs(zs[i] - myZ) > 1.0F) { // pzopt: the stock level filter
+               continue; // pzopt
+            } // pzopt
+            if (noFlee) { // pzopt
+               ticks++; // pzopt
+               continue; // pzopt
+            } // pzopt
+            float dist = IsoUtils.DistanceTo(xs[i], ys[i], locX, locY); // pzopt
+            if (dist > 10.0F) { // pzopt
+               ticks++; // pzopt
+               continue; // pzopt
+            } // pzopt
+            if (ticks > 0) { // pzopt
+               this.pzoptSpottedTicks(behavior, ticks); // pzopt
+               ticks = 0; // pzopt
+            } // pzopt
+            this.getBehavior().spotted((IsoZombie)objs[i], false, dist); // pzopt
+         } else if (k == pzopt.AnimalLosSnapshot.ANIMAL) { // pzopt
+            if (objs[i] == this) { // pzopt
+               this.spottedList.add(this); // pzopt
+            } // pzopt
+         } else { // pzopt: a non-animal player, the stock body with live reads
+            IsoMovingObject movingObject = objs[i]; // pzopt
+            if (PZMath.abs(movingObject.getZ() - this.getZ()) > 1.0F) { // pzopt
+               continue; // pzopt
+            } // pzopt
+            float dist = IsoUtils.DistanceTo(movingObject.getX(), movingObject.getY(), locX, locY); // pzopt
+            if (movingObject.getCurrentSquare() == null) { // pzopt
+               continue; // pzopt
+            } // pzopt
+            IsoPlayer player = (IsoPlayer)movingObject; // pzopt
+            if (!player.isInvisible() && !player.isGhostMode()) { // pzopt
+               if (ticks > 0) { // pzopt
+                  this.pzoptSpottedTicks(behavior, ticks); // pzopt
+                  ticks = 0; // pzopt
+               } // pzopt
+               this.getBehavior().spotted(player, false, dist); // pzopt
+            } // pzopt
+         } // pzopt
+      } // pzopt
+      if (ticks > 0) { // pzopt
+         this.pzoptSpottedTicks(behavior, ticks); // pzopt
+      } // pzopt
+   } // pzopt
 
    /**
     * pzopt: animalLosFast. What {@code n} calls of BaseAnimalBehavior.spotted with a zombie do for an animal that does not

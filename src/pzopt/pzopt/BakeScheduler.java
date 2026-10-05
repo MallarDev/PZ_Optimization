@@ -306,6 +306,11 @@ public final class BakeScheduler {
    public boolean granted(Object c, int lvl) {
       long[] g = this.granted.get(c);
       long bit = 1L << (lvl + 32);
+      if (g != null && (g[0] & bit) != 0L && g[1 + lvl + 32] > CUTAWAY && timeGuard()) {
+         g[0] &= ~bit; // bakeTimeGuardPct: past the share of the step, a lower-class bake waits for the next plan
+         this.guarded++;
+         return false;
+      }
       if (g != null && (g[0] & bit) != 0L) {
          g[0] &= ~bit; // once: a second ask this frame (none expected) is not a second bake
          this.grantsUsed++;
@@ -313,6 +318,21 @@ public final class BakeScheduler {
          return true;
       }
       return false;
+   }
+
+   private long guarded;
+
+   /**
+    * bakeTimeGuardPct (2026-10-05, Louisville 120 fps pass): at a frame cap, has this step already used that share of its
+    * interval. A bake's preparation is ~0.3-0.5 ms of game thread and its draw lands on the GPU in the same frame, so the
+    * arrival / strong / redraw / light classes stop there and are planned again next frame (their longest waits still apply).
+    */
+   static boolean timeGuard() {
+      if (Config.BAKE_TIME_GUARD_PCT <= 0 || !Overrides.enabled() || !GtAb.on(GtAb.BAKE_GUARD)) {
+         return false;
+      }
+      long interval = Pacing.capIntervalNs();
+      return interval > 0L && System.nanoTime() - Pacing.stepStartNs() > interval * Config.BAKE_TIME_GUARD_PCT / 100;
    }
 
    /** The level's texture was baked: its wait starts again with its next dirt. */
@@ -340,7 +360,7 @@ public final class BakeScheduler {
          sb.append(k == 0 ? "" : "/").append(this.unused[k]);
       }
       sb.append(" frames=").append(this.frames).append(" held=").append(this.deferredFrames)
-         .append(" max/frame=").append(this.maxGranted).append(" grants used=").append(this.grantsUsed).append('/').append(this.grantsMade)
+         .append(" max/frame=").append(this.maxGranted).append(" time-guarded=").append(this.guarded).append(" grants used=").append(this.grantsUsed).append('/').append(this.grantsMade)
          .append(" budget avg=").append(this.frames == 0 ? 0 : String.format(java.util.Locale.ROOT, "%.1f", this.budgetSum / (double)this.frames))
          .append(" deadline holds=").append(this.deadlineFrames)
          .append(" smooth avg=").append(this.frames == 0 ? 0 : String.format(java.util.Locale.ROOT, "%.2f", this.smoothSum / (double)this.frames))

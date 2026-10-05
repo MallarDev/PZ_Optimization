@@ -935,7 +935,12 @@ public final class GameWindow {
             AbstractPerformanceProfileProbe profiler = GameWindow.s_performance.logic.profile();
 
             try {
-               logic();
+               long pzoptLogicT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
+               try { // pzopt
+                  logic();
+               } finally { // pzopt
+                  pzopt.GtAb.end(pzopt.GtAb.S_LOGIC, pzoptLogicT); // pzopt
+               } // pzopt
             } catch (Throwable var29) {
                if (profiler != null) {
                   try {
@@ -956,7 +961,9 @@ public final class GameWindow {
                Core.getInstance().setScreenSize(RenderThread.getDisplayWidth(), RenderThread.getDisplayHeight());
             }
 
+            long pzoptFinishT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
             IsoWorld.instance.FinishAnimation();
+            pzopt.GtAb.end(pzopt.GtAb.S_FINISH_ANIM, pzoptFinishT); // pzopt
             GameProfiler profilerx = GameProfiler.getInstance();
             if (!GameServer.server) {
                ProfileArea console = profilerx.profile("IsoObjectAnimations.update");
@@ -984,7 +991,9 @@ public final class GameWindow {
             pzopt.UiRetained.decideFrame(); // pzopt: uiRetained, after the whole update (input, Lua ticks): render the UI this frame or keep it
             pzopt.VehicleSmooth.beforeRender(); // pzopt: vehicleSmooth, vehicles drawn between the physics steps
             pzopt.DriveJitter.beforeRender(startTime); // pzopt: devDriveJitter, the frame's vehicle / camera state
+            long pzoptRenderT = pzopt.GtAb.begin(); // pzopt: devGtAlternate section timer
             renderInternal();
+            pzopt.GtAb.end(pzopt.GtAb.S_RENDER, pzoptRenderT); // pzopt
             pzopt.VehicleSmooth.afterRender(); // pzopt: vehicleSmooth, the simulation's values back
             if (doRenderEvent) {
                ProfileArea var35 = profilerx.profile("On Render");

@@ -548,12 +548,25 @@ public final class ZombiePopulationManager {
       }
    }
 
-   public void updateMain() {
+   public void updateMain() { // pzopt: devGtAlternate section timer around the stock body
+      long pzoptT = pzopt.GtAb.begin(); // pzopt
+      try { // pzopt
+         this.pzoptUpdateMainBody(); // pzopt
+      } finally { // pzopt
+         pzopt.GtAb.end(pzopt.GtAb.S_POPMAN, pzoptT); // pzopt
+      } // pzopt
+   } // pzopt
+
+   private void pzoptUpdateMainBody() { // pzopt: the stock updateMain()
       if (!GameClient.client) {
          long currentTimeMs = System.currentTimeMillis();
          n_updateMain(GameTime.getInstance().getMultiplier(), GameTime.getInstance().getWorldAgeHours());
          int numStanding = 0;
          int numMoving = 0;
+         boolean pzoptSpawnSpread = pzopt.Config.ZOMBIE_SPAWN_SPREAD && pzopt.Overrides.enabled() && pzopt.GtAb.on(pzopt.GtAb.SPAWN_SPREAD); // pzopt
+         if (!pzoptSpawnSpread) { // pzopt: the key flipped off (A/B): what is queued goes now
+            this.pzoptDrainSpawnsAll(); // pzopt
+         } // pzopt
          int total = n_getAddZombieCount();
          int offset = 0;
 
@@ -587,6 +600,17 @@ public final class ZombiePopulationManager {
                   pathTargetY = Integer.MIN_VALUE;
                }
 
+               if (pzoptSpawnSpread && !pzopt.LootDefer.nearPlayer(x, y, pzopt.Config.ZOMBIE_SPAWN_NEAR)) { // pzopt: zombieSpawnSpread, a zombie away from
+                  // every player is created from the queue below under the frame's budget; a near one at once, as stock
+                  this.pzoptQueueSpawn(x, y, z, dir, descriptorID, state, pathTargetX, pathTargetY, persistentId); // pzopt
+                  if (pathTargetX == Integer.MIN_VALUE) { // pzopt
+                     numStanding++; // pzopt
+                  } else { // pzopt
+                     numMoving++; // pzopt
+                  } // pzopt
+                  continue; // pzopt
+               } // pzopt
+
                if (pathTargetX == Integer.MIN_VALUE) {
                   this.addZombieStanding(x, y, z, dir, descriptorID, state, persistentId);
                   numStanding++;
@@ -596,6 +620,8 @@ public final class ZombiePopulationManager {
                }
             }
          }
+
+         this.pzoptDrainSpawns(); // pzopt: zombieSpawnSpread
 
          if (numStanding > 0) {
             noise("unloaded -> real " + total);
@@ -638,6 +664,112 @@ public final class ZombiePopulationManager {
          this.playerSpawns.update();
       }
    }
+
+   // pzopt: zombieSpawnSpread (2026-10-05, Louisville 120 fps pass). The native population hands over every zombie that turns
+   // real this frame (a chunk row arriving next to a horde: dozens at once, each an IsoZombie with an outfit), and stock
+   // creates them all in that frame. They are decoded and filtered as stock does, queued, and created oldest first under
+   // zombieSpawnBudgetUs a frame (at least zombieSpawnMin): a zombie at the loaded area's edge appears a few frames later.
+   private float[] pzoptSpX = new float[256], pzoptSpY = new float[256], pzoptSpZ = new float[256]; // pzopt
+   private IsoDirections[] pzoptSpDir = new IsoDirections[256]; // pzopt
+   private ZombieStateFlags[] pzoptSpState = new ZombieStateFlags[256]; // pzopt
+   private int[] pzoptSpDesc = new int[256], pzoptSpTx = new int[256], pzoptSpTy = new int[256], pzoptSpPid = new int[256], pzoptSpFrame = new int[256]; // pzopt
+   private final pzopt.SlackWork.Cost pzoptSpawnSlackCost = new pzopt.SlackWork.Cost(300_000.0, 0.0); // pzopt: slackWork, one zombie's creation (the mean: one size of job)
+   private final pzopt.SlackWork.Producer pzoptSpawnProducer = new pzopt.SlackWork.Producer() { // pzopt: slackWork, the queue below
+      public boolean pending() { // pzopt
+         return ZombiePopulationManager.this.pzoptSpHead < ZombiePopulationManager.this.pzoptSpTail; // pzopt
+      } // pzopt
+      public long nextCostNs() { // pzopt
+         return ZombiePopulationManager.this.pzoptSpawnSlackCost.estimate(); // pzopt
+      } // pzopt
+      public int nextAgeFrames() { // pzopt
+         return pzopt.SlackWork.frame() - ZombiePopulationManager.this.pzoptSpFrame[ZombiePopulationManager.this.pzoptSpHead]; // pzopt
+      } // pzopt
+      public void runNext() { // pzopt
+         long t0 = System.nanoTime(); // pzopt
+         ZombiePopulationManager.this.pzoptSpawnOne(); // pzopt
+         ZombiePopulationManager.this.pzoptSpawnSlackCost.learn(System.nanoTime() - t0); // pzopt
+      } // pzopt
+   }; // pzopt
+   private int pzoptSpHead, pzoptSpTail; // pzopt: queue [head, tail)
+   public static long pzoptSpawnQueued, pzoptSpawnMax; // pzopt
+
+   private void pzoptQueueSpawn(float x, float y, float z, IsoDirections dir, int desc, ZombieStateFlags state, int tx, int ty, int pid) { // pzopt
+      if (this.pzoptSpTail == this.pzoptSpX.length) { // pzopt: compact, then grow
+         int n = this.pzoptSpTail - this.pzoptSpHead; // pzopt
+         int cap = n * 2 >= this.pzoptSpX.length ? this.pzoptSpX.length * 2 : this.pzoptSpX.length; // pzopt
+         this.pzoptSpX = java.util.Arrays.copyOfRange(this.pzoptSpX, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpY = java.util.Arrays.copyOfRange(this.pzoptSpY, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpZ = java.util.Arrays.copyOfRange(this.pzoptSpZ, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpDir = java.util.Arrays.copyOfRange(this.pzoptSpDir, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpState = java.util.Arrays.copyOfRange(this.pzoptSpState, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpDesc = java.util.Arrays.copyOfRange(this.pzoptSpDesc, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpTx = java.util.Arrays.copyOfRange(this.pzoptSpTx, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpTy = java.util.Arrays.copyOfRange(this.pzoptSpTy, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpPid = java.util.Arrays.copyOfRange(this.pzoptSpPid, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpFrame = java.util.Arrays.copyOfRange(this.pzoptSpFrame, this.pzoptSpHead, this.pzoptSpHead + cap); // pzopt
+         this.pzoptSpTail = n; // pzopt
+         this.pzoptSpHead = 0; // pzopt
+      } // pzopt
+      int i = this.pzoptSpTail++; // pzopt
+      this.pzoptSpX[i] = x; this.pzoptSpY[i] = y; this.pzoptSpZ[i] = z; this.pzoptSpDir[i] = dir; this.pzoptSpState[i] = state; // pzopt
+      this.pzoptSpDesc[i] = desc; this.pzoptSpTx[i] = tx; this.pzoptSpTy[i] = ty; this.pzoptSpPid[i] = pid; // pzopt
+      this.pzoptSpFrame[i] = pzopt.SlackWork.frame(); // pzopt
+      pzoptSpawnQueued++; // pzopt
+      pzoptSpawnMax = Math.max(pzoptSpawnMax, this.pzoptSpTail - this.pzoptSpHead); // pzopt
+   } // pzopt
+
+   private void pzoptSpawnOne() { // pzopt: the stock call for the oldest queued zombie
+      int i = this.pzoptSpHead++; // pzopt
+      if (this.pzoptSpTx[i] == Integer.MIN_VALUE) { // pzopt
+         this.addZombieStanding(this.pzoptSpX[i], this.pzoptSpY[i], this.pzoptSpZ[i], this.pzoptSpDir[i], this.pzoptSpDesc[i], this.pzoptSpState[i], this.pzoptSpPid[i]); // pzopt
+      } else { // pzopt
+         this.addZombieMoving(this.pzoptSpX[i], this.pzoptSpY[i], this.pzoptSpZ[i], this.pzoptSpDir[i], this.pzoptSpDesc[i], this.pzoptSpState[i], this.pzoptSpTx[i], this.pzoptSpTy[i], this.pzoptSpPid[i]); // pzopt
+      } // pzopt
+      this.pzoptSpDir[i] = null; // pzopt
+      this.pzoptSpState[i] = null; // pzopt
+      if (this.pzoptSpHead == this.pzoptSpTail) { // pzopt
+         this.pzoptSpHead = this.pzoptSpTail = 0; // pzopt
+      } // pzopt
+   } // pzopt
+
+   private long pzoptSpawnLogNs; // pzopt
+   private long pzoptSpawnFirstNs; // pzopt: the first population update of the session
+   private double pzoptSpawnCostNs = 300_000.0; // pzopt: mean creation cost of one zombie
+
+   private void pzoptDrainSpawns() { // pzopt
+      if (this.pzoptSpawnFirstNs == 0L) { // pzopt
+         this.pzoptSpawnFirstNs = System.nanoTime(); // pzopt
+      } // pzopt
+      if (System.nanoTime() - this.pzoptSpawnFirstNs < pzopt.Config.ZOMBIE_SPAWN_LOAD_MS * 1_000_000L) { // pzopt: the world's first seconds (the load's
+         this.pzoptDrainSpawnsAll(); // pzopt: mass spawn, under stock's own load fade): all at once, as stock
+         return; // pzopt
+      } // pzopt
+      if (pzopt.Config.INSTRUMENT && System.nanoTime() - this.pzoptSpawnLogNs > 10_000_000_000L) { // pzopt
+         this.pzoptSpawnLogNs = System.nanoTime(); // pzopt
+         pzopt.Log.info("zombie spawn spread: queued " + pzoptSpawnQueued + " max queue " + pzoptSpawnMax + " now " + (this.pzoptSpTail - this.pzoptSpHead)); // pzopt
+      } // pzopt
+      long t0 = System.nanoTime(); // pzopt
+      long budget = pzopt.Config.ZOMBIE_SPAWN_BUDGET_US * 1000L; // pzopt
+      // the budget grows with the backlog so any queue drains within zombieSpawnDrainFrames frames (the load's mass spawn:
+      // ~2,000 zombies in half a second instead of one 60 ms frame or a horde trickling in over many seconds)
+      long backlogNs = (long)((this.pzoptSpTail - this.pzoptSpHead) * this.pzoptSpawnCostNs / Math.max(1, pzopt.Config.ZOMBIE_SPAWN_DRAIN_FRAMES)); // pzopt
+      budget = Math.max(budget, Math.min(backlogNs, pzopt.Config.ZOMBIE_SPAWN_MAX_US * 1000L)); // pzopt: never more than zombieSpawnMaxUs a frame
+      int made = 0; // pzopt
+      while (this.pzoptSpHead < this.pzoptSpTail && (made < pzopt.Config.ZOMBIE_SPAWN_MIN || System.nanoTime() - t0 < budget)) { // pzopt
+         this.pzoptSpawnOne(); // pzopt
+         made++; // pzopt
+      } // pzopt
+      if (made > 0) { // pzopt: the creation cost, a running mean
+         double each = (double)(System.nanoTime() - t0) / made; // pzopt
+         this.pzoptSpawnCostNs = this.pzoptSpawnCostNs * 0.9 + each * 0.1; // pzopt
+      } // pzopt
+   } // pzopt
+
+   private void pzoptDrainSpawnsAll() { // pzopt
+      while (this.pzoptSpHead < this.pzoptSpTail) { // pzopt
+         this.pzoptSpawnOne(); // pzopt
+      } // pzopt
+   } // pzopt
 
    private void addZombieStanding(float x, float y, float z, IsoDirections dir, int descriptorID, ZombieStateFlags state, int persistentId) {
       if (!isStaleRecord(persistentId)) {

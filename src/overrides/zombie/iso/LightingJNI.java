@@ -914,7 +914,16 @@ public final class LightingJNI {
    private static final boolean[] pzoptNewSteady = new boolean[4]; // pzopt: lightingNewChunkBudget applies once the grid has been fully lit
    private static final int PZOPT_NEW_CHUNK_BACKLOG = pzopt.Config.LIGHTING_NEW_CHUNK_BACKLOG; // pzopt: lightingNewChunkBudget applies up to this many never-lit chunks pending
 
-   public static void update() {
+   public static void update() { // pzopt: devGtAlternate section timer around the stock body
+      long pzoptT = pzopt.GtAb.begin(); // pzopt
+      try { // pzopt
+         pzoptUpdateBody(); // pzopt
+      } finally { // pzopt
+         pzopt.GtAb.end(pzopt.GtAb.S_LIGHTING, pzoptT); // pzopt
+      } // pzopt
+   } // pzopt
+
+   private static void pzoptUpdateBody() { // pzopt: the stock update()
       if (IsoWorld.instance != null && IsoWorld.instance.currentCell != null) {
          GameProfiler profiler = GameProfiler.getInstance();
          if (checkLightsFuture != null) {

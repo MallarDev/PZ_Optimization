@@ -18,6 +18,7 @@ public final class MovingObjectUpdateScheduler {
    public static final MovingObjectUpdateScheduler instance = new MovingObjectUpdateScheduler();
    private final MovingObjectUpdateSchedulerUpdateBucket[] simulationLevels;
    private long frameCounter;
+   private final int[] pzoptLevelCount = new int[5]; // pzopt: instrument
    private boolean isEnabled = true;
 
    private MovingObjectUpdateScheduler() {
@@ -45,6 +46,10 @@ public final class MovingObjectUpdateScheduler {
 
    private void pzoptStartFrame() { // pzopt: the stock body of startFrame
       this.frameCounter++;
+      if (pzopt.Config.INSTRUMENT && this.frameCounter % 600L == 0L) { // pzopt: instrument, zombies classified per level over the last 600 frames
+         pzopt.Log.info("sim levels (zombies a frame, 1/16 1/8 1/4 1/2 full): " + this.pzoptLevelCount[0] / 600 + " " + this.pzoptLevelCount[1] / 600 + " " + this.pzoptLevelCount[2] / 600 + " " + this.pzoptLevelCount[3] / 600 + " " + this.pzoptLevelCount[4] / 600); // pzopt
+         java.util.Arrays.fill(this.pzoptLevelCount, 0); // pzopt
+      } // pzopt
       pzopt.SeparateBatch.clear(); // pzopt: separateParallel, anything a previous frame left uncollected
       this.pzoptSeparateBatch = pzopt.SeparateBatch.enabled();
       PZArrayUtil.forEach(this.simulationLevels, MovingObjectUpdateSchedulerUpdateBucket::clear);
@@ -102,6 +107,9 @@ public final class MovingObjectUpdateScheduler {
    /** pzopt: schedulerClassifyParallel, game thread, in the loop's order: the rest of the stock loop body for one object. */
    public void pzoptAdd(IsoMovingObject isoMovingObject, UpdateSchedulerSimulationLevel sim) { // pzopt
       this.simulationLevels[sim.getUpdateOrderIndex()].add(isoMovingObject); // pzopt
+      if (pzopt.Config.INSTRUMENT && isoMovingObject instanceof IsoZombie) { // pzopt: instrument, zombies per simulation level
+         this.pzoptLevelCount[sim.ordinal()]++; // pzopt
+      } // pzopt
       if (pzoptSeparateBatch && isoMovingObject instanceof IsoZombie zombieForSeparate) { // pzopt: separateParallel, as in startFrame
          int frameMod = sim.getFrameMod(); // pzopt
          if (isoMovingObject.getID() % frameMod == (int)(this.frameCounter % (long)frameMod)) { // pzopt
@@ -191,7 +199,7 @@ public final class MovingObjectUpdateScheduler {
             // pzopt: zombieSimLodTiles. Stock already drops a visible object's simulation level a step at 30, 60 and
             // 80 tiles from the nearest player; this is the same mechanism with one more step at a closer distance,
             // for zombies only, as an A/B of "simulate fewer of the horde per frame" (default 0 = stock).
-            if (pzopt.Config.ZOMBIE_SIM_LOD_TILES > 0 && isoMovingObject instanceof IsoZombie && pzopt.Overrides.enabled()) {
+            if (pzopt.Config.ZOMBIE_SIM_LOD_TILES > 0 && isoMovingObject instanceof IsoZombie && pzopt.Overrides.enabled() && pzopt.GtAb.on(pzopt.GtAb.SIM_LOD)) {
                for (int step = 0; step < pzopt.Config.ZOMBIE_SIM_LOD_STEPS; step++) {
                   if (distance <= (float)(pzopt.Config.ZOMBIE_SIM_LOD_TILES << step)) {
                      break; // each further step doubles the distance, like stock's own 30 / 60 / 80 ladder

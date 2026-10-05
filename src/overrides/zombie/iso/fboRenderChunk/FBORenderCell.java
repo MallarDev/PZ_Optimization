@@ -5447,13 +5447,13 @@ public final class FBORenderCell {
          String n = sprite.getName();
          if (n != null) {
             int u = n.lastIndexOf('_');
-            pzoptTlSets.merge(u > 0 ? n.substring(0, u) : n, 1, Integer::sum);
+            pzoptTlSets.merge(u > 0 ? n.substring(0, u) : n, 16, Integer::sum);
          }
       }
       else if (object.isAnimating()) k = 4;
       else if (sprite != null && (sprite.solid || sprite.solidTrans)) k = 5;
       else k = 6;
-      pzoptTl[k]++;
+      pzoptTl[k] += 16; // one frame in 16 is counted
    }
 
    private static void pzoptTlFrame() {
@@ -5510,7 +5510,7 @@ public final class FBORenderCell {
    }
 
    public void renderTranslucent(IsoObject object) {
-      if (pzopt.Config.INSTRUMENT) pzoptCountTranslucent(object);
+      if (pzopt.Config.INSTRUMENT && (pzoptTlFrames & 15) == 0) pzoptCountTranslucent(object); // pzopt: dev counter, one frame in 16 (it was 1.7 % of a harness run's game thread)
       boolean pzoptMirror = pzopt.Mirrors.beginCapture(object); // pzopt: mirrors, a window / mirror tile: its quad is captured as it draws
       try { // pzopt
          this.pzoptRenderTranslucent(object); // pzopt
