@@ -171,7 +171,8 @@ function Reset-Aot {
   $aotDir = Join-Path $Dir 'pzopt\aot'
   if (Test-Path -LiteralPath $aotDir) { Remove-Item -LiteralPath $aotDir -Recurse -Force }
 }
-# Undo pzopt.GcChoice's launcher switch (marker -Dpzopt.gc=g1[,pause]): G1 back to ZGC, the pause target it added removed.
+# Undo pzopt.GcChoice's launcher switch (marker -Dpzopt.gc=g1[,pause]): G1 back to ZGC, the pause target it added removed;
+# its JIT flags and its heap size too.
 function Reset-Gc {
   if (-not (Test-Path -LiteralPath $Json)) { return }
   $j = Get-Content -LiteralPath $Json -Raw | ConvertFrom-Json
@@ -195,14 +196,34 @@ function Reset-Gc {
     $script:gcChanged = $true
     return ,$a
   }
+  # gcHeapMb / gcHeapFixed / gcPreTouch (marker -Dpzopt.heap=<old -Xmx>,<old -Xms>,<pre-touch added 0|1>): the old flags back
+  $hm = '-Dpzopt.heap='
+  $fixHeap = {
+    param($a)
+    $a = [System.Collections.ArrayList]@($a)
+    $mk = @($a | Where-Object { $_ -like "$hm*" })
+    if ($mk.Count -eq 0) { return ,@($a) }
+    $old = @(($mk[-1].Substring($hm.Length) -split ',') + @('none', 'none', '0'))
+    foreach ($x in $mk) { $a.Remove($x) }
+    foreach ($pair in @(@('-Xmx', $old[0]), @('-Xms', $old[1]))) {
+      $i = -1
+      for ($k = 0; $k -lt $a.Count; $k++) { if ($a[$k].StartsWith($pair[0])) { $i = $k } }
+      if ($pair[1] -eq 'none') { if ($i -ge 0) { $a.RemoveAt($i) } }
+      elseif ($i -ge 0) { $a[$i] = $pair[0] + $pair[1] }
+      else { [void]$a.Add($pair[0] + $pair[1]) }
+    }
+    if ($old[2] -eq '1') { $a.Remove('-XX:+AlwaysPreTouch') }
+    $script:gcChanged = $true
+    return ,@($a)
+  }
   $script:gcChanged = $false
-  if ($j.vmArgs) { $j.vmArgs = & $fixJit (& $fix $j.vmArgs) }
+  if ($j.vmArgs) { $j.vmArgs = & $fixHeap (& $fixJit (& $fix $j.vmArgs)) }
   foreach ($p in $j.PSObject.Properties) {
-    if ($p.Value -is [psobject] -and $p.Value.PSObject.Properties['vmArgs']) { $p.Value.vmArgs = & $fixJit (& $fix $p.Value.vmArgs) }
+    if ($p.Value -is [psobject] -and $p.Value.PSObject.Properties['vmArgs']) { $p.Value.vmArgs = & $fixHeap (& $fixJit (& $fix $p.Value.vmArgs)) }
   }
   if ($script:gcChanged) {
     [IO.File]::WriteAllText($Json, ($j | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding $false))
-    Write-Host "launcher: pzopt's G1 switch / JIT flags undone (back to the launcher's own)"
+    Write-Host "launcher: pzopt's G1 switch / JIT flags / heap size undone (back to the launcher's own)"
   }
 }
 $Rev = Get-JarRevision

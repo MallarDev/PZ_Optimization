@@ -3251,6 +3251,13 @@ install.ps1) undo it by the marker. Harness runs keep choosing their own collect
 its collector in the signed bundle's Info.plist and is not changed. Checks: tests/pzopt/GcChoiceTest.java,
 harness/gcchoice-check.sh (a real launch switches a ZGC JSON, reset_gc restores it).
 
+Heap keys (2026-10-05, `docs/findings-gc-heap-2026-10-05.md`): `gcHeap` replaces the effective `-Xmx` (`auto`, the
+default: 4096 MB, 8192 with `gcHeapAutoMods` (30) or more mods enabled in `mods/default.txt` or the last save's `mods.txt`;
+`game` = the launcher's own; a size in MB; clamped to half the RAM), `gcHeapFixed` sets `-Xms` to it, `gcPreTouch` adds `-XX:+AlwaysPreTouch`, with
+the marker `-Dpzopt.heap=<old -Xmx>,<old -Xms>,<pre-touch added 0|1>` that every undo reads. The default `auto` writes the heap on every optimized install;
+on the tab with `gcMode` / `gcPauseMs` and `luaGcNoop` (Lua `collectgarbage()` returns at once instead of a Full GC; Lua only,
+`src/lua/shared/pzopt/pzopt_lua_gc.lua`) in "Java memory and garbage collector". `run.sh` applies the same heap to every optimized run.
+
 ### Optimizations tab: off-screen rows draw nothing (Lua, 2026-09-24)
 
 The UI draws every child of a scrolled panel each frame and lets the stencil drop what is outside it, so the

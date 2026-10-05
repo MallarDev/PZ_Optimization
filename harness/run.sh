@@ -263,11 +263,15 @@ enable_mod() { # $1 = mods.txt path, $2 = mod id (default: the harness mod); ins
 # files to the link target and builds paths like mods/home/.../zs_items.txt, run mc-npc 2026-10-01), marked with
 # .pzopt-run-copy and removed by restore (and by the next run if this one died first)
 WORKSHOP_CONTENT="$(cd "$PZ_DIR/../../.." 2>/dev/null && pwd)/workshop/content/108600"
+# items fetched outside Steam's library (steamcmd +login anonymous +force_install_dir ~/.cache/pzopt-workshop, the
+# many-mods heap test 2026-10-05) are found there too, after the library
+WORKSHOP_EXTRA="${PZOPT_WORKSHOP_EXTRA:-$HOME/.cache/pzopt-workshop/steamapps/workshop/content/108600}"
 copied_mods=()
 for l in "$ZOMBOID"/mods/*; do [[ -f "$l/.pzopt-run-copy" ]] && rm -rf -- "$l"; done
 copy_workshop_mod() { # $1 = mod id
   local info dir
-  info=$(grep -l "^id=$1"$'\r'"\{0,1\}\$" "$WORKSHOP_CONTENT"/*/mods/*/mod.info "$WORKSHOP_CONTENT"/*/mods/*/*/mod.info 2>/dev/null | head -1)
+  info=$(grep -l "^id=$1"$'\r'"\{0,1\}\$" "$WORKSHOP_CONTENT"/*/mods/*/mod.info "$WORKSHOP_CONTENT"/*/mods/*/*/mod.info \
+    "$WORKSHOP_EXTRA"/*/mods/*/mod.info "$WORKSHOP_EXTRA"/*/mods/*/*/mod.info 2>/dev/null | head -1)
   [[ -n "$info" ]] || return 1
   dir=$(dirname "$info")
   [[ "$(basename "$dir")" == common || "$(basename "$dir")" =~ ^[0-9]+(\.[0-9]+)*$ ]] && dir=$(dirname "$dir")
@@ -514,6 +518,28 @@ rm -f "$ASPROF_OUT"
 jit_steady=1; [[ -f "$PZ_DIR/pzopt-installed.txt" ]] || jit_steady=0   # no pzopt installed: a stock game, stock flags
 for p in "${props[@]}"; do [[ "$p" == "jitSteady=false" || "$p" == "enabled=false" ]] && jit_steady=0; done
 (( jit_steady )) && vmargs+=("-Dpzopt.jit=steady" "-XX:PerMethodTrapLimit=0" "-XX:PerBytecodeTrapLimit=0")
+# gcHeap / gcHeapFixed / gcPreTouch: pzopt.GcChoice writes them into the player's launcher JSON, never a run's, so the
+# same flags go in here (the JVM takes the last -Xmx / -Xms); gcHeap=auto (the default, 2026-10-05) is 4096 MB, 8192 with
+# 30 --mod ids or more, at most half the RAM. Not in a stock run, not when the run passes its own --vmarg -Xmx.
+heap=auto; heap_mb=0; heap_fixed=0; pre_touch=0; heap_on=1
+[[ -f "$PZ_DIR/pzopt-installed.txt" ]] || heap_on=0
+for p in "${props[@]}"; do case "$p" in enabled=false) heap_on=0 ;; gcHeap=*) heap=${p#gcHeap=} ;; gcHeapFixed=true) heap_fixed=1 ;; gcPreTouch=true) pre_touch=1 ;; esac; done
+for a in "${vmargs[@]}"; do [[ "$a" == -Xmx* ]] && heap=game; done
+run_mods=0; for m in "${extra_mods[@]}"; do [[ "$m" == pzopt-* ]] || run_mods=$((run_mods+1)); done
+case "$heap" in
+  auto) heap_mb=4096; (( run_mods >= 30 )) && heap_mb=8192 ;;
+  game|0) heap_mb=0 ;;
+  *) heap_mb=${heap%m} ;;
+esac
+half_mb=$(( $(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0) / 2048 / 512 * 512 ))
+(( heap_mb > 0 && half_mb > 0 && heap_mb > half_mb )) && heap_mb=$(( half_mb < 1024 ? 1024 : half_mb ))
+if (( heap_on )); then
+  heap_xmx=""; (( heap_mb > 0 )) && heap_xmx="${heap_mb}m"
+  [[ -z "$heap_xmx" ]] && heap_xmx=$(grep -o '"-Xmx[0-9]*[kKmMgG]"' "$PZ_DIR/ProjectZomboid64.json" | tail -1 | tr -d '"' | cut -c5-)
+  [[ -n "$heap_xmx" && "$heap_mb" -gt 0 ]] && vmargs+=("-Xmx$heap_xmx")
+  [[ -n "$heap_xmx" ]] && (( heap_fixed )) && vmargs+=("-Xms$heap_xmx")
+  (( pre_touch )) && vmargs+=("-XX:+AlwaysPreTouch")
+fi
 # The launcher is always edited for a run: a gc log (-Xlog:gc) is added when the
 # JSON has none, so harness/analyze.py can count collector events in the route window.
 if (( overrides_jar )); then

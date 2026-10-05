@@ -411,9 +411,11 @@ def gc_summary(run):
     """
     import datetime, re
     run = Path(run)
-    log = run / "gc.log"
+    # every segment: a JVM started after the game (exit-time helpers) rolls the log, and the game's own events then
+    # sit in gc.log.N (filecount=3); the route-window filter below keeps only the game's
+    logs = sorted(run.glob("gc.log*"))
     bench = run / "pzopt-bench.out"
-    if not log.exists() or not bench.exists():
+    if not logs or not bench.exists():
         return None
     kv = dict(l.split("=", 1) for l in bench.read_text().splitlines() if "=" in l)
     if "route_start_epoch_ms" not in kv:
@@ -422,8 +424,9 @@ def gc_summary(run):
     collector = None
     events, pauses = [], []
     pat = re.compile(r"^\[(\S+?)\]\[[\d.,]+s\] GC\((\d+)\) (.*?) ([\d.,]+)(ms|s)$")  # older runs logged comma decimals (LC_NUMERIC)
-    for line in log.read_text().splitlines():
-        if "Using" in line and "Garbage Collector" in line:
+    lines = [l for g in logs for l in g.read_text(errors="replace").splitlines()]
+    for line in lines:
+        if "] Using " in line and collector is None:
             collector = "G1" if "G1" in line else "ZGC" if "Z Garbage" in line else line.split("Using ")[1]
             continue
         m = pat.match(line)

@@ -53,6 +53,44 @@ public class GcChoiceTest {
       check(own.getJSONArray("vmArgs").toString().equals(ownBefore), "a player's own trap-limit flag: the section is left alone");
       GcChoice.jitToStock(own);
       check(own.getJSONArray("vmArgs").toList().contains("-XX:PerMethodTrapLimit=50"), "undo keeps the player's own flag");
+      // gcHeap / gcHeapFixed / gcPreTouch: -Xmx replaced in place, -Xms and pre-touch added, all undone exactly
+      JSONObject h = new JSONObject(STOCK);
+      GcChoice.heapToPzopt(h, 6144, true, true);
+      java.util.List<Object> ha = h.getJSONArray("vmArgs").toList();
+      check(ha.get(0).equals("-Xmx6144m") && !ha.contains("-Xmx3072m"), "-Xmx replaced in place: " + ha);
+      check(ha.contains("-Xms6144m") && ha.contains("-XX:+AlwaysPreTouch") && ha.contains(GcChoice.HEAP_MARKER + "3072m,none,1"), "-Xms, pre-touch, marker: " + ha);
+      check(h.getJSONObject("windows").getJSONArray("vmArgs").toList().contains("-Xmx6144m"), "windows section heap");
+      String hOnce = h.toString();
+      GcChoice.heapToPzopt(h, 6144, true, true);
+      check(h.toString().equals(hOnce), "second heapToPzopt is a no-op");
+      GcChoice.heapToStock(h);
+      check(h.similar(stock), "heapToStock gives the stock JSON back: " + h);
+      JSONObject h0 = new JSONObject(STOCK);
+      GcChoice.heapToPzopt(h0, 0, false, false);
+      check(h0.similar(stock), "gcHeap=game without fixed / pre-touch leaves the JSON alone");
+      GcChoice.heapToPzopt(h0, 0, true, false);
+      check(h0.getJSONArray("vmArgs").toList().contains("-Xms3072m"), "fixed at the launcher's own size: " + h0);
+      GcChoice.heapToStock(h0);
+      check(h0.similar(stock), "undo of the fixed-only edit");
+      JSONObject touched = new JSONObject(STOCK.replace("\"-XX:+UseZGC\",\"-XX:-Omit", "\"-XX:+UseZGC\",\"-XX:+AlwaysPreTouch\",\"-XX:-Omit"));
+      JSONObject touchedStock = new JSONObject(touched.toString());
+      GcChoice.heapToPzopt(touched, 4096, false, true);
+      GcChoice.heapToStock(touched);
+      check(touched.similar(touchedStock), "a player's own pre-touch flag stays: " + touched);
+      check(GcChoice.heapMb(0) == 0 && GcChoice.heapMb(512) == 1024, "0 stays the launcher's own, at least 1 GB");
+      check(GcChoice.heapMb(1 << 20) < 1 << 20 && GcChoice.heapMb(1 << 20) % 512 == 0, "1 TB is clamped to half the RAM, 512 MB steps");
+      // gcHeap=auto: 4 GB, 8 GB from gcHeapAutoMods mods; game = the launcher's own; a number is MB
+      check(GcChoice.wantMb("auto", 0) == Config.GC_HEAP_AUTO_MB && GcChoice.wantMb("auto", Config.GC_HEAP_AUTO_MODS - 1) == Config.GC_HEAP_AUTO_MB, "auto, few mods");
+      check(GcChoice.wantMb("auto", Config.GC_HEAP_AUTO_MODS) == Config.GC_HEAP_AUTO_MODS_MB, "auto, a big mod list");
+      check(GcChoice.wantMb("game", 200) == 0 && GcChoice.wantMb("6144", 0) == 6144 && GcChoice.wantMb("6144m", 0) == 6144, "game / MB");
+      try {
+         java.nio.file.Path mt = java.nio.file.Files.createTempFile("pzopt-mods", ".txt");
+         java.nio.file.Files.writeString(mt, "VERSION = 1,\n\nmods\n{\n    mod = A,\n    mod = Authentic Z - Current,\n    mod = pzopt-harness,\n}\n\nmaps\n{\n}\n");
+         check(GcChoice.countMods(mt.toFile()) == 2, "mods.txt counted without the harness mod");
+         java.nio.file.Files.delete(mt);
+      } catch (java.io.IOException e) {
+         throw new AssertionError(e);
+      }
       System.out.println("GcChoiceTest ok");
    }
 

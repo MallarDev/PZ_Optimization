@@ -97,10 +97,15 @@ public class UninstallTest {
       write(g.resolve("ProjectZomboid64.json"), "{\"mainClass\":\"zombie/gameStates/MainScreenState\",\"classpath\":[\".\",\"projectzomboid.jar\"],"
             + "\"vmArgs\":[\"-Xmx3072m\",\"-XX:+UseG1GC\",\"-XX:MaxGCPauseMillis=4\",\"" + GcChoice.MARKER_PAUSE + "\",\""
             + GcChoice.JIT_MARKER + "\",\"-XX:PerMethodTrapLimit=0\",\"-XX:PerBytecodeTrapLimit=0\"]}");
+      // gcHeap on top: the uninstall must give the launcher's own -Xmx back
+      String withHeap = Files.readString(g.resolve("ProjectZomboid64.json")).replace("\"-Xmx3072m\"", "\"-Xmx8192m\",\"-Xms8192m\",\"-XX:+AlwaysPreTouch\",\""
+            + GcChoice.HEAP_MARKER + "3072m,none,1\"");
+      write(g.resolve("ProjectZomboid64.json"), withHeap);
       check(GcChoice.undo(g), "launcher undo reports a change");
       String j = Files.readString(g.resolve("ProjectZomboid64.json"));
       check(j.contains("-XX:+UseZGC") && !j.contains("UseG1GC") && !j.contains("MaxGCPauseMillis") && !j.contains("pzopt.gc")
-            && !j.contains("TrapLimit") && !j.contains("pzopt.jit") && j.contains("-Xmx3072m"), "launcher back to its own flags: " + j);
+            && !j.contains("TrapLimit") && !j.contains("pzopt.jit") && j.contains("-Xmx3072m") && !j.contains("8192")
+            && !j.contains("-Xms") && !j.contains("AlwaysPreTouch") && !j.contains("pzopt.heap"),"launcher back to its own flags: " + j);
       check(!GcChoice.undo(g), "a second undo changes nothing");
    }
 

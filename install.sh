@@ -111,7 +111,7 @@ PYEOF
   rm -rf "$dir/pzopt/aot"
 }
 
-reset_gc() {  # undo pzopt.GcChoice's launcher edits (-Dpzopt.gc=g1 marker: G1 back to ZGC, our pause target removed; -Dpzopt.jit=steady: our JIT flags removed)
+reset_gc() {  # undo pzopt.GcChoice's launcher edits (-Dpzopt.gc=g1 marker: G1 back to ZGC, our pause target removed; -Dpzopt.jit=steady: our JIT flags removed; -Dpzopt.heap=: the old -Xmx / -Xms back, our pre-touch removed)
   [[ -f "$1" ]] && command -v python3 >/dev/null || return 0
   python3 - "$1" <<'PYEOF'
 import json,sys
@@ -132,7 +132,23 @@ def fixj(a):
 if "vmArgs" in j: j["vmArgs"]=fixj(j["vmArgs"])
 for v in j.values():
     if isinstance(v,dict) and "vmArgs" in v: v["vmArgs"]=fixj(v["vmArgs"])
-if ch[0]: json.dump(j,open(p,"w"),indent="\t"); print("launcher: pzopt's G1 switch / JIT flags undone (back to the launcher's own)")
+H="-Dpzopt.heap="
+def fixh(a):
+    m=[x for x in a if x.startswith(H)]
+    if not m: return a
+    old=(m[-1][len(H):].split(",")+["none","none","0"])[:3]
+    a=[x for x in a if not x.startswith(H)]
+    for f,o in (("-Xmx",old[0]),("-Xms",old[1])):
+        i=max([k for k,x in enumerate(a) if x.startswith(f)],default=-1)
+        if o=="none": a=[x for k,x in enumerate(a) if k!=i]
+        elif i>=0: a[i]=f+o
+        else: a.append(f+o)
+    if old[2]=="1" and "-XX:+AlwaysPreTouch" in a: a.remove("-XX:+AlwaysPreTouch")
+    ch[0]=True; return a
+if "vmArgs" in j: j["vmArgs"]=fixh(j["vmArgs"])
+for v in j.values():
+    if isinstance(v,dict) and "vmArgs" in v: v["vmArgs"]=fixh(v["vmArgs"])
+if ch[0]: json.dump(j,open(p,"w"),indent="\t"); print("launcher: pzopt's G1 switch / JIT flags / heap size undone (back to the launcher's own)")
 PYEOF
 }
 
