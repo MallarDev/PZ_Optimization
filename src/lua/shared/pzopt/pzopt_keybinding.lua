@@ -13,4 +13,9 @@ if keyBinding then
         if keyBinding[i].value == "Display FPS" then at = i + 1; break end
     end
     table.insert(keyBinding, at, bind)
+    -- The rows read getText("UI_optionscreen_binding_" .. value); the game's UI.json has no entry for ours, so the
+    -- raw key showed (Discord bug report, 2026-10-05). Added on every Lua load (each follows Translator.loadFiles).
+    pcall(function()
+        getPerformance():pzoptDefaultUiText("UI_optionscreen_binding_" .. bind.value, "Toggle Performance Overlay")
+    end)
 end

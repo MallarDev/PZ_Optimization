@@ -6008,3 +6008,13 @@ test that returns at once.
 ### pzopt.CapsuleShadow (not an override)
 - `sunShadowLampMeshNearPct` / `FarPct` (100 / 300): a character's lamp-view shadow (torch / headlight) fades into the
   capsules' soft shadow from 1 to 3 squares from the caster; a low headlight's leg shadows no longer run as thin torn strands.
+
+## Key binding label: the overlay binding's text (2026-10-05, Discord bug report; PerformanceSettings)
+
+### zombie.core.PerformanceSettings
+- New method for Lua, `pzoptDefaultUiText(key, text)`: puts `text` into the translator's `UI` table (`Translator.BY_NAME`)
+  under a `UI_` key when no translation has it. `pzopt_keybinding.lua` calls it for
+  `UI_optionscreen_binding_Toggle performance overlay` ("Toggle Performance Overlay"); before, Options > Key Bindings
+  showed that raw key, because the translator reads only fixed `Translate/<lang>/UI.json` files from the game dir and
+  enabled mods. Every `Translator.loadFiles()` that empties the table (boot, language change, leaving a game) is
+  followed by a Lua reload, which adds the text again; a translation shipped by a mod or language pack wins.

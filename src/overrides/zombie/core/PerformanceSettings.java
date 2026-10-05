@@ -327,6 +327,16 @@ public final class PerformanceSettings {
       return pzopt.Overlay.isSampling();
    }
 
+   // pzopt: English text for a UI_ translation key the game's UI.json lacks (pzopt_keybinding.lua: the overlay binding's
+   // row in Options > Key Bindings showed its raw key). Translator only reads fixed files from the game dir and enabled
+   // mods; every loadFiles() that clears the map is followed by a Lua reload, which puts the text back. A translation
+   // a mod or language pack ships wins.
+   public void pzoptDefaultUiText(String key, String text) {
+      if (key != null && key.startsWith("UI_") && text != null) {
+         Translator.BY_NAME.get("UI").putIfAbsent(key, text);
+      }
+   }
+
    public void setLightingQuality(int lighting) {
    }
 
