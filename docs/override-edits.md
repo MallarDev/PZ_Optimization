@@ -6043,3 +6043,28 @@ test that returns at once.
   showed that raw key, because the translator reads only fixed `Translate/<lang>/UI.json` files from the game dir and
   enabled mods. Every `Translator.loadFiles()` that empties the table (boot, language change, leaving a game) is
   followed by a Lua reload, which adds the text again; a translation shipped by a mod or language pack wins.
+
+## A cut-open upper floor: furniture against the hidden outside wall, AO bands on roofs (`pplCutEdge`, `aoRoofSkip`, 2026-10-05; FBORenderCutaways, `pzopt.PixelLight`, `pzopt.ChunkAo`)
+
+Report (flip, save `Sandbox/2026-09-26_03-37-09`, Riverside house at 6765,5405): with the player in the yard the house's
+upper floor shows cut open. That part is stock: the level-1 squares outside the rooms (ceiling, exterior wall, roof, no
+room) are orphan structures `shouldRenderBuildingSquare` stops drawing near the player (no cutaway flags, every alpha 1).
+Ours, two artifacts:
+- **The bathtub's front face black.** It lies on the south edge of its square (reconstructed y = 5408.02); pixelLight's
+  owner square, nudged towards the viewer, was the hidden roof square outside the house (dusk light 0.28 against the lit
+  bathroom's 0.8-1.0); in play the exterior wall covers that face. FBORenderCutaways gets `pzoptSquareHidden` (new
+  method: `!shouldRenderBuildingSquare` without its lazy orphan recalculation, read-only, so the lattice pack workers can
+  call it). `pplCutEdge` (default on): the lattice marks a square stock does not draw (bit 16 of the conn texel's g), and
+  pplSeenEdge's path hands a point within 0.1 of its west / north edge to the square before it. A first attempt keyed on
+  the cutaway flags (PCF_NORTH / PCF_WEST) did nothing here: none are set.
+- **Dark horizontal bands across the roof** (Enhancements: AO). A roof sprite's depth is a staircase snapped to the floor /
+  wall planes; the horizon kernel shaded every riser and `aoEdgeShade` (2026-10-04) spread that 2-4 texels onto the row
+  above. `aoRoofSkip` (default on): no horizon on a texel whose own column has a roof tile on the texel's own level
+  (`roofLevels`, a new 2 x 256-bit uniform `roofLv` for every compute, night ones too), treads and risers alike, real
+  floors (a floor-like texel at a whole level) excluded. The 3 x 3 neighbourhood of `exteriorKind` took the cut-open
+  bathroom beside a hidden roof square for roof, so the test is the own column only. The gable soffit's dark wedge under
+  the trim goes as well (closer to stock). Dev view `devAoRoofView=true` with `devAoView=1`: the texels taken dark.
+Rig: `--source-save Sandbox/2026-09-26_03-37-09 --flag zombies=off --flag route=S:1 --flag speed=0.1 --flag zoom=1
+--shot-at 3`, crops of `shot-desktop.png`; `--prop devPplDumpAt=8` (the square dump now lists object alphas and `pcf=`).
+Left: the porch gutter's top reads darker than stock with the player's settings (pixelLight, aoEdgeShade and the HDR /
+grading tone each add to it; defaults match stock).

@@ -1004,6 +1004,25 @@ public final class FBORenderCutaways {
       }
    }
 
+   // pzopt: pixelLight (pplCutEdge): !shouldRenderBuildingSquare without its lazy orphan recalculation, read-only (lattice pack workers)
+   public boolean pzoptSquareHidden(int playerIndex, IsoGridSquare square) { // pzopt: new
+      int playerZ = PZMath.fastfloor(IsoCamera.frameState.camCharacterZ); // pzopt: new
+      if (square.z <= playerZ || square.chunk == null) { // pzopt: new
+         return false; // pzopt: new
+      } // pzopt: new
+      FBORenderCutaways.BuildingsToCollapse btc = this.perPlayerData[playerIndex].buildingsToCollapse; // pzopt: new
+      if (square.associatedBuilding != null && btc.buildingsToCollapse.contains(square.associatedBuilding)) { // pzopt: new
+         IsoObject object = this.getFirstMultiLevelObject(square); // pzopt: new
+         return object == null || square.z - object.getSpriteGrid().getSpriteGridPosZ(object.getSprite()) > playerZ; // pzopt: new
+      } // pzopt: new
+      if (playerZ < 0 || square.z == playerZ + 1 && square.hasFloorAtTopOfStairs()) { // pzopt: new
+         return playerZ < 0; // pzopt: new
+      } // pzopt: new
+      FBORenderCutaways.OrphanStructures o = square.chunk.getCutawayDataForLevel(square.z).orphanStructures; // pzopt: new
+      return o.hasOrphanStructures && o.isPlayerInRange(playerIndex, FBORenderCutaways.PlayerInRange.True) // pzopt: new
+         && (o.isOrphanStructureSquare(square) || o.isAdjacentToOrphanStructure(square)); // pzopt: new
+   }
+
    private boolean IsCollapsibleBuildingSquare(FBORenderCutaways.CutawayWall wall, IsoGridSquare square) {
       if (square.getProperties().has(IsoFlagType.forceRender)) {
          return false;

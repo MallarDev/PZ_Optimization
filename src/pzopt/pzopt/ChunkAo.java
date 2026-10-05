@@ -532,6 +532,9 @@ public final class ChunkAo {
       } else {
          job.far = false;
       }
+      if (!deferMasks && Config.AO && Config.AO_ROOF_SKIP) {
+         roofLevels(job.roofLv, c, minLevel);
+      }
       if (deferMasks) { // aoContextParallel: the pure world reads above, for every bake of the frame at once on the workers (flush)
          job.maskChunk = c;
          job.maskMinLevel = minLevel;
@@ -640,6 +643,9 @@ public final class ChunkAo {
             exteriorMask(job.ext, c, minLevel);
             wallMask(job.wall, c, minLevel);
             job.far = Config.SUN_SHADOW_FAR && farGrid(job, c, minLevel);
+         }
+         if (Config.AO && Config.AO_ROOF_SKIP) {
+            roofLevels(job.roofLv, c, minLevel);
          }
          return null;
       } catch (Throwable t) {
@@ -1380,6 +1386,32 @@ public final class ChunkAo {
 
    private static long roofColumnsFound;
 
+   /**
+    * aoRoofSkip: the squares with a roof tile on the texture's lower level (ints 0..7) and its upper level (8..15), 16 x 16 bits
+    * from VEG_MARGIN squares before the chunk's corner (the exterior mask's layout). Per level, so the ground under an eave
+    * keeps its AO.
+    */
+   private static void roofLevels(int[] r, IsoChunk c, int minLevel) {
+      java.util.Arrays.fill(r, 0);
+      zombie.iso.IsoCell cell = IsoWorld.instance.currentCell;
+      if (cell == null) {
+         return;
+      }
+      int x0 = c.wx * 8 - VEG_MARGIN;
+      int y0 = c.wy * 8 - VEG_MARGIN;
+      for (int l = 0; l < 2; l++) {
+         for (int y = 0; y < VEG_SIDE; y++) {
+            for (int x = 0; x < VEG_SIDE; x++) {
+               IsoGridSquare sq = cell.getGridSquare(x0 + x, y0 + y, minLevel + l);
+               if (sq != null && roof(sq)) {
+                  int bit = y * VEG_SIDE + x;
+                  r[l * 8 + (bit >> 5)] |= 1 << (bit & 31);
+               }
+            }
+         }
+      }
+   }
+
    /** Does a roof tile (a sprite with a RoofGroup, or from the roofs_ sheets) stand on this square? */
    private static boolean roof(IsoGridSquare sq) {
       zombie.util.list.PZArrayList<IsoObject> objects = sq.getObjects();
@@ -1482,6 +1514,7 @@ public final class ChunkAo {
       final float[] sunDir = new float[4]; // SunShadow.dir: view-space direction to the sun, w = strength
       final float[] sunPerp = new float[4]; // SunShadow.perp: across it, w = tan of the penumbra angle
       final int[] ext = new int[24]; // exterior squares, 2 planes of 16 x 16 bits, then the roof columns (exteriorMask)
+      final int[] roofLv = new int[16]; // aoRoofSkip: squares with a roof tile on the texture's lower / upper level, 2 planes of 16 x 16 bits (roofLevels)
       final int[] wall = new int[32]; // wall edges (wallMask): W walls on levels 0, 1, then N walls on levels 0, 1; 16 x 16 bits each
       boolean far; // sunShadowFar: farH holds the column heights around the chunk
       final byte[] farH = new byte[FAR_SIDE * FAR_SIDE]; // column tops above the texture's lowest level, quarter levels, FAR_MARGIN squares before the chunk
@@ -1570,7 +1603,7 @@ public final class ChunkAo {
       private final HashMap<Integer, Integer> bareByColour = new HashMap<>();
       private int aoProgram;
       private int aoOnlyProgram; // AO_PASS: no sun code (its registers)
-      private final int[] uAoOnly = new int[23];
+      private final int[] uAoOnly = new int[24];
       private int blurProgram;
       private int mulProgram;
       private static final float EDGE_TOLERANCE_SQUARES = 0.12F; // aoEdgeAware: a depth step of this many squares halves a tap's weight (roughly)
@@ -1588,7 +1621,7 @@ public final class ChunkAo {
       private int rawW;
       private int rawH;
       private final int[] viewport = new int[4];
-      private final int[] uAo = new int[23];
+      private final int[] uAo = new int[24];
       private final int[] uBlur = new int[4];
       private final int[] uMul = new int[4];
       private final int[] uRatio = new int[6];
@@ -1732,7 +1765,10 @@ public final class ChunkAo {
             GL30.glUniform1uiv(u[6], job.veg);
          }
          GL20.glUniform4f(u[7], job.isoHalfW, job.isoInvSA, job.isoS, job.isoTop); // (the vegetation and the exterior lookups)
-         GL20.glUniform4f(u[9], Config.AO ? 1.0F : 0.0F, Config.DEV_SUN_VIEW, Config.SUN_SHADOW_TREES && Config.SUN_SHADOW_TREE_CARDS ? 1.0F : 0.0F, 0.0F);
+         GL20.glUniform4f(u[9], Config.AO ? 1.0F : 0.0F, Config.DEV_SUN_VIEW, Config.SUN_SHADOW_TREES && Config.SUN_SHADOW_TREE_CARDS ? 1.0F : 0.0F, Config.AO_ROOF_SKIP ? (Config.DEV_AO_ROOF_VIEW ? 2.0F : 1.0F) : 0.0F);
+         if (Config.AO && Config.AO_ROOF_SKIP && u[23] >= 0) {
+            GL30.glUniform1uiv(u[23], job.roofLv); // aoRoofSkip: the roof squares of the texture's two levels
+         }
          if (job.sun) {
             GL20.glUniform4f(u[10], job.sunDir[0], job.sunDir[1], job.sunDir[2], job.sunDir[3]);
             GL20.glUniform4f(u[11], job.sunPerp[0], job.sunPerp[1], job.sunPerp[2], job.sunPerp[3]);
@@ -2317,7 +2353,7 @@ public final class ChunkAo {
 
       /** A kernel variant's uniform locations, in uAo's order (and its sources on units 0..8). */
       private static void locate(int program, int[] u) {
-         String[] names = {"rect", "off", "geo", "params", "nSrc", "strength", "veg", "iso0", "iso1", "mode", "sunDir", "sunPerp", "sunPar", "ext", "sunTree", "treeA", "treeB", "sunWorld", "wallm", "farPar", "treeC", "treeD", "plantPar"};
+         String[] names = {"rect", "off", "geo", "params", "nSrc", "strength", "veg", "iso0", "iso1", "mode", "sunDir", "sunPerp", "sunPar", "ext", "sunTree", "treeA", "treeB", "sunWorld", "wallm", "farPar", "treeC", "treeD", "plantPar", "roofLv"};
          for (int i = 0; i < names.length; i++) {
             u[i] = GL20.glGetUniformLocation(program, names[i]);
          }
@@ -2445,11 +2481,12 @@ public final class ChunkAo {
       "uniform uint veg[32];", // vegetation squares: planes 0-2 = the texture's levels, 3 = tree crowns; 16 x 16 bits from 4 squares before the chunk
       "uniform vec4 iso0;", // texels to the chunk corner's screen x, units of (x - y) per texel, texels per world pixel, world px from the top edge to the corner
       "uniform vec4 iso1;", // world px per unit of (x + y), per level, depth per unit of (x + y + 2z), 1 = test vegetation
-      "uniform vec4 mode;", // 1 = ambient occlusion, dev sun view (1 = the sun term alone, 2 = the exterior mask, 3 = the facing term), 1 = tree cards (sunShadowTreeCards)
+      "uniform vec4 mode;", // 1 = ambient occlusion, dev sun view (1 = the sun term alone, 2 = the exterior mask, 3 = the facing term), 1 = tree cards (sunShadowTreeCards), 1 = no AO on roofs (aoRoofSkip)
       "uniform vec4 sunDir;", // sun shadows: view-space direction to the sun, w = strength (0 = no sun term)
       "uniform vec4 sunPerp;", // across the sun and the view direction, w = tan of the sun's angular radius
       "uniform vec4 sunPar;", // march length in texture texels per unit of screen travel, thickness in squares, steps, 1 = exterior test
       "uniform uint ext[24];", // exterior squares: planes 0-1 = the texture's levels, plane 2 = roof columns; 16 x 16 bits from 4 squares before the chunk
+      "uniform uint roofLv[16];", // aoRoofSkip: roof squares of the texture's lower / upper level (16 x 16 bits each)
       "uniform uint wallm[32];",
       "uniform sampler2D farH;", // FAR_UNIT: column tops round the chunk above the texture's lowest level (x 255 quarter levels), 20 squares before its corner
       "uniform vec4 farPar;", // x on, y the first t (where the near march stops, squares), z the last t, w the reach (the fade's end) // wall edges: W walls (face east) on levels 0-1, then N walls (face south); 16 x 16 bits from 4 squares before the chunk
@@ -2699,6 +2736,18 @@ public final class ChunkAo {
       "   }",
       "   return ((ext[lvl * 8 + (bit >> 5)] >> uint(bit & 31)) & 1u) != 0u ? 1 : 0;",
       "}",
+      // aoRoofSkip: a roof tile's texel: its own column has a roof tile on the texel's own level (the 3 x 3 of exteriorKind took
+      // a cut-open bathroom beside a hidden roof square for roof), not a floor (a real floor sits at a whole level; a roof's
+      // stepped depth snaps its treads to floor planes between the levels)
+      "bool roofTexel(vec2 c, float d, float ys, bool floorLike) {",
+      "   vec3 s0 = squareAt(c, d, ys);",
+      "   if (floorLike && abs(s0.z - floor(s0.z + 0.5)) < 0.05) return false;",
+      "   int lvl = clamp(int(floor(s0.z + 0.05)), 0, 1);",
+      "   ivec2 q0 = ivec2(s0.xy);",
+      "   if (q0.x < 0 || q0.y < 0 || q0.x >= 16 || q0.y >= 16) return false;",
+      "   int b0 = q0.y * 16 + q0.x;",
+      "   return ((roofLv[lvl * 8 + (b0 >> 5)] >> uint(b0 & 31)) & 1u) != 0u;",
+      "}",
       "bool exteriorAt(vec2 c, float d, vec3 N, float ppu, float kz, float ys) {",
       "   return exteriorKind(c, d, N, ppu, kz, ys, false) == 1;",
       "}",
@@ -2886,7 +2935,10 @@ public final class ChunkAo {
       "   float vis = 0.0;",
       "   float wsum = 0.0;",
       // (a tree's texel: its sky occlusion is the crown proxy's below; the horizon over a flat card only saw its own leaves)
-      "   for (int i = 0; i < (mode.x > 0.5 && !tree ? 2 : 0); i++) {",
+      // aoRoofSkip: no horizon on a roof's tiles, treads and risers (the staircase depth shaded every step's riser, and
+      // aoEdgeShade spread it 2-4 texels onto the row above: dark bands across a roof)
+      "   bool roofAo = mode.w > 0.5 && !tree && roofTexel(c, d, ys, g > 0.94);",
+      "   for (int i = 0; i < (mode.x > 0.5 && !tree && !roofAo ? 2 : 0); i++) {",
       "      float phi = (float(i) + bayer / 16.0) * HALF_PI;",
       "      vec2 dir = vec2(cos(phi), sin(phi));", // in texels
       "      vec3 D = normalize(vec3(dir.x, ys * dir.y, 0.0));", // in view space
@@ -2920,6 +2972,7 @@ public final class ChunkAo {
       "      wsum += pnl;",
       "   }",
       "   float ao = clamp(1.0 - (1.0 - (wsum > 0.0 ? vis / wsum : 1.0)) * sk, 0.0, 1.0);",
+      "   if (mode.w > 1.5) ao = roofAo ? 0.25 : 1.0;", // dev (devAoRoofView): the texels taken for roof dark
       // the sky the crowns hide (aoTreeCanopyPct): straight up from the texel through every crown in reach; a tree's trunk and
       // lower crown under its own, the ground under a tree (the horizon kernel skips a card's own plane and sees no volume)
       // (at most half the sky: light still comes in under and between the crowns); shade the vegetation casts, so the

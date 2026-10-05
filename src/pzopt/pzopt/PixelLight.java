@@ -1181,6 +1181,14 @@ public final class PixelLight {
                if ((conn & 4) != 0 && ChunkAo.edgeW(sq)) wallEdge |= 1;
                if ((conn & 8) != 0 && ChunkAo.edgeN(sq)) wallEdge |= 2;
             }
+            // pplCutEdge: stock does not draw this square (an upper floor's orphan structure near the player, a collapsed
+            // building: bit 4 of g), so nothing of its own shows on its west / north edge; what does is the face of the
+            // furniture in the square before it. The hide / show re-bakes the chunk, which repacks it
+            int cutEdge = 0;
+            if (Config.PPL_CUT_EDGE && Config.PPL_SEEN_EDGE && sq != null && !above && z > 0
+                  && zombie.iso.fboRenderChunk.FBORenderCutaways.getInstance().pzoptSquareHidden(playerIndex, sq)) {
+               cutEdge = 16;
+            }
             // pplTorchFade: a square cross-fading the torch is not simple, its visibility between 64 (hidden) and 192 (visible)
             int simple = fade >= 0.0F ? 64 + Math.round(fade * 128.0F) : conn != 255 || wallEdge != 0 ? (tvis == 255 ? 192 : 64) : tvis == 255 ? 255 : 0;
             if (sq != null && !above) { // (no square: no pixels; above the top: the level below's)
@@ -1205,7 +1213,7 @@ public final class PixelLight {
             int outdoor = (sq != null && sq.isOutside() ? 128 : 0) | (visible != 0 ? (sq.isOutside() ? 127 : 64) : 0);
             // pplNormalSpanWide: bits 2 / 3 of g, the square has a wall on its west / north edge (the wide-span normal's test)
             int wallAt = Config.PPL_NORMAL_SPAN_WIDE > 0 && sq != null && !above ? (ChunkAo.edgeW(sq) ? 4 : 0) | (ChunkAo.edgeN(sq) ? 8 : 0) : 0;
-            b.putInt(base + 256 + cell8, conn | (tvis & 0x80 | wallEdge | wallAt) << 8 | grad << 16 | outdoor << 24); // connectivity bits, torch visibility (bit 7) + wall edges W / N (bits 0, 1), vertical gradient, outdoors + visible
+            b.putInt(base + 256 + cell8, conn | (tvis & 0x80 | wallEdge | wallAt | cutEdge) << 8 | grad << 16 | outdoor << 24); // connectivity bits, torch visibility (bit 7) + wall edges W / N (bits 0, 1; walls 2, 3; not drawn 4), vertical gradient, outdoors + visible
             b.putInt(base + 512 + cell8, grad == 0 ? 0x808080 : wallDelta(v0, v1, v2, v3, t0, t1, t2, t3)); // top corners' mean - bottom corners' mean, 0.5 = none
          }
       }
@@ -2861,13 +2869,19 @@ public final class PixelLight {
       // wall, its depth box's face on the square's edge; the Fossoil shelf goods took the unlit garage's light behind the
       // wall, a dark speckle that moved with the upscaler's jitter and the camera's jiggle, 2026-09-29)
       "#ifdef PPL_SEEN_EDGE",
-      "   if (fxy.x < 0.03 || fxy.y < 0.03) {",
+      "   if (fxy.x < 0.1 || fxy.y < 0.1) {",
       "      vec4 c0 = texelFetch(pplConn, ivec3(s, lvl), 0);",
-      "      if (!pplVisible(c0.a)) {",
+      // pplCutEdge: or stock does not draw the square (an upper floor's orphan structure near the player: the outside wall in
+      // front of the room is gone, the furniture flush against it shows; a cut-open bathroom's tub took the dark roof square's
+      // light, 2026-10-05): a point a little past its west / north edge is the face of the furniture before it
+      "      bool hid = (int(c0.g * 255.0 + 0.5) & 16) != 0;",
+      "      bool unseen = !pplVisible(c0.a);",
+      "      float tol = hid ? 0.1 : 0.03;",
+      "      if (unseen || hid) {",
       "         int cb = int(c0.r * 255.0 + 0.5);",
       "         ivec2 sx = (s - ivec2(1, 0)) & pplOrg.z, sy = (s - ivec2(0, 1)) & pplOrg.z;",
-      "         if (fxy.x < 0.03 && (cb & 4) == 0 && pplVisible(texelFetch(pplConn, ivec3(sx, lvl), 0).a)) { s = sx; sq.x -= 1.0; fxy.x = 1.0; }",
-      "         else if (fxy.y < 0.03 && (cb & 8) == 0 && pplVisible(texelFetch(pplConn, ivec3(sy, lvl), 0).a)) { s = sy; sq.y -= 1.0; fxy.y = 1.0; }",
+      "         if (fxy.x < tol && (hid || (cb & 4) == 0) && pplVisible(texelFetch(pplConn, ivec3(sx, lvl), 0).a)) { s = sx; sq.x -= 1.0; fxy.x = 1.0; }",
+      "         else if (fxy.y < tol && (hid || (cb & 8) == 0) && pplVisible(texelFetch(pplConn, ivec3(sy, lvl), 0).a)) { s = sy; sq.y -= 1.0; fxy.y = 1.0; }",
       "      }",
       "   }",
       "#endif",
@@ -3466,7 +3480,9 @@ public final class PixelLight {
                      for (int o = 0; o < sq.getObjects().size(); o++) {
                         zombie.iso.IsoObject obj = sq.getObjects().get(o);
                         sb.append(' ').append(obj.sprite != null && obj.sprite.name != null ? obj.sprite.name : obj.getClass().getSimpleName());
+                        sb.append('@').append(obj.getAlpha(playerIndex));
                      }
+                     sb.append(" pcf=").append(sq.getPlayerCutawayFlag(playerIndex, 0L)); // the cutaway flags (pplCutEdge)
                      sb.append('\n');
                      count++;
                   }
