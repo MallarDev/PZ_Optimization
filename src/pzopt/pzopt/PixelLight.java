@@ -1057,15 +1057,25 @@ public final class PixelLight {
                   // the native adds the torches (the brightest of them) to the square's light: base = light - torch; a
                   // saturated square's base is the ambient (unknown under the clamp)
                   float tr = 0.0F, tg = 0.0F, tb = 0.0F;
+                  float hr = 0.0F, hg = 0.0F, hb = 0.0F; // pplTorchVehicleMix: the brightest vehicle light listed here
                   for (int k = 0; Config.PPL_ANALYTIC && k < jl.resultLightCount(); k++) {
                      zombie.iso.IsoGridSquare.ResultLight rl = jl.getResultLight(k);
                      if ((rl.flags & 2) != 0 && rl.id < 4096) { // handheld torches (vehicle lights, 4096 + vehicle * 10 + light, stay in the base: they move too fast for the replacement)
                         tr = Math.max(tr, rl.r);
                         tg = Math.max(tg, rl.g);
                         tb = Math.max(tb, rl.b);
+                     } else if ((rl.flags & 2) != 0 && rl.r + rl.g + rl.b > hr + hg + hb) {
+                        hr = rl.r;
+                        hg = rl.g;
+                        hb = rl.b;
                      }
                   }
+                  boolean hadTorch = tr + tg + tb > 0.0F; // pplClipBase: no handheld torch here: the light is the base
                   float tmax = Math.max(tr, Math.max(tg, tb)), imax = Math.max(li.r, Math.max(li.g, li.b));
+                  // pplTorchVehicleMix: the native adds the brightest of the torch and the vehicle lights listed here (max, not
+                  // the sum: measured per square, 2026-10-04); whether it added anything is judged against that one, else a
+                  // square a headlight lit counted as "torch listed but not added" and the torch went off in the car's beam
+                  float amax = Config.PPL_TORCH_VEHICLE_MIX ? Math.max(tmax, Math.max(hr, Math.max(hg, hb))) : tmax;
                   if (FrameLog.ON && jl.resultLightCount() >= 6) { // devPplFrameLog: the native's light list is full (6): a torch can drop off it
                      FrameLog.capped.incrementAndGet();
                      if (tmax <= 0.0F && torchNear(px, sq.x + 0.5F, sq.y + 0.5F, z)) {
@@ -1078,14 +1088,14 @@ public final class PixelLight {
                   // over that ramp (light / torch 0.5 -> 0.9) instead of switching on at 0.9: base = light - vis x torch, the
                   // per-pixel torch x vis, the same at both ends. The switch flashed whole floor tiles while the player turned
                   // with a lantern (torchSource draws it; 2026-10-03)
-                  if (Config.PPL_TORCH_FADE && tmax > 0.02F && canSee && imax < 0.9F * tmax && imax > 0.5F * tmax) {
-                     float u = (imax / tmax - 0.5F) / 0.4F;
+                  if (Config.PPL_TORCH_FADE && tmax > 0.02F && canSee && imax < 0.9F * amax && imax > 0.5F * amax) {
+                     float u = (imax / amax - 0.5F) / 0.4F;
                      fade = u * u * (3.0F - 2.0F * u);
                      tr *= fade;
                      tg *= fade;
                      tb *= fade;
                      tvis = fade >= 0.5F ? 255 : 0;
-                  } else if (tmax > 0.02F && (imax < 0.9F * tmax || Config.PPL_TORCH_CAN_SEE && !canSee) || tmax <= 0.02F && !canSee && torchNear(px, sq.x + 0.5F, sq.y + 0.5F, z)) {
+                  } else if (tmax > 0.02F && (imax < 0.9F * amax || Config.PPL_TORCH_CAN_SEE && !canSee) || tmax <= 0.02F && !canSee && torchNear(px, sq.x + 0.5F, sq.y + 0.5F, z)) {
                      // the native lists the torch here but did not add it (a wall hides it, or the square is dark for the
                      // player): nothing to take out, and the torch stays off here. A square the player cannot see never took
                      // it: a room lit by its own lamp is brighter than the torch, so the brightness test alone let the torch
@@ -1102,9 +1112,37 @@ public final class PixelLight {
                   boolean clipped = tmax >= 0.99F || tmax > 0.0F && Math.max(li.r, Math.max(li.g, li.b)) >= 0.999F;
                   int est = outside ? ambOut : ambIn;
                   float er = est >= 0 ? (est & 0xFF) / 255.0F : px.ambR, eg = est >= 0 ? (est >> 8 & 0xFF) / 255.0F : px.ambG, eb = est >= 0 ? (est >> 16 & 0xFF) / 255.0F : px.ambB;
-                  float br = clipped ? Math.min(li.r, er) : Math.max(0.0F, li.r - tr);
-                  float bg = clipped ? Math.min(li.g, eg) : Math.max(0.0F, li.g - tg);
-                  float bb = clipped ? Math.min(li.b, eb) : Math.max(0.0F, li.b - tb);
+                  // pplTorchVehicleMix: the native adds only the brightest of the torches and vehicle lights to a square. Where a
+                  // headlight is the brighter, the torch was never added: nothing of it to take out (taking it out darkened the
+                  // beam, so the torch lit nothing in a car's headlights, Discord 2026-10-04); where the torch is, the headlight
+                  // it outshone is put back. Either way base = light + vehicle light and the per-pixel torch goes on top
+                  float sr = tr, sg = tg, sb = tb, ar = 0.0F, ag = 0.0F, ab = 0.0F;
+                  if (Config.PPL_TORCH_VEHICLE_MIX && hr + hg + hb > 0.0F && tr + tg + tb > 0.0F) {
+                     if (hr + hg + hb > tr + tg + tb) {
+                        sr = sg = sb = 0.0F;
+                     } else {
+                        ar = hr;
+                        ag = hg;
+                        ab = hb;
+                     }
+                  }
+                  float br = clipped ? Math.min(li.r, er) : Math.min(1.0F, Math.max(0.0F, li.r - sr) + ar);
+                  float bg = clipped ? Math.min(li.g, eg) : Math.min(1.0F, Math.max(0.0F, li.g - sg) + ag);
+                  float bb = clipped ? Math.min(li.b, eb) : Math.min(1.0F, Math.max(0.0F, li.b - sb) + ab);
+                  if (clipped && Config.PPL_CLIP_BASE) {
+                     // pplClipBase: under the clamp the base is at least light - torch (the sum reached 1), and was what the
+                     // square had without the torch (remembered); the night ambient estimate alone dropped a street lamp's
+                     // light wherever the torch saturated it: a black wedge round the player under the lamp (Discord 2026-10-04)
+                     int mem = jl.pzoptBaseMem;
+                     float mr = mem >= 0 ? (mem & 0xFF) / 255.0F : er, mg = mem >= 0 ? (mem >> 8 & 0xFF) / 255.0F : eg, mb = mem >= 0 ? (mem >> 16 & 0xFF) / 255.0F : eb;
+                     br = Math.max(Math.min(1.0F, Math.max(0.0F, li.r - sr) + ar), Math.min(li.r, mr));
+                     bg = Math.max(Math.min(1.0F, Math.max(0.0F, li.g - sg) + ag), Math.min(li.g, mg));
+                     bb = Math.max(Math.min(1.0F, Math.max(0.0F, li.b - sb) + ab), Math.min(li.b, mb));
+                  }
+                  if (Config.PPL_CLIP_BASE && !hadTorch) {
+                     jl.pzoptBaseMem = Math.min(255, (int)(li.r * 255.0F + 0.5F)) | Math.min(255, (int)(li.g * 255.0F + 0.5F)) << 8
+                           | Math.min(255, (int)(li.b * 255.0F + 0.5F)) << 16;
+                  }
                   info = Math.min(255, (int)(br * 255.0F + 0.5F)) | Math.min(255, (int)(bg * 255.0F + 0.5F)) << 8 | Math.min(255, (int)(bb * 255.0F + 0.5F)) << 16;
                   if ((jl.pzoptVis() & 1) != 0 && tr + tg + tb == 0.0F && li.r + li.g + li.b > 0.0F) {
                      px.sample(outside ? 0 : 1, (int)(li.r * 255.0F + 0.5F) | (int)(li.g * 255.0F + 0.5F) << 8 | (int)(li.b * 255.0F + 0.5F) << 16);
@@ -1165,7 +1203,9 @@ public final class PixelLight {
             b.putInt(base + cell8, info & 0xFFFFFF | simple << 24); // base light; a: a simple square (the shader's one-fetch path)
             // a: outdoors (>= 128: wet in rain) and, in bit 6, visible to the player (pplSeenEdge): 0 / 64 indoors, 128 / 255 outdoors
             int outdoor = (sq != null && sq.isOutside() ? 128 : 0) | (visible != 0 ? (sq.isOutside() ? 127 : 64) : 0);
-            b.putInt(base + 256 + cell8, conn | (tvis & 0x80 | wallEdge) << 8 | grad << 16 | outdoor << 24); // connectivity bits, torch visibility (bit 7) + wall edges W / N (bits 0, 1), vertical gradient, outdoors + visible
+            // pplNormalSpanWide: bits 2 / 3 of g, the square has a wall on its west / north edge (the wide-span normal's test)
+            int wallAt = Config.PPL_NORMAL_SPAN_WIDE > 0 && sq != null && !above ? (ChunkAo.edgeW(sq) ? 4 : 0) | (ChunkAo.edgeN(sq) ? 8 : 0) : 0;
+            b.putInt(base + 256 + cell8, conn | (tvis & 0x80 | wallEdge | wallAt) << 8 | grad << 16 | outdoor << 24); // connectivity bits, torch visibility (bit 7) + wall edges W / N (bits 0, 1), vertical gradient, outdoors + visible
             b.putInt(base + 512 + cell8, grad == 0 ? 0x808080 : wallDelta(v0, v1, v2, v3, t0, t1, t2, t3)); // top corners' mean - bottom corners' mean, 0.5 = none
          }
       }
@@ -3144,6 +3184,38 @@ public final class PixelLight {
       "   vec3 py = pplPos(fc + vec2(0.0, sy * float(K) * pplWpt.y), chunkDepth + (sy > 0.0 ? yp : ym));",
       "   vec3 L = vec3(1.0, 1.0, PPL_LEVEL);",
       "   vec3 n0 = pplSnapNormal(P0, cross((px - P0) * L, (py - P0) * L));",
+      "#if PPL_NSPAN_WIDE > 0",
+      // pplNormalSpanWide: a texel whose normal did not snap to a floor or wall plane tries neighbours PPL_NSPAN_WIDE texels
+      // away and keeps that normal only when it does snap. Over the short span the DEPTH16 rounding along a wall still tilted
+      // single texels past the snap on a regular lattice, each lit differently: a dark dot mesh on walls in daylight (Discord
+      // 2026-10-04). The wide span alone crossed leaf and furniture edges (black blobs on a potted plant): an object's own
+      // non-planar normal stays as it was
+      // (only a texel whose short-span neighbours lie on one plane: a leaf or a small object's edge is not a wall)
+      "   bool shortPlanar = xp < 1.0 && xm < 1.0 && abs(xp + xm - 2.0 * d0) < 4.0 / 65535.0 + 0.25 * abs(xp - xm)",
+      "      && yp < 1.0 && ym < 1.0 && abs(yp + ym - 2.0 * d0) < 4.0 / 65535.0 + 0.25 * abs(yp - ym);",
+      "   if (shortPlanar && n0.x < 0.9999 && n0.y < 0.9999 && n0.z < 0.9999) {",
+      "      const int W = PPL_NSPAN_WIDE;",
+      "      float wxp = texelFetch(DEPTH, min(ti + ivec2(W, 0), mx), 0).r, wxm = texelFetch(DEPTH, max(ti - ivec2(W, 0), ivec2(0)), 0).r;",
+      "      float wyp = texelFetch(DEPTH, min(ti + ivec2(0, W), mx), 0).r, wym = texelFetch(DEPTH, max(ti - ivec2(0, W), ivec2(0)), 0).r;",
+      "      if (!(wxp >= 1.0 && wxm >= 1.0 || wyp >= 1.0 && wym >= 1.0)) {",
+      "         float wsx = wxp < 1.0 && (wxm >= 1.0 || abs(wxp - d0) <= abs(d0 - wxm)) ? 1.0 : -1.0;",
+      "         float wsy = wyp < 1.0 && (wym >= 1.0 || abs(wyp - d0) <= abs(d0 - wym)) ? 1.0 : -1.0;",
+      "         vec3 qx = pplPos(fc + vec2(wsx * float(W) * pplWpt.x, 0.0), chunkDepth + (wsx > 0.0 ? wxp : wxm));",
+      "         vec3 qy = pplPos(fc + vec2(0.0, wsy * float(W) * pplWpt.y), chunkDepth + (wsy > 0.0 ? wyp : wym));",
+      "         vec3 nw = pplSnapNormal(P0, cross((qx - P0) * L, (qy - P0) * L));",
+      // and only a plane the short span already leaned towards (within ~37 degrees) that is a real wall or floor: a wall
+      // plane within a fifth of a square of the edge of a square that has a wall there (the visible faces measured 0.01-0.18
+      // in), a floor at a level's height. On leaves before a wall the wide span reached past the leaf onto the wall and
+      // gave the leaf the wall's plane (dark specks along the leaf edges)
+      "         vec2 wsq = floor(P0.xy + 0.004);",
+      "         int wl = int(clamp(floor(P0.z + 0.006), float(pplLv.x), float(pplLv.y))) & pplOrg.w;",
+      "         int wb = int(texelFetch(pplConn, ivec3((ivec2(wsq) + pplOrg.xy) & pplOrg.z, wl), 0).g * 255.0 + 0.5);",
+      "         bool real = nw.x > 0.9999 && (wb & 4) != 0 && P0.x - wsq.x < 0.2 || nw.y > 0.9999 && (wb & 8) != 0 && P0.y - wsq.y < 0.2",
+      "            || nw.z > 0.9999 && abs(P0.z - floor(P0.z + 0.5)) < 0.02;",
+      "         if (real && dot(nw, n0) > 0.8) n0 = nw;",
+      "      }",
+      "   }",
+      "#endif",
       "#ifdef PPL_RELIEF",
       // relief (pzopt.Relief): the art's height across the texel's plane; a side whose depth leaves the plane (the second
       // difference over the span beyond a few DEPTH16 steps) is left out of the height's difference
@@ -3262,7 +3334,7 @@ public final class PixelLight {
       "}");
 
    /** The game's chunkShader.frag (DIFFUSE x vertex colour, depth = chunkDepth + the texture's depth) with the light multiplied in. */
-   private static final String TINT = (Config.DEV_PPL_TINT ? "#define PPL_TINT\n" : "") + (Config.PPL_TEXEL_POS ? "#define PPL_TEXEL\n#define PPL_NSPAN " + Config.PPL_NORMAL_SPAN + "\n" : "")
+   private static final String TINT = (Config.DEV_PPL_TINT ? "#define PPL_TINT\n" : "") + (Config.PPL_TEXEL_POS ? "#define PPL_TEXEL\n#define PPL_NSPAN " + Config.PPL_NORMAL_SPAN + "\n#define PPL_NSPAN_WIDE " + Config.PPL_NORMAL_SPAN_WIDE + "\n" : "")
       + (Config.PPL_TEXEL_HEIGHT ? "#define PPL_TEXEL_Z\n" + (Config.PPL_FLOOR_SNAP ? "#define PPL_FLOOR_SNAP\n" : "") : "") + (Config.PPL_SEEN_EDGE ? "#define PPL_SEEN_EDGE\n" : "") + (Config.PPL_WALL_EDGE ? "#define PPL_WALL_EDGE\n" : "") + (Config.TORCH_SOURCE_SELF_SHADOW ? "#define PPL_SELF_SHADOW\n" : "") + Relief.defines(); // the defines every chunk program gets
    private static final String CHUNK_FRAG = "#version 420\n" + (Config.DEV_PPL_VIEW != 0 ? "#define PPL_DEV\n" : "") + TINT + CHUNK_FRAG_BODY; // dev views compiled in only when asked: they keep values alive to the end (registers)
    /** The same without the dynamic lights (chunk textures no light reaches): 32 registers, full occupancy on the 890M (64 with). */

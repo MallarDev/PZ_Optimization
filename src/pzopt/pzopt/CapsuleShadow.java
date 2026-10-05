@@ -2358,6 +2358,19 @@ public final class CapsuleShadow {
       "   float vis = 1.0;",
       "   if (view >= 0 && atlas.x > 0.5) {",
       "      vis = lampVis(P, inst, view, lK[light] > 1.5 ? 0.25 : 0.12);",
+      // sunShadowLampMeshNearPct / FarPct: past a square or so from the caster the lamp view's shadow (one perspective tile:
+      // a low headlight's shadow of the legs stretched into thin sharp strands, "torn", Discord 2026-10-04) fades into the
+      // capsules' soft shadow, whose penumbra widens with the distance as a lamp's does; the shape stays where it is seen
+      "      float fk = " + (Config.SUN_SHADOW_LAMP_MESH_FAR_PCT <= 0 ? "0.0" : "smoothstep(" + (Config.SUN_SHADOW_LAMP_MESH_NEAR_PCT / 100.0F) + ", " + (Math.max(Config.SUN_SHADOW_LAMP_MESH_FAR_PCT, Config.SUN_SHADOW_LAMP_MESH_NEAR_PCT + 1) / 100.0F) + ", length(P.xy - 0.5 * (ba0.xy + bb0.xy)))") + ";",
+      "      if (fk > 0.0) {",
+      "         float cv = 1.0;",
+      "         for (int i = 0; i < 10; i++) {",
+      "            vec4 a = texelFetch(Data, ivec2(4 + 2 * i, inst), 0);",
+      "            vec4 b = texelFetch(Data, ivec2(5 + 2 * i, inst), 0);",
+      "            if (a.w > 0.0) cv *= capShadow(ro, rd, a.xyz, b.xyz, a.w, k, tmax);",
+      "         }",
+      "         vis = mix(vis, cv, fk);",
+      "      }",
       "   } else {",
       "      for (int i = 0; i < 10; i++) {", // K
       "         vec4 a = texelFetch(Data, ivec2(4 + 2 * i, inst), 0);",

@@ -95,6 +95,9 @@ public final class Scene {
    private static long lastTorchLogNs;
    private static long torchToggleNs; // torch_toggle=S: the torch switches off / on every S seconds (0 = never)
    private static long lastToggleNs;
+   private static long carLightsToggleNs; // headlights_toggle=S (with exit_car=true): the left car's headlights off / on every S seconds
+   private static long lastCarLightsNs;
+   static zombie.vehicles.BaseVehicle leftCar; // exit_car=true: the car the player was seated in (Harness, before the start teleport)
    private static java.lang.reflect.Field jniActiveTorches;
    // sound=R: a world sound of radius R (volume R) at the player's square every sound_every frames (default 1,
    // the stock house-alarm pattern: Alarm.update() adds a 600-radius sound each frame for ~49 s), timed per call;
@@ -122,6 +125,7 @@ public final class Scene {
       fogTintDark = "dark".equalsIgnoreCase(HarnessFlags.get("fog_tint", "").trim());
       torch = HarnessFlags.get("torch", "").trim().toLowerCase(java.util.Locale.ROOT);
       torchToggleNs = (long)(Float.parseFloat(HarnessFlags.get("torch_toggle", "0").trim()) * 1e9);
+      carLightsToggleNs = (long)(Float.parseFloat(HarnessFlags.get("headlights_toggle", "0").trim()) * 1e9);
       thunderSecs = Float.parseFloat(HarnessFlags.get("thunder_secs", "6"));
       visible = Boolean.parseBoolean(HarnessFlags.get("visible", "false"));
       population = parsePopulation(HarnessFlags.get("population", ""));
@@ -521,6 +525,31 @@ public final class Scene {
             lastToggleNs = nowNs;
             torchItem.setActivated(!torchItem.isActivated());
             Log.info("harness: torch toggled " + (torchItem.isActivated() ? "on" : "off") + " epoch_ms=" + System.currentTimeMillis());
+         }
+      }
+      if (carLightsToggleNs > 0 && leftCar == null && p.getVehicle() == null) {
+         float best = 64F; // no seated car recorded (the save had the player out already): the nearest car within 8 squares
+         for (zombie.vehicles.BaseVehicle v : zombie.iso.IsoWorld.instance.currentCell.getVehicles()) {
+            float dx = v.getX() - p.getX(), dy = v.getY() - p.getY();
+            if (dx * dx + dy * dy < best && v.hasHeadlights()) {
+               best = dx * dx + dy * dy;
+               leftCar = v;
+            }
+         }
+         if (leftCar != null) {
+            Log.info("harness: headlights_toggle: nearest car " + leftCar.getScriptName() + " at " + (int)leftCar.getX() + "," + (int)leftCar.getY() + ", headlights " + leftCar.getHeadlightsOn());
+         } else {
+            carLightsToggleNs = 0;
+            Log.info("harness: headlights_toggle: no car with headlights within 8 squares");
+         }
+      }
+      if (carLightsToggleNs > 0 && leftCar != null) {
+         if (lastCarLightsNs == 0) {
+            lastCarLightsNs = nowNs;
+         } else if (nowNs - lastCarLightsNs >= carLightsToggleNs) {
+            lastCarLightsNs = nowNs;
+            leftCar.setHeadlightsOn(!leftCar.getHeadlightsOn());
+            Log.info("harness: car lights toggled " + (leftCar.getHeadlightsOn() ? "on" : "off") + " epoch_ms=" + System.currentTimeMillis());
          }
       }
       if (!torch.isEmpty() && nowNs - lastTorchLogNs >= 5_000_000_000L) {

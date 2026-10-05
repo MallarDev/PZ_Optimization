@@ -1411,6 +1411,9 @@ public final class LightingJNI {
       // stealth, to-hit and every other gameplay reader of lightInfo see the stock light); pzoptFloored: the floor lifted it.
       private final ColorInfo pzoptNative = new ColorInfo(); // pzopt
       private boolean pzoptFloored; // pzopt
+      // pzopt: pixelLight (pplClipBase). The square's light without a handheld torch on it, last packed (rgb, -1 unknown):
+      // where the torch saturates the native's light the base under it is otherwise unknown (a street lamp's light was lost)
+      public int pzoptBaseMem = -1; // pzopt
       public JNILighting(int playerIndex, IsoGridSquare square) {
          this.playerIndex = playerIndex;
          this.square = square;

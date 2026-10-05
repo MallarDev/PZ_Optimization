@@ -5951,3 +5951,27 @@ test that returns at once.
 
 ### pzopt.ShadowAtlas (not an override)
 - `Tracked` is package-private now (the mirrored model flush saves / restores the tracked GL state the same way).
+
+## Light and shadow fixes from the Discord report (2026-10-04; `pzopt.PixelLight`, `pzopt.ChunkAo`, `pzopt.CapsuleShadow`; docs/findings-light-shadow-2026-10-04.md)
+
+### zombie.iso.LightingJNI (inner class JNILighting), seventh edit
+- New public field `pzoptBaseMem` (int, -1): the square's light without a handheld torch on it, packed rgb, written by
+  `PixelLight` while it packs the lattice (`pplClipBase`). Where the torch saturates the native's light, the base under it
+  is that remembered light (at least light - torch) instead of the night ambient estimate: a street lamp's light no longer
+  vanishes round the player. No method changed.
+
+### pzopt.PixelLight (not an override)
+- `pplTorchVehicleMix`: the native adds the brightest of the torch and vehicle lights to a square (max, measured per
+  square); where a headlight is the brighter, nothing of the torch is taken out of the base, where the torch is, the
+  headlight is put back; the torch-hidden test compares against the brightest of the two.
+- `pplNormalSpanWide` (4): a texel normal that did not snap to a plane tries neighbours 4 texels away and keeps that
+  normal when it snaps to a wall plane of a square with a wall on that edge (packed in bits 2 / 3 of the conn texture's g),
+  within 0.2 of the edge, close to the short normal: the DEPTH16 rounding's dark dot lattice on walls is gone.
+
+### pzopt.ChunkAo (not an override)
+- `aoEdgeShade`: when the AO is multiplied into a texture, a texel beside a deeper surface (a step of 0.05+ squares, not
+  its own slope) takes the darker AO of the two: a leaf's soft edge before a shaded wall no longer glows.
+
+### pzopt.CapsuleShadow (not an override)
+- `sunShadowLampMeshNearPct` / `FarPct` (100 / 300): a character's lamp-view shadow (torch / headlight) fades into the
+  capsules' soft shadow from 1 to 3 squares from the caster; a low headlight's leg shadows no longer run as thin torn strands.

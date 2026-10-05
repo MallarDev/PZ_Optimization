@@ -1676,14 +1676,14 @@ public final class ChunkAo {
        * bilinear read put the occlusion of the wall behind a thin object onto its edge); off, or no depth: plain bilinear.
        */
       private void edgeUniforms(int depthLoc, int eLoc, Job job, float sc) {
-         boolean on = Config.AO_EDGE_AWARE && job.n > 0 && job.srcTex[0] > 0;
+         boolean on = (Config.AO_EDGE_AWARE || Config.AO_EDGE_SHADE) && job.n > 0 && job.srcTex[0] > 0;
          if (on) {
             GL13.glActiveTexture(GL13.GL_TEXTURE2);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, job.srcTex[0]);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
          }
          GL20.glUniform1i(depthLoc, 2);
-         GL20.glUniform4f(eLoc, on ? 1.0F : 0.0F, sc, AmbientOcclusion.UNITS_PER_DEPTH / EDGE_TOLERANCE_SQUARES, 0.0F);
+         GL20.glUniform4f(eLoc, on && Config.AO_EDGE_AWARE ? 1.0F : 0.0F, sc, AmbientOcclusion.UNITS_PER_DEPTH / EDGE_TOLERANCE_SQUARES, on && Config.AO_EDGE_SHADE ? 1.0F : 0.0F);
       }
 
       /** The texture's colour (its framebuffer bound) times its AO; the first time after a compute under an occlusion query. */
@@ -3062,9 +3062,33 @@ public final class ChunkAo {
       "   }",
       "   return sum / wsum;",
       "}",
+      // aoEdgeShade: a texel beside a deeper surface (more than 0.05 squares behind, 2-4 texels out) takes the darker AO of
+      // the two. A leaf's soft edge carries the leaf's depth and mostly the wall's colour; with the leaf's AO (a potted plant
+      // a fifth of a square before a shaded wall: none) it showed a light outline round every leaf (Discord 2026-10-04)
+      "float aoReadEdge(sampler2D A, vec2 uv, vec2 uvPerAo, vec2 scale) {",
+      "   float ao = aoRead(A, uv, uvPerAo, scale);",
+      "   if (e.w < 0.5) return ao;",
+      "   ivec2 ds = textureSize(Depth, 0) - 1;",
+      "   ivec2 p = ivec2(gl_FragCoord.xy);",
+      "   float d0 = texelFetch(Depth, clamp(p, ivec2(0), ds), 0).r;",
+      "   if (d0 >= 0.99999) return ao;",
+      "   for (int k = 0; k < 12; k++) {",
+      "      int r = 2 + k / 4;",
+      "      int q = k & 3;",
+      "      ivec2 o = ivec2(q == 0 ? r : q == 1 ? -r : 0, q == 2 ? r : q == 3 ? -r : 0);",
+      "      float dn = texelFetch(Depth, clamp(p + o, ivec2(0), ds), 0).r;",
+      "      float dm = texelFetch(Depth, clamp(p - o, ivec2(0), ds), 0).r;",
+      // a step behind, not the slope of the texel's own surface (a wall rises in depth texel by texel: the opposite side's
+      // difference is taken off, or every wall texel shaded itself from four texels along in a rounding lattice)
+      "      float stp = (dn - d0) - (dm < 0.99999 ? max(d0 - dm, 0.0) : 0.0);",
+      "      if (dn >= 0.99999 || stp * e.z * " + Gl.EDGE_TOLERANCE_SQUARES + " < 0.05) continue;",
+      "      ao = min(ao, textureLod(A, (gl_FragCoord.xy + vec2(o)) * uvPerAo * e.y * scale, 0.0).r);",
+      "   }",
+      "   return ao;",
+      "}",
       "out vec4 fragColor;",
       "void main() {",
-      "   float ao = aoRead(Ao, gl_FragCoord.xy * m.xy, m.xy / e.y, vec2(1.0));",
+      "   float ao = aoReadEdge(Ao, gl_FragCoord.xy * m.xy, m.xy / e.y, vec2(1.0));",
       "   ao = clamp(1.0 - (1.0 - ao) * m.z, 0.0, 1.0);",
       "   if (m.w < 0.5 && ao > 0.996) discard;",
       "   fragColor = vec4(vec3(ao), 1.0);",
@@ -3105,12 +3129,36 @@ public final class ChunkAo {
       "   }",
       "   return sum / wsum;",
       "}",
+      // aoEdgeShade: a texel beside a deeper surface (more than 0.05 squares behind, 2-4 texels out) takes the darker AO of
+      // the two. A leaf's soft edge carries the leaf's depth and mostly the wall's colour; with the leaf's AO (a potted plant
+      // a fifth of a square before a shaded wall: none) it showed a light outline round every leaf (Discord 2026-10-04)
+      "float aoReadEdge(sampler2D A, vec2 uv, vec2 uvPerAo, vec2 scale) {",
+      "   float ao = aoRead(A, uv, uvPerAo, scale);",
+      "   if (e.w < 0.5) return ao;",
+      "   ivec2 ds = textureSize(Depth, 0) - 1;",
+      "   ivec2 p = ivec2(gl_FragCoord.xy);",
+      "   float d0 = texelFetch(Depth, clamp(p, ivec2(0), ds), 0).r;",
+      "   if (d0 >= 0.99999) return ao;",
+      "   for (int k = 0; k < 12; k++) {",
+      "      int r = 2 + k / 4;",
+      "      int q = k & 3;",
+      "      ivec2 o = ivec2(q == 0 ? r : q == 1 ? -r : 0, q == 2 ? r : q == 3 ? -r : 0);",
+      "      float dn = texelFetch(Depth, clamp(p + o, ivec2(0), ds), 0).r;",
+      "      float dm = texelFetch(Depth, clamp(p - o, ivec2(0), ds), 0).r;",
+      // a step behind, not the slope of the texel's own surface (a wall rises in depth texel by texel: the opposite side's
+      // difference is taken off, or every wall texel shaded itself from four texels along in a rounding lattice)
+      "      float stp = (dn - d0) - (dm < 0.99999 ? max(d0 - dm, 0.0) : 0.0);",
+      "      if (dn >= 0.99999 || stp * e.z * " + Gl.EDGE_TOLERANCE_SQUARES + " < 0.05) continue;",
+      "      ao = min(ao, textureLod(A, (gl_FragCoord.xy + vec2(o)) * uvPerAo * e.y * scale, 0.0).r);",
+      "   }",
+      "   return ao;",
+      "}",
       "out vec4 fragColor;",
       "void main() {",
       "   vec2 uv = gl_FragCoord.xy * m.xy;",
-      "   float a = clamp(1.0 - (1.0 - aoRead(NewAo, uv, m.xy / max(e.y, 1e-6), n.xy)) * m.z, 0.0, 1.0);",
+      "   float a = clamp(1.0 - (1.0 - aoReadEdge(NewAo, uv, m.xy / max(e.y, 1e-6), n.xy)) * m.z, 0.0, 1.0);",
       "   if (n.z > 0.5) { fragColor = vec4(vec3(a), 1.0); return; }",
-      "   float b = m.w > 0.5 ? clamp(1.0 - (1.0 - aoRead(OldAo, uv, m.xy / max(e.y, 1e-6), vec2(1.0))) * m.z, 0.0, 1.0) : 1.0;",
+      "   float b = m.w > 0.5 ? clamp(1.0 - (1.0 - aoReadEdge(OldAo, uv, m.xy / max(e.y, 1e-6), vec2(1.0))) * m.z, 0.0, 1.0) : 1.0;",
       "   float r = a / max(b, 0.02);",
       "   if (abs(r - 1.0) < 0.004) discard;",
       "   fragColor = vec4(vec3(clamp(r, 0.0, 2.0) * 0.5), 1.0);",

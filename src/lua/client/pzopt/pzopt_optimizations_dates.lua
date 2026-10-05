@@ -300,6 +300,7 @@ PzoptOptionDates = {
     devSsrNoPatch = "2026-09-26",
     devSsrSkip = "2026-09-26",
     devSsrTiming = "2026-09-26",
+    devSsrTrace = "2026-10-05",
     devSsrView = "2026-09-26",
     devStencilProbe = "2026-10-03",
     devSunAlternate = "2026-09-25",
