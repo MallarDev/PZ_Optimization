@@ -766,12 +766,15 @@ public final class IsoChunkMap {
    }
 
    private void LoadLeft() {
+      pzopt.ChunkShiftTimer.start(); // pzopt: Louisville 120 item 3 dev timer
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
       this.yMaxTiles = -1;
       this.Left();
+      pzopt.ChunkShiftTimer.mark(0); // pzopt
       WorldSimulation.instance.scrollGroundLeft(this.playerId);
+      pzopt.ChunkShiftTimer.mark(1); // pzopt
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
@@ -781,13 +784,18 @@ public final class IsoChunkMap {
          this.LoadChunkForLater(this.worldX - chunkGridWidth / 2, this.worldY + y, 0, y + chunkGridWidth / 2);
       }
 
+      pzopt.ChunkShiftTimer.mark(2); // pzopt
       this.SwapChunkBuffers();
+      pzopt.ChunkShiftTimer.mark(3); // pzopt
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
       this.yMaxTiles = -1;
       this.UpdateCellCache();
+      pzopt.ChunkShiftTimer.mark(4); // pzopt
       LightingThread.instance.scrollLeft(this.playerId);
+      pzopt.ChunkShiftTimer.mark(5); // pzopt
+      pzopt.ChunkShiftTimer.done("Left"); // pzopt
    }
 
    public void SwapChunkBuffers() {
@@ -817,12 +825,15 @@ public final class IsoChunkMap {
    }
 
    private void LoadRight() {
+      pzopt.ChunkShiftTimer.start(); // pzopt: Louisville 120 item 3 dev timer
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
       this.yMaxTiles = -1;
       this.Right();
+      pzopt.ChunkShiftTimer.mark(0); // pzopt
       WorldSimulation.instance.scrollGroundRight(this.playerId);
+      pzopt.ChunkShiftTimer.mark(1); // pzopt
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
@@ -832,22 +843,30 @@ public final class IsoChunkMap {
          this.LoadChunkForLater(this.worldX + chunkGridWidth / 2, this.worldY + y, chunkGridWidth - 1, y + chunkGridWidth / 2);
       }
 
+      pzopt.ChunkShiftTimer.mark(2); // pzopt
       this.SwapChunkBuffers();
+      pzopt.ChunkShiftTimer.mark(3); // pzopt
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
       this.yMaxTiles = -1;
       this.UpdateCellCache();
+      pzopt.ChunkShiftTimer.mark(4); // pzopt
       LightingThread.instance.scrollRight(this.playerId);
+      pzopt.ChunkShiftTimer.mark(5); // pzopt
+      pzopt.ChunkShiftTimer.done("Right"); // pzopt
    }
 
    private void LoadUp() {
+      pzopt.ChunkShiftTimer.start(); // pzopt: Louisville 120 item 3 dev timer
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
       this.yMaxTiles = -1;
       this.Up();
+      pzopt.ChunkShiftTimer.mark(0); // pzopt
       WorldSimulation.instance.scrollGroundUp(this.playerId);
+      pzopt.ChunkShiftTimer.mark(1); // pzopt
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
@@ -857,22 +876,30 @@ public final class IsoChunkMap {
          this.LoadChunkForLater(this.worldX + x, this.worldY - chunkGridWidth / 2, x + chunkGridWidth / 2, 0);
       }
 
+      pzopt.ChunkShiftTimer.mark(2); // pzopt
       this.SwapChunkBuffers();
+      pzopt.ChunkShiftTimer.mark(3); // pzopt
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
       this.yMaxTiles = -1;
       this.UpdateCellCache();
+      pzopt.ChunkShiftTimer.mark(4); // pzopt
       LightingThread.instance.scrollUp(this.playerId);
+      pzopt.ChunkShiftTimer.mark(5); // pzopt
+      pzopt.ChunkShiftTimer.done("Up"); // pzopt
    }
 
    private void LoadDown() {
+      pzopt.ChunkShiftTimer.start(); // pzopt: Louisville 120 item 3 dev timer
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
       this.yMaxTiles = -1;
       this.Down();
+      pzopt.ChunkShiftTimer.mark(0); // pzopt
       WorldSimulation.instance.scrollGroundDown(this.playerId);
+      pzopt.ChunkShiftTimer.mark(1); // pzopt
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
@@ -882,13 +909,18 @@ public final class IsoChunkMap {
          this.LoadChunkForLater(this.worldX + x, this.worldY + chunkGridWidth / 2, x + chunkGridWidth / 2, chunkGridWidth - 1);
       }
 
+      pzopt.ChunkShiftTimer.mark(2); // pzopt
       this.SwapChunkBuffers();
+      pzopt.ChunkShiftTimer.mark(3); // pzopt
       this.xMinTiles = -1;
       this.yMinTiles = -1;
       this.xMaxTiles = -1;
       this.yMaxTiles = -1;
       this.UpdateCellCache();
+      pzopt.ChunkShiftTimer.mark(4); // pzopt
       LightingThread.instance.scrollDown(this.playerId);
+      pzopt.ChunkShiftTimer.mark(5); // pzopt
+      pzopt.ChunkShiftTimer.done("Down"); // pzopt
    }
 
    private void UpdateCellCache() {
@@ -1055,6 +1087,16 @@ public final class IsoChunkMap {
    }
 
    public void ProcessChunkPos(IsoGameCharacter chr) {
+      long pzoptT = pzopt.GtAb.begin(); // pzopt: Louisville 120 item 3 section timer (the grid shift and its chunk unloads)
+      try { // pzopt
+         this.pzoptProcessChunkPosBody(chr); // pzopt
+      } finally { // pzopt
+         pzopt.GtAb.end(pzopt.GtAb.S_CHUNK_POS, pzoptT); // pzopt
+      } // pzopt
+   }
+
+   /** pzopt: the stock body of ProcessChunkPos (the section timer wraps it). */
+   private void pzoptProcessChunkPosBody(IsoGameCharacter chr) {
       float x1 = chr.getX();
       float y1 = chr.getY();
       int z = PZMath.fastfloor(chr.getZ());

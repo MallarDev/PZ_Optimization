@@ -374,7 +374,11 @@ public final class ZombiePopulationManager {
    public void removeChunkFromWorld(IsoChunk chunk) {
       if (!GameClient.client) {
          if (!this.stopped) {
+            long pzoptT = pzopt.GtAb.TIMING ? System.nanoTime() : 0L; // pzopt: Louisville 120 item 3 dev timer (the native unload call)
             n_loadChunk(chunk.wx, chunk.wy, false);
+            if (pzoptT != 0L) { // pzopt
+               pzopt.GtAb.add(pzopt.GtAb.S_NATIVE_UNLOAD, System.nanoTime() - pzoptT); // pzopt
+            } // pzopt
 
             for (int z = chunk.minLevel; z <= chunk.maxLevel; z++) {
                for (int y = 0; y < 8; y++) {

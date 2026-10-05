@@ -977,6 +977,7 @@ PzoptOptionDates = {
     zombieSpawnBudgetUs = "2026-10-05",
     zombieSpawnDrainFrames = "2026-10-05",
     zombieSpawnLoadMs = "2026-10-05",
+    zombieSpawnMaxAgeMs = "2026-10-06",
     zombieSpawnMaxUs = "2026-10-05",
     zombieSpawnMin = "2026-10-05",
     zombieSpawnNear = "2026-10-05",

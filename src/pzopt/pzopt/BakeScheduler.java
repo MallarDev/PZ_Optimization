@@ -266,6 +266,9 @@ public final class BakeScheduler {
          } else {
             given++;
          }
+         if (GtAb.TIMING && this == players[0]) {
+            GtAb.add(GtAb.C_BAKE_T0 + (int)tier, 1L); // Louisville 120 item 3 census: grants by tier
+         }
          int k = this.cls[i];
          this.grantedN[k]++;
          if (tier == 2) {
@@ -291,6 +294,9 @@ public final class BakeScheduler {
          this.deferredFrames++;
       }
       this.maxGranted = Math.max(this.maxGranted, given + arrivals);
+      if (GtAb.TIMING && this == players[0]) {
+         GtAb.add(GtAb.C_BAKE_OFFERED, this.n);
+      }
       if (this == players[0]) {
          DynRes.onBakesPlanned(given + arrivals, this.n - given - arrivals, budget); // dynResBakeFeedforward: this frame's bakes, the backlog for the next
       }

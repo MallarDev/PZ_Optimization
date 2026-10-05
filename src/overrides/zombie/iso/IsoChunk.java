@@ -3306,6 +3306,9 @@ public final class IsoChunk {
    }
 
    public void removeFromWorld() {
+      long pzoptT0 = pzopt.GtAb.TIMING ? System.nanoTime() : 0L; // pzopt: Louisville 120 item 3 dev timers (phases of a chunk's removal)
+      long pzoptT1 = 0L, pzoptT2 = 0L, pzoptT3 = 0L, pzoptT4 = 0L, pzoptT5 = 0L; // pzopt
+      int pzoptZombies = 0, pzoptObjects = 0, pzoptSquares = 0; // pzopt
       loadGridSquare.remove(this);
       this.preventHotSave = true;
       if (GameClient.client && GameClient.instance.connected) {
@@ -3319,7 +3322,13 @@ public final class IsoChunk {
       try {
          MapCollisionData.instance.removeChunkFromWorld(this);
          AnimalPopulationManager.getInstance().removeChunkFromWorld(this);
+         if (pzoptT0 != 0L) { // pzopt
+            pzoptT1 = System.nanoTime(); // pzopt
+         } // pzopt
          ZombiePopulationManager.instance.removeChunkFromWorld(this);
+         if (pzoptT0 != 0L) { // pzopt
+            pzoptT2 = System.nanoTime(); // pzopt
+         } // pzopt
          if (!GameClient.client) {
             int popmanCellX = (int)Math.floor(this.wx / 32.0);
             int popmanCellY = (int)Math.floor(this.wy / 32.0);
@@ -3337,6 +3346,9 @@ public final class IsoChunk {
          ExceptionLogger.logException(ex);
       }
 
+      if (pzoptT0 != 0L) { // pzopt
+         pzoptT3 = System.nanoTime(); // pzopt
+      } // pzopt
       int to = 64;
 
       for (int n = this.minLevel; n <= this.maxLevel; n++) {
@@ -3355,6 +3367,11 @@ public final class IsoChunk {
                }
 
                ArrayList<IsoMovingObject> mov = sq.getMovingObjects();
+               if (pzoptT0 != 0L) { // pzopt
+                  pzoptSquares++; // pzopt
+                  pzoptZombies += mov.size(); // pzopt
+                  pzoptObjects += sq.getObjects().size(); // pzopt
+               } // pzopt
 
                for (int a = 0; a < mov.size(); a++) {
                   IsoMovingObject obj = mov.get(a);
@@ -3400,6 +3417,9 @@ public final class IsoChunk {
          }
       }
 
+      if (pzoptT0 != 0L) { // pzopt
+         pzoptT4 = System.nanoTime(); // pzopt
+      } // pzopt
       for (int i = 0; i < this.vehicles.size(); i++) {
          BaseVehicle vehicle = this.vehicles.get(i);
          if (IsoWorld.instance.currentCell.getVehicles().contains(vehicle) || IsoWorld.instance.currentCell.addVehicles.contains(vehicle)) {
@@ -3425,6 +3445,14 @@ public final class IsoChunk {
       }
 
       this.preventHotSave = false;
+      if (pzoptT0 != 0L) { // pzopt: Louisville 120 item 3 dev timers
+         pzoptT5 = System.nanoTime(); // pzopt
+         if (pzoptT5 - pzoptT0 > 200_000L) { // pzopt
+            pzopt.Log.info(String.format("chunk removal %d,%d levels %d..%d squares %d objects %d movers %d: %.2f ms (collision+animals %.2f, zombies %.2f, save/pathfind %.2f, squares %.2f, vehicles/render %.2f)", // pzopt
+               this.wx, this.wy, this.minLevel, this.maxLevel, pzoptSquares, pzoptObjects, pzoptZombies, (pzoptT5 - pzoptT0) / 1e6, (pzoptT1 - pzoptT0) / 1e6, (pzoptT2 - pzoptT1) / 1e6, // pzopt
+               (pzoptT3 - pzoptT2) / 1e6, (pzoptT4 - pzoptT3) / 1e6, (pzoptT5 - pzoptT4) / 1e6)); // pzopt
+         } // pzopt
+      } // pzopt
    }
 
    private void disconnectFromAdjacentChunks(IsoGridSquare sq) {

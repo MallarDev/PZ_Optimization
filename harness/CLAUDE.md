@@ -14,7 +14,7 @@ harness/run.sh --label <name> [--mode verify|bench|drive|parity|play] [--flag k=
                [--mod ID]... [--vmarg ARG]...
                [--mangohud secs] [--mangohud-config path] [--record] [--record-audio desktop|game] [--no-dashboard] [--no-mangohud]
                [--jfr] [--jfr-period ms] [--jfr-setting event#setting=value] [--game-profiler]
-               [--gc g1|zgc] [--lead secs] [--quit-after secs] [--retries N] [--refresh-template]
+               [--gc g1|zgc|shenandoah] [--lead secs] [--quit-after secs] [--retries N] [--refresh-template]
 ```
 
 What it does: installs the pzopt-harness Lua mod, creates/points at the bench save

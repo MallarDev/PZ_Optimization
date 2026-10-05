@@ -584,9 +584,9 @@ if jfr == "1":
         opt += "," + jfr_settings
     j["vmArgs"].append(opt)
 if gc:
-    want = {"g1": "-XX:+UseG1GC", "zgc": "-XX:+UseZGC"}[gc]
+    want = {"g1": "-XX:+UseG1GC", "zgc": "-XX:+UseZGC", "shenandoah": "-XX:+UseShenandoahGC"}[gc]  # shenandoah: add --vmarg -XX:ShenandoahGCMode=generational for the generational mode
     def swap(args):
-        return [want if a in ("-XX:+UseZGC", "-XX:+UseG1GC") else a for a in args]
+        return [want if a in ("-XX:+UseZGC", "-XX:+UseG1GC", "-XX:+UseShenandoahGC") else a for a in args]
     j["vmArgs"] = swap(j["vmArgs"])
     for v in j.get("windows", {}).values():
         v["vmArgs"] = swap(v["vmArgs"])

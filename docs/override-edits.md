@@ -6197,3 +6197,32 @@ bodies (every new branch tests `pzopt.PostupdateBatch.computing()`, false outsid
 
 Rig: `--prop devPostupdateCheck=true` re-runs one computed zombie in seven through the stock body from the saved fields at
 its place in the loop and compares every saved field and the moving square (the zombie keeps the stock result).
+
+## Louisville 120 item 3: the burst frames (2026-10-06; docs/findings-louisville-120-bursts-2026-10-06.md)
+
+### zombie.VirtualZombieManager (new override)
+- `zombieReuseSpread` (default off): `update` queues the zombies removed this frame (`pzopt.ReuseSpread`) instead of
+  resetting them all (`resetForReuse`) at once, and resets the oldest under `zombieReuseBudgetUs` (300) a frame, at least
+  backlog / `zombieReuseDrainFrames` (60). A queued zombie's vocal sound stops when it is queued (the reset's first step);
+  `isReused` also answers true for a queued zombie (stock has it in the pool by the end of its frame); `reuseZombie` tests
+  the pool set itself; `createZombieOutsideWorld` resets a queued zombie first when the pool is empty; `Reset` gives the
+  queued zombies the frame list's clean-up. Intended difference: the reset's random draws (the speed roll) come later in
+  the game's random sequence. Single player only.
+- `update`'s stock body moved verbatim into `pzoptUpdateBody` under the section timer `vzmUpdate`.
+
+### zombie.iso.IsoChunkMap, third edit
+- `ProcessChunkPos`'s stock body moved verbatim into `pzoptProcessChunkPosBody` under the section timer `chunkPos`; the four
+  grid shifts (`LoadUp` / `Down` / `Left` / `Right`) mark their phases for `pzopt.ChunkShiftTimer` (dev, only while an A/B
+  alternation runs: a console line for a shift over 1 ms).
+
+### zombie.iso.IsoChunk, dev timers
+- `removeFromWorld` times its phases (collision / animals, the zombie population's removal, save request / pathfinding, the
+  square loop, vehicles / render frees) while an A/B alternation runs and logs a removal over 0.2 ms with the chunk's levels,
+  squares, objects and movers.
+
+### zombie.popman.ZombiePopulationManager, third edit
+- `removeChunkFromWorld`: the native `n_loadChunk` call timed into the `nativeUnload` column while an alternation runs.
+
+### pzopt.BakeScheduler (census)
+- While an alternation runs, the grants of each frame by tier (must / level-change burst, arrival quota, overdue, normal)
+  and the levels offered go to the `bake_t0..3` / `bake_offered` columns.
