@@ -2625,6 +2625,7 @@ public final class IsoWorld {
       this.zombieWithModel.clear();
       this.zombieWithoutModel.clear();
 
+      long pzoptCullClassifyT = pzopt.GtAb.begin(); // pzopt: scene-cull census, visibility / with-model classification
       for (int n = 0; n < this.currentCell.getZombieList().size(); n++) {
          IsoZombie z = (IsoZombie)this.currentCell.getZombieList().get(n);
          boolean withModel = false;
@@ -2655,13 +2656,17 @@ public final class IsoWorld {
             this.zombieWithoutModel.add(z);
          }
       }
+      pzopt.GtAb.end(pzopt.GtAb.S_CULL_CLASSIFY, pzoptCullClassifyT); // pzopt: scene-cull census
 
+      long pzoptCullSortT = pzopt.GtAb.begin(); // pzopt: scene-cull census, relevance scoring / sort
       if (pzopt.Overrides.enabled() && pzopt.Config.ZOMBIE_CULL_SORT_FAST) {
          this.pzoptSortZombiesByScore(); // pzopt: one score per zombie and a primitive sort, the same order as the stable sort below
       } else {
          this.timSort.doSort(this.zombieWithModel.getElements(), compScoreToPlayer, 0, this.zombieWithModel.size());
       }
+      pzopt.GtAb.end(pzopt.GtAb.S_CULL_SORT, pzoptCullSortT); // pzopt: scene-cull census
 
+      long pzoptCullCommitT = pzopt.GtAb.begin(); // pzopt: scene-cull census, model / blending mutations
       int c = 0;
       int count = 0;
       int tcount = 0;
@@ -2746,6 +2751,7 @@ public final class IsoWorld {
             z.getAnimationPlayer().doBlending = false;
          }
       }
+      pzopt.GtAb.end(pzopt.GtAb.S_CULL_COMMIT, pzoptCullCommitT); // pzopt: scene-cull census
    }
 
    public void sceneCullAnimals() {
