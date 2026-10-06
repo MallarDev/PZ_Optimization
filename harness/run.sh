@@ -707,7 +707,7 @@ while :; do
   echo "game running (pid $game_pid); waiting for exit"
   # Scheduler: waits for the harness to publish the route start (pzopt-schedule.out, written at
   # world-ready), starts the MangoHud log 3 s before it unless --lead put autostart_log in charge,
-  # on drive runs presses MangoHud's reset keybind (reset_fps_metrics=Shift_R+F9, the default)
+  # on drive runs with PZOPT_MANGOHUD_RESET=1 presses MangoHud's reset keybind (reset_fps_metrics=Shift_R+F9, the default)
   # through XTEST just as the route starts, because its avg / 1% / 0.1% FPS accumulate from process
   # start (menus, world load; the game is an XWayland window, so xdotool reaches it), and stops the
   # log 2 s after the route ends so the CSV is written at once and the game can quit
@@ -803,7 +803,12 @@ PYC
           say "mangohud: could not start the log (no control socket, no xdotool); use --lead for the fixed schedule" >&2
         fi
       fi
-      if [[ "$mode" == drive ]] && (( native_wayland )); then
+      # 2026-10-06: F9 is also pzopt's "Toggle performance overlay" key, so this reset turned the in-game overlay on
+      # 0.5 s into every drive route (into the --record captures of runs with --prop overlay=false). The numbers come
+      # from the CSV / overlay logs, not the HUD's metrics: the key is only sent with PZOPT_MANGOHUD_RESET=1.
+      if [[ "$mode" == drive ]] && [[ "${PZOPT_MANGOHUD_RESET:-0}" != 1 ]]; then
+        :
+      elif [[ "$mode" == drive ]] && (( native_wayland )); then
         say "mangohud: native Wayland window, fps metrics reset key skipped (xdotool cannot reach it; the HUD metrics are a rolling 10000-frame window anyway)"
       elif [[ "$mode" == drive ]] && command -v xdotool >/dev/null; then
         sleep_until_ms $((start_ms + 500))

@@ -416,8 +416,8 @@ No default lead since 2026-09-19: the Java harness fixes route start = world rea
 MangoHud log 3 s earlier over the control socket (abstract unix socket `mangoapp`,
 `control=mangoapp` in the conf) with its own python `mh_control` that waits for the greeting.
 Do NOT use `mangohudctl` (it hangs up before the accept, log never starts, exit 0). xdotool
-Shift_L+F2 is the fallback; Shift_R+F9 resets fps metrics at route start (lost on native
-Wayland). `--lead N` restores the fixed clock. `pzopt-logdone` ends the Java linger. Never
+Shift_L+F2 is the fallback; Shift_R+F9 resets fps metrics at route start only with `PZOPT_MANGOHUD_RESET=1` (lost on native
+Wayland; off since 2026-10-06: F9 is also pzopt's overlay key, so the reset showed the overlay in every drive capture). `--lead N` restores the fixed clock. `pzopt-logdone` ends the Java linger. Never
 poke `@mangoapp` while a run is going. MangoHud's own gpu_load reads 0 for this game; GPU
 utilization comes from `sysmon.sh` (nvidia-smi). See `config/CLAUDE.md` for hook details.
 

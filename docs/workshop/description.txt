@@ -43,17 +43,11 @@ Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/
 [i]The fps numbers are averages over the whole route of runs without frame capture; the pictures come from separate runs that save every frame, which slows the game (the low-end laptop's picture plays at about 20 fps).[/i]
 
 [h1]Against the other performance mods[/h1]
-Same three uncapped routes, one mod at a time:
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/10-workshop-mods-comparison.jpg[/img]
-[table]
-[tr][th]Mod[/th][th]Result[/th][/tr]
-[tr][td]Project Zomboid Optimiser[/td][td]stock, within noise[/td][/tr]
-[tr][td]Tempo[/td][td]stock, within noise[/td][/tr]
-[tr][td]Every Texture Optimized[/td][td]less VRAM, same frame time[/td][/tr]
-[tr][td]Lugli, Zed's Better FPS[/td][td]stock, within noise[/td][/tr]
-[tr][td]Multi-Cpu Enhance[/td][td]worse: 300 ms GC pauses[/td][/tr]
-[tr][td][b]PZ Optimization[/b][/td][td][b]481 / 246 / 456 fps, p99 8.8 / 13.8 / 8.5 ms[/b][/td][/tr]
-[/table]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/66-vs-other-mods-storm-fog.avif[/img]
+[i]Desktop (Ryzen 7 9800X3D, GeForce RTX 4090, 5120x2160, Linux). 120 km/h highway drive in a thunderstorm with heavy fog, uncapped. Stock: the game as it ships. Zed's Better FPS KA: the other mod with the largest gain of its own, installed as its page says. Enhanced: every optimization at its default. Numbers from runs without capture.[/i] [url=https://pzo.diegov.dev/d/pzopt-compare/compare?var-runs=mx-stormfog120-stock-20261006-223508&var-runs=mx-stormfog120-zedska-20261006-223640&var-runs=mx-stormfog120-optg1-20261006-223805&var-base=mx-stormfog120-stock-20261006-223508]The three runs on the dashboard[/url]
+
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/67-vs-other-mods-table.png[/img]
+[i]Project Zomboid Optimiser's gain is its launcher's garbage-collector switch (G1, 8 GB): stock with the same switch runs as fast.[/i]
 
 [h1]Updates, uninstall[/h1]
 Updates arrive in the main menu (PZ OPTIMIZATION UPDATE, one click). To remove: Options > PZ Optimization > [b]Uninstall PZ Optimization[/b], [b]before[/b] you unsubscribe (unsubscribing leaves the installed files). After unsubscribing: the install command with [b]-Uninstall[/b] (Windows) or [b]| bash -s -- --uninstall[/b] (Linux, macOS).

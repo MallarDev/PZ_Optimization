@@ -71,11 +71,20 @@ VIDEOS = {  # name: (t0 s, strip label, stitch-efficiency.py kind, secondary lin
 TRIPLES = {  # three-pane comparisons (2026-10-06, the Workshop mods section): stock | another mod | ours, one view of the same
              # route from three desktop recordings (run.sh --record --prop overlay=false); numbers from uncaptured runs.
              # cap / num: run labels (newest run dir of each), words: the captions, crop: x:y:w square of the screen whose
-             # centre the scene keeps, t0: route seconds where the clip starts
-    'mods-drive120': dict(label='Vs Other Mods', t0=6.0, crop='1750:270:1620',
+             # centre the scene keeps, t0: route seconds where the clip starts; label: '{x}' = ours over the other mod's
+             # route fps, e.g. "6x" (2026-10-06, the maintainer)
+    'mods-drive120': dict(label='{x} Vs Other Mods', t0=6.0, crop='1750:270:1620',
                           cap=('mxcap-drive120-stock', 'mxcap-drive120-zedska', 'mxcap-drive120-opt'),
-                          num=('mx-drive120-stock', 'mx-drive120-zedska', 'mx-drive120-opt'),
+                          num=('mx-drive120-stock', 'mx-drive120-zedska-r', 'mx-drive120-optg1'),  # ours on G1 = what
+                          # our install gives players (gcMode=g1); stock / Zed's on the game's own ZGC (2026-10-06)
                           words=('STOCK', "ZED'S BETTER FPS KA", 'ENHANCED')),
+    # 2026-10-06, the maintainer: the 120 km/h drive in a thunderstorm with heavy fog, every side's car in view: split =
+    # each pane a column of its own recording round its car ('cx:y0:h' screen px, one per side or one for all; the drive
+    # camera keeps the car near 1760,720 at 5120x2160), the thirds held for the whole clip
+    'mods-stormfog120': dict(label='{x} Vs Other Mods', t0=6.0, split='1760:226:1300',
+                             cap=('mxcap-stormfog120-stock', 'mxcap-stormfog120-zedska', 'mxcap-stormfog120-opt'),
+                             num=('mx-stormfog120-stock', 'mx-stormfog120-zedska', 'mx-stormfog120-optg1'),
+                             words=('STOCK', "ZED'S BETTER FPS KA", 'ENHANCED')),
 }
 RACES = {  # real-time races from launch (2026-10-06, the maintainer's choice for boot and load): stock | ours from two desktop
            # `--record` runs of the `load` bench, each clock running from the game's first log line and frozen when the world
@@ -333,6 +342,34 @@ def triple_frames(videos, starts, secs, crop, sw, sh):
         p.wait()
 
 
+def triple_frames_split(videos, starts, secs, cars, sw, sh):
+    """Split triple: per recording a column of the screen round its car (cars: 'cx:y0:h' each = the column's centre x,
+    top y and height in screen px), scaled to a third of the scene, put in its own third of a scene-sized frame."""
+    pw = sw // 3
+    cols = [(0, pw), (pw, 2 * pw), (2 * pw, sw)]
+    procs = []
+    for v, t, car, (c0, c1) in zip(videos, starts, cars, cols):
+        cx, y0, h = (int(x) for x in car.split(':'))
+        w = round((c1 - c0) * h / sh)
+        procs.append(subprocess.Popen(['ffmpeg', '-hide_banner', '-v', 'error', '-ss', f'{t:.3f}', '-t', str(secs), '-i', v,
+                                       '-vf', f'fps=60,{TONEMAP},crop={w}:{h}:{cx - w // 2}:{y0},scale={c1 - c0}:{sh}:flags=lanczos,'
+                                       f'format=rgb24', '-f', 'rawvideo', '-'], stdout=subprocess.PIPE))
+    ns = [(c1 - c0) * sh * 3 for c0, c1 in cols]
+    while True:
+        bufs = [p.stdout.read(n) for p, n in zip(procs, ns)]
+        if any(len(b) < n for b, n in zip(bufs, ns)):
+            break
+        panes = []
+        for b, (c0, c1) in zip(bufs, cols):
+            f = np.zeros((sh, sw, 3), np.uint8)
+            f[:, c0:c1] = np.frombuffer(b, np.uint8).reshape(sh, c1 - c0, 3)
+            panes.append(f)
+        yield panes
+    for p in procs:
+        p.stdout.close()
+        p.wait()
+
+
 def triple_overlay(nums, words, sw, sh, k=1.0):
     """Layers over the three-pane scene: the bottom gradient (always) and one number block centred in each third, side
     'a' (stock, grey), 'm' (the other mod, grey), 'b' (ours, white); each is wiped with its picture."""
@@ -398,19 +435,28 @@ def triple(a, name, cw, strip, label_px, k):
     sw = cw - strip
     sh = a.size or int(round(sw * 9 / 16))
     sh -= sh % 2
-    base = np.asarray(chrome(a.theme, a.label or c['label'], sh, cw, strip, label_px, round(26 * k))).copy()
     caps = [run_dir(l) for l in c['cap']]
     videos = [f'{d}/recording.mp4' for d in caps]
     rs = [route_start_in_video(d) for d in caps]
     shifts = [0.0] + [video_shift(videos[0], rs[0], v, t) for v, t in zip(videos[1:], rs[1:])]
     starts = [t + c['t0'] + s for t, s in zip(rs, shifts)]
     nums = [route_numbers(run_dir(l)) for l in c['num']]
+    r = nums[2]['fps'] / nums[1]['fps']   # ours over the other mod
+    x = f'{r:.0f}x' if r >= 10 or abs(r - round(r)) < 0.05 else f'{r:.1f}x'
+    base = np.asarray(chrome(a.theme, (a.label or c['label']).replace('{x}', x), sh, cw, strip, label_px, round(26 * k))).copy()
     print(f'== {name}: route start in the videos {[round(t, 2) for t in rs]}, shifts {[round(s, 3) for s in shifts]}, '
           f'numbers ' + ', '.join(f"{w} {n['fps']:.1f} fps p99 {n['p99']:.1f}" for w, n in zip(c['words'], nums)))
     ov = triple_overlay(nums, c['words'], sw, sh, k)
-    seq = triple_positions()
+    split = c.get('split')
+    if split:   # each pane on its own car, thirds held for the whole clip
+        cars = [split] * 3 if isinstance(split, str) else list(split)
+        seq = [(1 / 3, 2 / 3)] * round(a.len * 60)
+        frames_of = lambda st, secs: triple_frames_split(videos, st, secs, cars, sw, sh)
+    else:
+        seq = triple_positions()
+        frames_of = lambda st, secs: triple_frames(videos, st, secs, c['crop'], sw, sh)
     if a.still:
-        panes = next(triple_frames(videos, [s + 2 for s in starts], 0.1, c['crop'], sw, sh))
+        panes = next(frames_of([s + 2 for s in starts], 0.1))
         Image.fromarray(compose3(base, panes, ov, sw // 3, sw * 2 // 3, strip)).save(a.still)
         print('still', a.still, base.shape)
         return
@@ -418,7 +464,7 @@ def triple(a, name, cw, strip, label_px, k):
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(f'{work}/frames')
     i = 0
-    for panes in triple_frames(videos, starts, len(seq) / 60, c['crop'], sw, sh):
+    for panes in frames_of(starts, len(seq) / 60):
         xa, xb = (round(sw * f) for f in seq[min(i, len(seq) - 1)])
         Image.fromarray(compose3(base, panes, ov, xa, xb, strip)).save(f'{work}/frames/f{i:05d}.png', compress_level=1)
         i += 1
