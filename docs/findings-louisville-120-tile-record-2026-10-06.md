@@ -21,6 +21,11 @@ game-thread CPU against ~5.9 in ordinary frames, and their excess is mostly logi
 scheduler, +3.4 to +4.2 ms) and the rest of the render (+2.4 ms). A takes 0.67 ms out of a miss frame's translucent pass,
 which does not bring a 12 ms frame under 9; the lock needs the bursts (item 3).
 
+Cross-machine test of A, B (`postupdateParallel`) and item 3 (`zombieReuseSpread`) together, off vs on, uncapped:
+desktop 3 + 3 136.5 -> 135.4 fps (noise), flip in power-saver 2 + 2 53.6 -> 54.4, Mac 2 + 2 37.0 -> 38.9; the draw-list
+and postupdate rigs read 0 differences on all three machines. Stock vs every optimization on this build (Louisville
+36 -> 154 fps, the Riverside shootout 134 -> 292): docs/results.md, 2026-10-06.
+
 ## How it works
 
 - **Units**: one chunk of one level of the per-frame translucent pass (`FBORenderCell.renderOneChunk_Translucent`). Chunks

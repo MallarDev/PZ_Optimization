@@ -47,3 +47,27 @@ Mac (M1 Pro, same drive, `mac-r4221-*`): released 10-02 build 118 fps, branch wi
 Hotfix (scissor removed, the cutaway draws again at every zoom; `r4221-noscis-*`, `r4221-hf-*`, `r4221-ab-*`): optimized path
 2,219 trees with inside-cutaway samples (control), 0 lost by the reach rule (109,103 probes). Daily drive interleaved: passes
 skipped 490 / 534 fps, drawn 504 / 498 (~2 %, inside the spread); `driveTreeCutaway=true` 405 fps.
+
+## 2026-10-06: stock vs every optimization, Louisville horde and the Riverside horde shootout (release bc1f75d)
+
+The last comparison after the Louisville 120 pass, on the desktop (9800X3D, RTX 4090, 5120x2160), build `bc1f75d`.
+Stock = `--prop enabled=false --option frameRate=240 --option uncappedFPS=false` (stock has no uncapped mode; it reached
+the cap in about 10 % of frames at most). Every optimization = the shipped defaults plus every off-by-default
+performance key: `entityUpdateParallel zombieSimLodTiles=10 zombieSimLodSteps=4 zombieLodDynamic zombieLodMin3d=32
+slackWork lootDefer zombieSpawnSpread zombieModelAddBudgetUs=500 animalLosSnapshot postupdateParallel zombieReuseSpread
+tileRecordParallel`, uncapped. Both sides `tieredZombieUpdates=true` (the player default) and an empty options file.
+Louisville = the daily `dlou` scene (population max, spinning walk, 25 s route); Riverside = the `horde-shoot` /
+`dhorde` scene (Jev shoots a horde of 150, 60 s). No crash in any run.
+
+| scene | run | fps | p99 | p99.9 | 1%-low | GPU | game thread |
+|---|---|---|---|---|---|---|---|
+| Louisville | stock (fin-lou-stock1 / 2) | 36.2 / 35.0 | 67.8 / 74.1 ms | 102 / 121 ms | 12 / 11 | 36 / 35 % | 97 / 96 % |
+| Louisville | every optimization (fin-lou-all1 / 2) | 155.3 / 153.6 | 19.2 / 18.5 ms | 30.0 / 31.0 ms | 50 / 52 | 55 / 53 % | 91 / 91 % |
+| Riverside shootout | stock (fin-horde-stock1 / 2) | 137.5 / 130.1 | 15.4 / 19.0 ms | 27.6 / 29.0 ms | 62 / 51 | 49 / 50 % | 98 / 98 % |
+| Riverside shootout | every optimization (fin-horde-all1 / 2 / 3) | 308.3 / 243.8 / 275.1 | 6.5 / 9.3 / 7.5 ms | 11.5 / 13.5 / 11.9 ms | 148 / 104 / 129 | 93 / 84 / 86 % | 86 / 88 / 87 % |
+
+Louisville: about 36 -> 154 fps (4.3x), p99 71 -> 19 ms. Stock is game-thread bound with the GPU a third busy; with
+every optimization the game thread is still the wall (91 %) at half the GPU. Riverside: about 134 -> 292 fps (2.2x,
+runs 1 and 3), p99 17 -> 7 ms; optimized it is GPU-bound (86-93 %). Run 2 (244 fps) had the machine's CPU at 51 %
+against 38-40 % in the others with the game's own CPU unchanged (something else was running), so it was redone (run 3);
+the director plays each run differently, so the shootout varies more than the walk.
