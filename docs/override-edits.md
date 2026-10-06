@@ -6131,9 +6131,15 @@ the maintainer's decision). With every key off the edited methods run the stock 
   model and every clothing model) stop after that much time; the rest stay flat sprites for the frame (their model slot goes
   to the next zombie in score order). Section timers `sceneCull`, `atlases`, `cellRender`.
 
-- 2026-10-06 scene-cull census: `sceneCullZombies` also records `cull_classify`, `cull_sort` and `cull_commit`
-  under `devGtAlternate`. Measurement only: the stock classification, relevance sort and model/blend mutation bodies
-  are unchanged; the split sizes the next parallel-cull experiment before any behaviour change.
+- 2026-10-06 scene-cull census: `sceneCullZombies` records `cull_classify`, `cull_sort` and `cull_commit`
+  under `devGtAlternate`.
+- `sceneCullParallel` (experimental, default off): the visibility / with-model classification is copied to
+  `pzopt.SceneCullBatch` and run on the shared `FrameBatch` workers. The game thread still builds both zombie lists in
+  the original order, runs the existing relevance sort, and performs every model / `sceneCulled` / blending mutation.
+  Zombies in `ClimbThroughWindowState` stay serial because `couldSeeHeadSquare` can read animation bones.
+  `devSceneCullCheck` recomputes every worker answer through the same stock-expression copy on the game thread; a
+  disagreement uses the serial answer and disables the batch for subsequent frames. With the key off the original
+  classification body remains in place.
 
 ### zombie.iso.worldgen.WorldGenUtils (new override)
 - `worldgenPatternCache`: `canPlace` keeps each placement glob's compiled `Pattern` (same rewrite as stock) instead of

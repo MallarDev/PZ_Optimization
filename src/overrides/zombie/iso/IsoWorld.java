@@ -2621,14 +2621,53 @@ public final class IsoWorld {
 
    public static long pzoptAddsDeferred; // pzopt: zombieModelAddBudgetUs, promotions put off a frame
 
+   /** pzopt: sceneCullParallel's worker-safe copy of the stock visibility classification. */ // pzopt
+   public boolean pzoptCullClassify(IsoZombie z) { // pzopt
+      boolean withModel = false; // pzopt
+      for (int pn = 0; pn < IsoPlayer.numPlayers; pn++) { // pzopt
+         IsoPlayer player = IsoPlayer.players[pn]; // pzopt
+         if (player != null && z.current != null) { // pzopt
+            float screenX = z.getScreenProperX(pn); // pzopt
+            float screenY = z.getScreenProperY(pn); // pzopt
+            if (!(screenX < -100.0F) // pzopt
+               && !(screenY < -100.0F) // pzopt
+               && !(screenX > Core.getInstance().getOffscreenWidth(pn) + 100) // pzopt
+               && !(screenY > Core.getInstance().getOffscreenHeight(pn) + 100) // pzopt
+               && (z.getAlpha(pn) != 0.0F && z.legsSprite.def.alpha != 0.0F || z.current.isCouldSee(pn) || z.couldSeeHeadSquare(player))) { // pzopt
+               withModel = true; // pzopt
+               break; // pzopt
+            } // pzopt
+         } // pzopt
+      } // pzopt
+      if (withModel && z.isCurrentState(FakeDeadZombieState.instance())) { // pzopt
+         withModel = false; // pzopt
+      } // pzopt
+      return withModel; // pzopt
+   } // pzopt
+
    public void sceneCullZombies() {
       this.zombieWithModel.clear();
       this.zombieWithoutModel.clear();
 
       long pzoptCullClassifyT = pzopt.GtAb.begin(); // pzopt: scene-cull census, visibility / with-model classification
+      int pzoptCullCount = this.currentCell.getZombieList().size(); // pzopt: sceneCullParallel, stable while the blocking batch runs
+      boolean pzoptCullPrepared = pzopt.SceneCullBatch.active(pzoptCullCount); // pzopt
+      boolean pzoptCullParallel = pzoptCullPrepared; // pzopt
+      if (pzoptCullPrepared) { // pzopt
+         pzopt.SceneCullBatch.begin(this, pzoptCullCount); // pzopt
+         for (int n = 0; n < pzoptCullCount; n++) { // pzopt
+            pzopt.SceneCullBatch.set(n, (IsoZombie)this.currentCell.getZombieList().get(n)); // pzopt
+         } // pzopt
+         pzoptCullParallel = pzopt.SceneCullBatch.run(); // pzopt
+      } // pzopt
+
       for (int n = 0; n < this.currentCell.getZombieList().size(); n++) {
          IsoZombie z = (IsoZombie)this.currentCell.getZombieList().get(n);
-         boolean withModel = false;
+         boolean withModel; // pzopt: sceneCullParallel selects the worker result; the else is the stock body
+         if (pzoptCullParallel) { // pzopt
+            withModel = pzopt.SceneCullBatch.result(n); // pzopt
+         } else { // pzopt
+         withModel = false;
 
          for (int pn = 0; pn < IsoPlayer.numPlayers; pn++) {
             IsoPlayer player = IsoPlayer.players[pn];
@@ -2649,6 +2688,7 @@ public final class IsoWorld {
          if (withModel && z.isCurrentState(FakeDeadZombieState.instance())) {
             withModel = false;
          }
+         } // pzopt: sceneCullParallel
 
          if (withModel) {
             this.zombieWithModel.add(z);
@@ -2656,6 +2696,9 @@ public final class IsoWorld {
             this.zombieWithoutModel.add(z);
          }
       }
+      if (pzoptCullPrepared) { // pzopt
+         pzopt.SceneCullBatch.finish(); // pzopt
+      } // pzopt
       pzopt.GtAb.end(pzopt.GtAb.S_CULL_CLASSIFY, pzoptCullClassifyT); // pzopt: scene-cull census
 
       long pzoptCullSortT = pzopt.GtAb.begin(); // pzopt: scene-cull census, relevance scoring / sort
