@@ -196,6 +196,7 @@ public final class MainScreenState extends GameState {
       SimpleDateFormat sdf = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
       System.out.println(sdf.format(Calendar.getInstance().getTime()));
       DebugType.DetailedInfo.trace("cachedir is \"" + ZomboidFileSystem.instance.getCacheDir() + "\"");
+      pzopt.UserOptions.checkCacheDir(ZomboidFileSystem.instance.getCacheDir()); // pzopt: Config read options.ini before -cachedir= was parsed; say which folder it used
       DebugType.DetailedInfo.trace("LogFileDir is \"" + LoggerManager.getLogsDir() + "\"");
       printSpecs();
       DebugType.General.debugln("-- listing properties --");

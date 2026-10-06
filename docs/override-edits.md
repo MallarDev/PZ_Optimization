@@ -6329,3 +6329,15 @@ the render thread) it uses the stock static, so with the key off nothing changes
   game thread may refresh a square a worker refreshes). `LightingDefer.applyOne` runs one unit's lazy-lighting effects at
   its splice. `FrameBatch.Worker.drawRecorder`. New classes `pzopt.DrawRecorder`, `pzopt.TileRecord`,
   `pzopt.RenderScratch`.
+
+### zombie.gameStates.MainScreenState (third edit, `-cachedir=`) and `pzopt.UserOptions`
+
+A player reported (2026-10-06) that with Steam's `-cachedir=E:/Zomboid` the game used `E:\Zomboid` while pzopt's tab
+settings, the export and the mod-compat files stayed in `C:\Users\<user>\Zomboid\pzopt\`. `Config` reads `options.ini`
+in this class's static initializer (the marker initializes `Overrides`, whose master switch reads `Config.ENABLED`),
+before `main` has parsed `-cachedir=`, and `UserOptions.zomboidDir()` only copied the default rule. It now takes the last
+`-cachedir=` from the process's own command line (`ProcessHandle` arguments on Linux / macOS; on Windows kernel32
+`GetCommandLineW` through FFM, split by the C runtime's quoting rules), else the default rule. `main` calls
+`UserOptions.checkCacheDir` right after the console redirect: one `user folder <dir>` line, or a warning when the game's
+folder and pzopt's differ (a launcher whose arguments the process does not show). `ModCompat` and `GcChoice` read the
+mod lists through the same folder. Unit test `CacheDirArgTest`; harness `run-mac.sh --game-arg`.
