@@ -153,6 +153,12 @@ public final class MainScreenState extends GameState {
       }
 
       mainHasRan = true;
+      // pzopt: bootRepair, before any game code: an install built for another game revision (its stock paths crash on
+      // pzopt: the new jar) or one the uninstall helper left behind is removed / replaced, and the game started again
+      if (pzopt.BootRepair.run(args)) { // pzopt: bootRepair
+         System.exit(0); // pzopt: bootRepair (Restart's helper starts the game again once this process has ended)
+      } // pzopt: bootRepair
+
       System.setProperty("slf4j.provider", "zombie.core.logger.Slf4jBridge");
       Display.init();
       LocaleManager.initialise();

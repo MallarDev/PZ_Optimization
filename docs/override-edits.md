@@ -6352,3 +6352,15 @@ before `main` has parsed `-cachedir=`, and `UserOptions.zomboidDir()` only copie
 `UserOptions.checkCacheDir` right after the console redirect: one `user folder <dir>` line, or a warning when the game's
 folder and pzopt's differ (a launcher whose arguments the process does not show). `ModCompat` and `GcChoice` read the
 mod lists through the same folder. Unit test `CacheDirArgTest`; harness `run-mac.sh --game-arg`.
+
+### zombie.gameStates.MainScreenState (fourth edit, boot repair) and `pzopt.BootRepair`
+
+Workshop comments (2026-10-07, `docs/findings-uninstall-2026-10-07.md`): after the game updated to 42.21 the installed
+42.20 build crashed at start (`NoSuchMethodError` on `ZomboidFileSystem.getModIDs()` in `GameWindow`), so the in-game
+Uninstall was out of reach, and Steam's file verification never removes the loose classes. The first statement of
+`main` after the run-once check is now `pzopt.BootRepair.run(args)`: on a build mismatch it removes the installed files
+(or replaces them with the Steam Workshop copy for the running revision when its stock-class hashes match the jar), or
+finishes an in-game uninstall whose helper left its list, then starts the game again through `Restart` and `main` ends
+with `System.exit(0)`. Developer installs (`scripts/pzopt.sh` manifest) are left alone on a mismatch;
+`-Dpzopt.bootRepair=false` turns it off. Nothing of the game has run at that point; the classes the repair needs from
+the old install load before the first file changes. Unit test `BootRepairTest`.

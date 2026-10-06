@@ -85,6 +85,9 @@ public class UninstallTest {
       check(!f.contains(g.resolve("media/lua/client/Stock.lua")) && !f.contains(g.resolve("natives/libstock.so")), "plan never lists stock files");
       check(f.stream().allMatch(x -> x.startsWith(g)), "plan stays inside the game folder: " + f);
       check(!f.contains(g.resolve("pzopt/gone.class")), "plan skips files that are already gone");
+      int firstPkg = f.indexOf(f.stream().filter(x -> x.startsWith(g.resolve("pzopt"))).findFirst().orElseThrow());
+      check(f.subList(firstPkg, f.size()).stream().allMatch(x -> x.startsWith(g.resolve("pzopt"))),
+            "the pzopt package goes last, after every override (manifest lists media/ after pzopt/): " + f);
       List<Path> d = p.dirs();
       check(d.contains(g.resolve("zombie/iso")) && d.contains(g.resolve("zombie")) && d.contains(g.resolve("media/lua/client/pzopt")),
             "plan lists the folders the files leave: " + d);

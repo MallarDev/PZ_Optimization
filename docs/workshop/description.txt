@@ -50,6 +50,10 @@ Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/
 [i]Every side of a route ran back to back. On the drive every mod is within 3 % of stock. Project Zomboid Optimiser and Multi-Cpu Enhance gain in the horde by changing the launcher's garbage collector and heap (stock with the same switch runs as fast); Multi-Cpu adds a 300-390 ms pause to every route. Zed's Better FPS does not load on 42.21: it asks for ZombieBuddy 2.4, which is not released. Zed's Better FPS KA ports code from this project: five of its classes are ours, decompiled and renamed (ScriptText, ZombieNoise, PngFilters, AnimClipCache, RainTiles); its page credits PZ Optimization, its code does not.[/i]
 
 [h1]Updates, uninstall[/h1]
-Updates arrive in the main menu (PZ OPTIMIZATION UPDATE, one click). To remove: Options > PZ Optimization > [b]Uninstall PZ Optimization[/b], [b]before[/b] you unsubscribe (unsubscribing leaves the installed files). After unsubscribing: the install command with [b]-Uninstall[/b] (Windows) or [b]| bash -s -- --uninstall[/b] (Linux, macOS).
+Updates arrive in the main menu (PZ OPTIMIZATION UPDATE, one click). After a game update the next start removes a build made for the old version by itself (or installs the matching one from this item) and starts the game again.
+[b]To remove it:[/b] Options > PZ Optimization > [b]Uninstall PZ Optimization[/b]. Game does not start, or already unsubscribed? Steam > Project Zomboid > Manage > [b]Browse local files[/b], double-click [b]Uninstall-PZ-Optimization.cmd[/b] (Linux, macOS: [b]bash uninstall-pz-optimization.bash[/b] there). Or paste into PowerShell:
+[code]irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.ps1 | iex[/code]
+Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.sh | bash[/code]
+Unsubscribing and "Verify integrity of game files" leave these files in the game folder; the uninstaller removes them.
 
 Build @VERSION@, game revision @REV@, commit @COMMIT@, @NFILES@ files, sha256 @SHA@. projectzomboid.jar is never modified.

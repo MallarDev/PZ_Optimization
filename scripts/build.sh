@@ -93,6 +93,14 @@ if [[ -d "$SRC/media" ]]; then
   mkdir -p "$OUT/media"
   cp -r "$SRC/media/." "$OUT/media/"
 fi
+# The uninstallers that stay in the game folder (2026-10-07, docs/findings-uninstall-2026-10-07.md): this release's own
+# installers under pzopt/uninstall/ (.bash: the Workshop uploader bans .sh) and the wrappers at the top of the folder
+# (Uninstall-PZ-Optimization.cmd to double-click, uninstall-pz-optimization.bash). They are release files like the
+# classes, so every installer, the updater and the boot repair list them and every uninstall removes them.
+mkdir -p "$OUT/pzopt/uninstall"
+cp "$REPO/install.ps1" "$OUT/pzopt/uninstall/install.ps1"
+cp "$REPO/install.sh" "$OUT/pzopt/uninstall/install.bash"
+cp "$SRC/uninstall/Uninstall-PZ-Optimization.cmd" "$SRC/uninstall/uninstall-pz-optimization.bash" "$OUT/"
 # Puddle shader variants for Config.puddleEarlyZ (media/shaders/pzopt_puddles_*), derived from the installed game's
 # puddle shaders so a game update is picked up: the entry files with the include renamed, the .h prototype stubs
 # copied, and the two shader units changed in one place each. The vertex unit also writes the depth attribute to

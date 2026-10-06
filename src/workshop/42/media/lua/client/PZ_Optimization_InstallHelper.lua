@@ -6,7 +6,10 @@
 -- to close, so the flow is copy, paste into PowerShell / a terminal, quit the game. On Linux the clipboard can empty
 -- when the game quits: pasting before quitting is also what keeps it there. Once the overrides are installed (their
 -- Lua defines PzoptUpdateDialog) it says so once per session and suggests disabling the mod, which only matters for
--- this helper.
+-- this helper. Since 2026-10-07 the window also carries the uninstall command with its own Copy button (an install
+-- whose tab is missing still has its files in the game folder), and when the game removed the installed build by itself
+-- (pzopt.BootRepair: a game update the build could not run on; or an in-game uninstall finished at the next start) it
+-- says so first, from Zomboid/Lua/pzopt-boot-repair.txt.
 
 require "ISUI/ISPanelJoypad"
 require "ISUI/ISButton"
@@ -45,6 +48,45 @@ local function installCommand(dir)
     return "bash '" .. quoted .. "/install.bash'"
 end
 
+-- the same installer with the uninstall switch, at the end where it belongs (players typed it in front of -File)
+local function uninstallCommand(dir)
+    return installCommand(dir) .. (isSystemWindows() and " -Uninstall" or " --uninstall")
+end
+
+-- What pzopt.BootRepair did at the last start (action=removed|uninstalled|updated, reason=...), or nil. The installers
+-- delete the file, so it only speaks about the current state.
+local NOTICE = "pzopt-boot-repair.txt"
+local function readNotice()
+    local ok, r = pcall(getFileReader, NOTICE, false)
+    if not ok or not r then return nil end
+    local t = {}
+    pcall(function()
+        local line = r:readLine()
+        while line do
+            local k, v = string.match(line, "^([%w_]+)=(.*)$")
+            if k then t[k] = v end
+            line = r:readLine()
+        end
+    end)
+    pcall(function() r:close() end)
+    return t.action and t or nil
+end
+
+-- plain word wrap at about n characters (the window measures its widest line afterwards)
+local function wrap(text, n)
+    local out, cur = {}, ""
+    for word in string.gmatch(text or "", "%S+") do
+        if cur ~= "" and #cur + 1 + #word > n then
+            table.insert(out, cur)
+            cur = word
+        else
+            cur = cur == "" and word or (cur .. " " .. word)
+        end
+    end
+    if cur ~= "" then table.insert(out, cur) end
+    return out
+end
+
 -- The install walkthrough (harness/install-walkthrough.py): one frame set per OS under media/ui/pzopt_install/<os>/,
 -- listed with each frame's hold time by PZ_Optimization_InstallFrames.lua (loads first: F before H). The game has no
 -- GIF decoder before the optimizations are installed, so the animation is PNG frames the window swaps itself.
@@ -66,30 +108,49 @@ local function shellName()
     return "a terminal"
 end
 
-function PZOptInstallHelper:new(command)
+function PZOptInstallHelper:new(command, uninstall, notice)
     local small = getTextManager():getFontHeight(UIFont.Small)
     local medium = getTextManager():getFontHeight(UIFont.Medium)
     local code = getTextManager():getFontHeight(UIFont.Code)
-    local lines = {
-        "The optimizations are class files for the game folder; Steam downloaded them with",
-        "this item, and one command copies them in. The game does not load them from here.",
-        "",
-        "1. Copy the command below.",
-        "2. Open " .. shellName() .. ", paste it, press Enter.",
-        "3. Quit the game (QUIT). The installer waits for that, then copies the files.",
-        "4. Start the game: Options now has an Optimizations tab.",
-        "",
-        "Then disable this mod in the Mods list: it only shows this window.",
-        "To uninstall later: Options > PZ Optimization > Uninstall PZ Optimization...",
-    }
-    if not command then
-        lines = {
+    local title = "PZ Optimization is not installed yet"
+    local lines = {}
+    local boxes = {}   -- line index -> command drawn in a box under that line
+    if notice and notice.action == "removed" then
+        title = "PZ Optimization was removed: the game updated"
+    elseif notice and notice.action == "uninstalled" then
+        title = "PZ Optimization is uninstalled"
+    end
+    if notice and notice.action ~= "updated" then
+        for _, l in ipairs(wrap(notice.reason, 84)) do table.insert(lines, l) end
+        table.insert(lines, "")
+    end
+    if command then
+        for _, l in ipairs({
+            "The optimizations are class files for the game folder; Steam downloaded them with",
+            "this item, and one command copies them in. The game does not load them from here.",
+            "",
+            "1. Copy the command below.",
+        }) do table.insert(lines, l) end
+        boxes[#lines] = command
+        for _, l in ipairs({
+            "2. Open " .. shellName() .. ", paste it, press Enter.",
+            "3. Quit the game (QUIT). The installer waits for that, then copies the files.",
+            "4. Start the game: Options now has a PZ Optimization tab.",
+            "",
+            "Then disable this mod in the Mods list: it only shows this window.",
+            "To uninstall later: Options > PZ Optimization > Uninstall PZ Optimization...,",
+            "or double-click Uninstall-PZ-Optimization.cmd in the game folder (Steam: Manage >",
+            "Browse local files). Installed, but no PZ Optimization tab? This removes it:",
+        }) do table.insert(lines, l) end
+        boxes[#lines] = uninstall
+    else
+        for _, l in ipairs({
             "The optimizations are class files for the game folder; Steam downloaded them with",
             "this item, and the installer in the item's folder copies them in.",
             "",
             "This window could not find the item's folder; the Workshop page has the command:",
             PAGE,
-        }
+        }) do table.insert(lines, l) end
     end
     local pad = 20
     local frames = walkthrough()
@@ -98,16 +159,23 @@ function PZOptInstallHelper:new(command)
         local k = getCore():getScreenHeight() >= 1000 and 0.75 or 0.55   -- 480 x 300 from the 640 x 400 frames
         aw, ah = math.floor(640 * k), math.floor(400 * k)
     end
-    local w = math.max(aw, getTextManager():MeasureStringX(UIFont.Medium, "PZ Optimization is not installed yet"))
+    local w = math.max(aw, getTextManager():MeasureStringX(UIFont.Medium, title))
     for _, l in ipairs(lines) do w = math.max(w, getTextManager():MeasureStringX(UIFont.Small, l)) end
-    if command then w = math.max(w, getTextManager():MeasureStringX(UIFont.Code, command) + 16) end
+    local nboxes = 0
+    for _, c in pairs(boxes) do
+        w = math.max(w, getTextManager():MeasureStringX(UIFont.Code, c) + 16)
+        nboxes = nboxes + 1
+    end
     w = math.min(w + 2 * pad, getCore():getScreenWidth() - 40)
-    local h = pad + medium + 12 + (frames and (ah + 12) or 0) + #lines * small + (command and (code + 24) or 0) + 12 + 25 + pad
+    local h = pad + medium + 12 + (frames and (ah + 12) or 0) + #lines * small + nboxes * (code + 24) + 12 + 25 + pad
     local o = ISPanelJoypad.new(self, (getCore():getScreenWidth() - w) / 2, (getCore():getScreenHeight() - h) / 2, w, h)
     o.backgroundColor = { r = 0, g = 0, b = 0, a = 0.92 }
     o.borderColor = { r = 1, g = 1, b = 1, a = 0.4 }
     o.moveWithMouse = true
     o.command = command
+    o.uninstall = uninstall
+    o.title = title
+    o.boxes = boxes
     o.lines = lines
     o.pad = pad
     o.frames, o.aw, o.ah = frames, aw, ah
@@ -130,6 +198,9 @@ function PZOptInstallHelper:createChildren()
     if self.command then
         self.copyButton = add("Copy the command", PZOptInstallHelper.onCopy, 140)
     end
+    if self.uninstall then
+        self.copyUninstallButton = add("Copy the uninstall command", PZOptInstallHelper.onCopyUninstall, 180)
+    end
     self.pageButton = add("Open the Workshop page", PZOptInstallHelper.onPage, 140)
     self.closeButton = add("Close", PZOptInstallHelper.close, 100)
     self.closeButton:setX(self.width - self.pad - self.closeButton:getWidth())
@@ -139,7 +210,7 @@ function PZOptInstallHelper:prerender()
     ISPanelJoypad.prerender(self)
     local small = getTextManager():getFontHeight(UIFont.Small)
     local y = self.pad
-    self:drawText("PZ Optimization is not installed yet", self.pad, y, 1, 0.85, 0.4, 1, UIFont.Medium)
+    self:drawText(self.title, self.pad, y, 1, 0.85, 0.4, 1, UIFont.Medium)
     y = y + getTextManager():getFontHeight(UIFont.Medium) + 12
     if self.frames then
         local now = getTimestampMs()
@@ -156,12 +227,13 @@ function PZOptInstallHelper:prerender()
     for i, l in ipairs(self.lines) do
         self:drawText(l, self.pad, y, 1, 1, 1, 1, UIFont.Small)
         y = y + small
-        if self.command and i == 4 then
+        local box = self.boxes[i]
+        if box then
             local code = getTextManager():getFontHeight(UIFont.Code)
             y = y + 6
             self:drawRect(self.pad, y, self.width - 2 * self.pad, code + 12, 1, 0.12, 0.12, 0.12)
             self:drawRectBorder(self.pad, y, self.width - 2 * self.pad, code + 12, 0.6, 0.5, 0.5, 0.5)
-            self:drawText(self.command, self.pad + 8, y + 6, 0.6, 1, 0.6, 1, UIFont.Code)
+            self:drawText(box, self.pad + 8, y + 6, 0.6, 1, 0.6, 1, UIFont.Code)
             y = y + code + 18
         end
     end
@@ -170,6 +242,11 @@ end
 function PZOptInstallHelper:onCopy()
     Clipboard.setClipboard(self.command)
     self.copyButton:setTitle("Copied")
+end
+
+function PZOptInstallHelper:onCopyUninstall()
+    Clipboard.setClipboard(self.uninstall)
+    self.copyUninstallButton:setTitle("Copied")
 end
 
 function PZOptInstallHelper:onPage()
@@ -196,8 +273,9 @@ function PZOptInstallHelper:onJoypadDown(button, joypadData)
 end
 
 local function showInstalledNote()
-    local text = "PZ Optimization is installed.\n\nThis Workshop mod only shows the install command,\nso you can disable it in the Mods list."
-    local modal = ISModalDialog:new(getCore():getScreenWidth() / 2 - 180, getCore():getScreenHeight() / 2 - 60, 360, 120,
+    local text = "PZ Optimization is installed.\n\nThis Workshop mod only shows the install command,\nso you can disable it in the Mods list.\n\n"
+        .. "To remove it: Options > PZ Optimization > Uninstall,\nor Uninstall-PZ-Optimization.cmd in the game folder."
+    local modal = ISModalDialog:new(getCore():getScreenWidth() / 2 - 180, getCore():getScreenHeight() / 2 - 80, 360, 160,
         text, false, nil, nil)
     modal:initialise()
     modal:setCapture(true)
@@ -271,8 +349,9 @@ local function showOnce()
     end
     if PZOptInstallHelper.instance then return end
     local dir = itemDir()
-    print("[pzopt] install helper: not installed; item folder " .. tostring(dir))
-    local panel = PZOptInstallHelper:new(dir and installCommand(dir) or nil)
+    local notice = readNotice()
+    print("[pzopt] install helper: not installed; item folder " .. tostring(dir) .. (notice and ("; boot repair: " .. tostring(notice.action)) or ""))
+    local panel = PZOptInstallHelper:new(dir and installCommand(dir) or nil, dir and uninstallCommand(dir) or nil, notice)
     panel:initialise()
     panel:addToUIManager()
     panel:setAlwaysOnTop(true)

@@ -8,7 +8,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -29,12 +28,17 @@ import java.util.Set;
  * Zomboid/pzopt/ stay, as with the installers (a reinstall keeps them). The helper appends to Zomboid/pzopt/uninstall.log.
  *
  * Helper as in pzopt.Restart: /bin/sh polling {@code kill -0}, or a hidden PowerShell with Wait-Process; it gives up
- * without deleting anything when the game is still running after {@link #WAIT_S} seconds.
+ * without deleting anything when the game is still running after {@link #WAIT_S} seconds. On Windows the helper is a
+ * script file (Zomboid/pzopt/uninstall-helper.ps1) run with -File, not an -EncodedCommand: an encoded, hidden PowerShell
+ * started by a game is what antivirus heuristics stop (2026-10-07, Workshop reports of a press that removed nothing).
+ * Both helpers log "helper started" first, so uninstall.log tells a helper that never ran from one that failed. When
+ * the files are still there at the next start (the list file left behind), pzopt.BootRepair removes them then.
  */
 public final class Uninstall {
    static final String LOG_NAME = "uninstall.log";
    static final String FILES_NAME = "uninstall-files.txt";
    static final String DIRS_NAME = "uninstall-dirs.txt";
+   static final String HELPER_PS1 = "uninstall-helper.ps1";
    static final int WAIT_S = 600;
 
    private static volatile String message = "";
@@ -82,7 +86,11 @@ public final class Uninstall {
                + " files" + (aot ? ", launcher back to the loose classes" : "") + (gc ? ", launcher's own collector / JIT flags again" : "")
                + "\n", StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
          long pid = ProcessHandle.current().pid();
-         ProcessBuilder pb = new ProcessBuilder(helper(File.separatorChar == '\\', pid, files, dirs, log)).directory(base.toFile());
+         boolean windows = File.separatorChar == '\\';
+         if (windows) {
+            Files.writeString(base.resolve(HELPER_PS1), windowsScript(pid, files, dirs, log), StandardCharsets.UTF_8);
+         }
+         ProcessBuilder pb = new ProcessBuilder(helper(windows, pid, files, dirs, log)).directory(base.toFile());
          pb.environment().remove("LD_PRELOAD"); // the Linux launcher's libPZXInitThreads64.so prints a line from every command the helper runs
          pb.redirectInput(ProcessBuilder.Redirect.from(new File(File.separatorChar == '\\' ? "NUL" : "/dev/null")));
          pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
@@ -128,9 +136,14 @@ public final class Uninstall {
          }
          files.add(dlss);
       }
+      // the overrides first, the pzopt package they call last: the Windows helper deletes one file at a time, and a
+      // launch in the middle must not find an override without it (NoClassDefFoundError: pzopt/Hdr in Display.create)
+      Path pkg = root.resolve("pzopt");
+      List<Path> ordered = new ArrayList<>(files);
+      ordered.sort(Comparator.comparing((Path f) -> f.normalize().startsWith(pkg)));
       List<Path> out = new ArrayList<>();
       Set<Path> dirs = new LinkedHashSet<>();
-      for (Path f : files) {
+      for (Path f : ordered) {
          Path n = f.normalize();
          if (!n.startsWith(root) || n.equals(root) || !Files.isRegularFile(n)) {
             continue;
@@ -158,6 +171,7 @@ public final class Uninstall {
       if (!windows) {
          return List.of("/bin/sh", "-c", String.join("\n",
                "pid=$0; files=$1; dirs=$2; log=$3; n=0",
+               "echo \"$(date) helper started, waiting for pid $pid\" >> \"$log\"",
                "while kill -0 \"$pid\" 2>/dev/null; do",
                "  if [ $n -ge " + WAIT_S * 20 + " ]; then echo \"$(date) the game (pid $pid) was still running after " + WAIT_S
                      + " s: nothing removed\" >> \"$log\"; exit 1; fi",
@@ -170,12 +184,20 @@ public final class Uninstall {
                "while IFS= read -r f; do if [ -e \"$f\" ]; then echo \"left: $f\" >> \"$log\"; left=$((left+1)); fi; done < \"$files\"",
                "tr '\\n' '\\0' < \"$dirs\" | xargs -0 rmdir -- 2>/dev/null",
                "echo \"$(date) uninstall finished; $left files could not be removed\" >> \"$log\"",
-               "rm -f -- \"$files\" \"$dirs\""),
+               // a file that could not go stays listed: the next start (pzopt.BootRepair) tries again
+               "if [ $left -eq 0 ]; then rm -f -- \"$files\" \"$dirs\"; fi"),
                Long.toString(pid), files.toString(), dirs.toString(), log.toString());
       }
-      String script = String.join("\n",
+      return List.of("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+            "-File", files.resolveSibling(HELPER_PS1).toString());
+   }
+
+   /** The Windows helper's script (written beside the lists as {@link #HELPER_PS1}; it deletes itself at the end). */
+   static String windowsScript(long pid, Path files, Path dirs, Path log) {
+      return String.join("\n",
             "$ErrorActionPreference = 'SilentlyContinue'",
             "$log = " + quote(log),
+            "Add-Content -LiteralPath $log -Encoding UTF8 \"$(Get-Date -Format s) helper started, waiting for pid " + pid + "\"",
             "Wait-Process -Id " + pid + " -Timeout " + WAIT_S,
             "if (Get-Process -Id " + pid + ") { Add-Content -LiteralPath $log -Encoding UTF8 \"$(Get-Date -Format s) the game (pid " + pid
                   + ") was still running after " + WAIT_S + " s: nothing removed\"; exit 1 }",
@@ -190,10 +212,9 @@ public final class Uninstall {
             "  if ($d -and (Test-Path -LiteralPath $d) -and -not (Get-ChildItem -LiteralPath $d -Force)) { Remove-Item -LiteralPath $d -Force }",
             "}",
             "Add-Content -LiteralPath $log -Encoding UTF8 \"$(Get-Date -Format s) uninstall finished; $left files could not be removed\"",
-            "Remove-Item -LiteralPath " + quote(files) + ", " + quote(dirs) + " -Force");
-      String encoded = Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
-      return List.of("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-            "-EncodedCommand", encoded);
+            // a file that could not go stays listed: the next start (pzopt.BootRepair) tries again
+            "if ($left -eq 0) { Remove-Item -LiteralPath " + quote(files) + ", " + quote(dirs) + " -Force }",
+            "Remove-Item -LiteralPath $PSCommandPath -Force");
    }
 
    private static String quote(Path p) {

@@ -98,7 +98,7 @@ cp -r src/workshop/42/. "$MOD/"
     [[ -f "$MOD/$p" ]] && echo "poster=$p"
   done
   echo "poster=poster.png"
-  echo "description=Class files for the game folder, not a Lua mod: enable this mod once and the main menu shows the install command for your computer with a Copy button; after installing, disable it again. <LINE> Or run install.ps1 (Windows) or install.bash (Linux, macOS) from this item's folder under steamapps/workshop/content/108600/. <LINE> To remove it: Options > Optimizations > Uninstall PZ Optimization, before you unsubscribe. <LINE> Built for game revision $rev${version:+ (Build $version)}. Source and releases: github.com/xD3I/PZ_Optimization"
+  echo "description=Class files for the game folder, not a Lua mod: enable this mod once and the main menu shows the install command for your computer with a Copy button; after installing, disable it again. <LINE> Or run install.ps1 (Windows) or install.bash (Linux, macOS) from this item's folder under steamapps/workshop/content/108600/. <LINE> To remove it: Options > PZ Optimization > Uninstall PZ Optimization, or double-click Uninstall-PZ-Optimization.cmd in the game folder or in this item's folder (unsubscribing leaves the installed files). <LINE> Built for game revision $rev${version:+ (Build $version)}. Source and releases: github.com/xD3I/PZ_Optimization"
 } > "$MOD/mod.info"
 
 # images: preview.png for the Workshop page (square, <= 1 MB), poster.png for the mod list

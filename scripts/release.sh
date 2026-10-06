@@ -4,7 +4,7 @@
 #
 #   scripts/release.sh            # build + test + zip into build/pzopt-<rev>-classes.zip
 #   scripts/release.sh --publish  # ...and gh release create b<version>-<yyyymmdd>-<hhmm>-<commit> (UTC) with the zip +
-#                                 # install.sh/.ps1; GitHub lists releases by creation day, then by tag name
+#                                 # install.sh/.ps1 + uninstall.sh/.ps1; GitHub lists releases by creation day, then by tag name
 #   scripts/release.sh --publish --notes "extra sentence for the release body"
 #
 # The zip is the flat content of build/classes/ (class files, media/lua, pzopt/build-info)
@@ -85,6 +85,8 @@ fi
 notes="Prebuilt class overrides for Windows, Linux and macOS, built $(date -u +%Y-%m-%d) from $short for game revision $rev${version:+ (Build $version)}."
 [[ -n "$extra_notes" ]] && notes="$notes $extra_notes"
 notes="$notes Install with install.ps1 (Windows) or install.sh (Linux, macOS) from this release, or unpack the zip into the game folder by hand (README; $nfiles manifest entries). sha256 $sha"
-gh release create "$tag" "$zipname" install.sh install.ps1 --target "$full" \
+# uninstall.ps1 / uninstall.sh: the uninstall one-liners without arguments (irm .../uninstall.ps1 | iex): Steam turns a
+# URL followed by ")))" into a broken link, and players typed -Uninstall in the wrong place (2026-10-07)
+gh release create "$tag" "$zipname" install.sh install.ps1 uninstall.sh uninstall.ps1 --target "$full" \
   --title "Build $version ($rev) from $short" --notes "$notes"
 gh release view "$tag" --json url,assets -q '.url, (.assets[] | .name + " " + (.size|tostring))'

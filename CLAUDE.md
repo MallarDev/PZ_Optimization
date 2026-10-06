@@ -613,6 +613,13 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   IsoGridSquare), asynchronously while the game thread draws the rest, spliced in stock order; exact by `devDrawListCheck`
   (0 / 253k entries). Pass 0.80 -> 0.33 ms a frame; the lock's miss frames are logic bursts, so whole-run misses moved
   11.3 -> 11.0 %. Trap: a tile's IsoSpriteInstance is its sprite's shared def (renderprep writes it).
+- Uninstall / boot repair (2026-10-07, `docs/findings-uninstall-2026-10-07.md`, from the Workshop comments: "uninstall" was the top
+  complaint, mostly a 42.20 build bricking the game after the 42.21 update): `pzopt.BootRepair` runs first in `MainScreenState.main`
+  and removes (or replaces from the Workshop copy) an install built for another game revision, or finishes an in-game uninstall the
+  helper left, then restarts the game (skips `scripts/pzopt.sh` installs on a mismatch; `-Dpzopt.bootRepair=false`). Every release
+  leaves `Uninstall-PZ-Optimization.cmd` / `uninstall-pz-optimization.bash` and `pzopt/uninstall/install.{ps1,bash}` in the game
+  folder; release assets `uninstall.ps1` / `uninstall.sh`; installers find our files without a manifest and refuse another mod's class
+  unless `-Force`. Tests: `BootRepairTest`, `tests/install/install-sh-test.sh`, `harness/uninstall-e2e.sh` E-H. Windows test pending.
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

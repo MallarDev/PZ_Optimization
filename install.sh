@@ -8,10 +8,15 @@
 #   ./install.sh --dir /path/to/ProjectZomboid/projectzomboid   # macOS: .../Project Zomboid.app/Contents/Java
 #   ./install.sh --status
 #   ./install.sh --uninstall
+#   ./install.sh --force      # replace class files another Java mod put into the game folder (moved aside first)
 #
 # Without downloading anything first (any folder; the Steam Workshop copy is used when present):
 #   curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.sh | bash
 #   curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.sh | bash -s -- --uninstall
+#   curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.sh | bash
+#
+# Every install also leaves uninstall-pz-optimization.bash in the game folder: `bash <game folder>/uninstall-pz-optimization.bash`
+# removes PZ Optimization without starting the game (it runs the copy of this script kept in pzopt/uninstall/).
 #
 # The zip holds the same class files for Windows, Linux and macOS (the Steam depots ship one jar);
 # the runtime guard disables them, with one console.txt line, if the game revision differs.
@@ -30,7 +35,7 @@ set -euo pipefail
 
 REPO_SLUG="xD3I/PZ_Optimization"
 WORKSHOP_ID="3805285544"
-mode=install; zip=""; from=""; dir="${PZ_DIR:-}"; tag=""
+mode=install; zip=""; from=""; dir="${PZ_DIR:-}"; tag=""; force=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --zip) zip="$2"; shift ;;
@@ -39,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --tag) tag="$2"; shift ;;
     --uninstall) mode=uninstall ;;
     --status) mode=status ;;
+    --force) force=1 ;;
     -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -76,6 +82,7 @@ if [[ -z "$dir" ]]; then
   [[ -n "$dir" ]] || die "game folder not found; pass --dir <folder containing projectzomboid.jar>"
 fi
 [[ -f "$dir/projectzomboid.jar" ]] || die "no projectzomboid.jar in $dir"
+dir=$(cd "$dir" && pwd)   # one spelling (".../projectzomboid/." from the uninstaller), so the running-game check matches
 JAR="$dir/projectzomboid.jar"
 JSON="$dir/ProjectZomboid64.json"
 MANIFEST="$dir/pzopt-installed.txt"
@@ -88,6 +95,35 @@ jar_revision() {
   fi | grep -aoE '\b[0-9a-f]{10}\b' | head -1
 }
 REV=$(jar_revision || true)
+ZOMBOID_PZOPT="$HOME/Zomboid/pzopt"
+SHORTCUTS="Uninstall-PZ-Optimization.cmd
+uninstall-pz-optimization.bash"
+
+# What the game itself left about an earlier install (an unfinished in-game uninstall, the boot repair's note for the
+# Workshop item's install helper) no longer applies once this script has installed or removed one.
+clear_game_notes() {
+  rm -f "$ZOMBOID_PZOPT/uninstall-files.txt" "$ZOMBOID_PZOPT/uninstall-dirs.txt" "$HOME/Zomboid/Lua/pzopt-boot-repair.txt"
+}
+
+# Is a file in the game folder PZ Optimization's? A path with "pzopt" in it (the package, the Lua, the shaders, the
+# lists), a class whose bytes name the pzopt package (every override that calls it), or an inner class of one. Other
+# Java mods' class files (Better Vehicle Dynamics ships zombie/iso/IsoChunkMap.class) are not. pzopt.properties is the
+# player's own settings file and stays.
+names_pzopt() { LC_ALL=C grep -qa 'pzopt/' "$1" 2>/dev/null; }
+is_ours() {
+  local rel="$1" base outer
+  [[ "$rel" == pzopt.properties ]] && return 1
+  grep -qxF -- "$rel" <<< "$SHORTCUTS" && return 0
+  [[ "/$rel" =~ /[^/]*pzopt ]] && return 0
+  [[ "$rel" == *.class ]] || return 1
+  names_pzopt "$dir/$rel" && return 0
+  base=$(basename "$rel")
+  if [[ "$base" == *'$'* ]]; then
+    outer="$(dirname "$dir/$rel")/${base%%\$*}.class"
+    [[ -f "$outer" ]] && names_pzopt "$outer" && return 0
+  fi
+  return 1
+}
 
 # A launcher JSON that pzopt's AOT-cache mode (pzopt.AotCache) switched to its jar form goes back to the loose
 # classes ("." first, no AOT options), and the jar and cache go: the loose files are about to change.
@@ -179,8 +215,8 @@ wait_game_closed() {
 # The newest copy of the Steam Workshop item for this game revision: Steam keeps an app's Workshop content in the
 # library of the app itself, <library>/steamapps/workshop/content/108600/<item>/mods/PZ_Optimization/<version>.
 # Complete only when every file its pzopt-files.txt lists is there (Steam replaces an item's files one by one).
-workshop_copy() {
-  local d v c info built best="" bestbuilt=-1 rel complete
+workshop_copy() {  # $1 = any: a copy for any game revision
+  local d v c info built best="" bestbuilt=-1 rel complete any="${1:-}"
   d=$(cd "$dir" && pwd -P)
   while [[ -n "$d" && "$d" != "/" && "$(basename "$d")" != steamapps ]]; do d=$(dirname "$d"); done
   [[ "$(basename "$d")" == steamapps ]] || return 0
@@ -188,7 +224,7 @@ workshop_copy() {
     c="${v%/}/pzopt-classes"
     info="$c/pzopt/build-info.properties"
     [[ -f "$info" && -f "$c/pzopt-files.txt" ]] || continue
-    [[ "$(sed -n 's/^revision=//p' "$info")" == "$REV" ]] || continue
+    [[ -n "$any" || "$(sed -n 's/^revision=//p' "$info")" == "$REV" ]] || continue
     complete=1
     while IFS= read -r rel; do
       [[ -z "$rel" || -f "$c/$rel" ]] || { complete=0; break; }
@@ -232,8 +268,14 @@ remove_install() {
   local list="" n=0 rel d
   if [[ -f "$MANIFEST" ]]; then list=$(grep -v '^#' "$MANIFEST" | cut -d' ' -f1)
   elif [[ -f "$dir/pzopt-files.txt" ]]; then list=$(cat "$dir/pzopt-files.txt")
-  else return 1
+  else
+    list=$(find_leftovers)
+    [[ -n "$list" ]] || return 1
+    echo "no list of installed files in $dir (an install that stopped early, or files copied by hand): removing the $(grep -c . <<< "$list") files that are PZ Optimization's"
   fi
+  while IFS= read -r rel; do [[ -e "$dir/$rel" ]] && list+=$'\n'"$rel"; done <<< "$SHORTCUTS"
+  # the overrides first, the pzopt package they call last: a removal cut short never leaves an override without it
+  list=$(grep -v '^pzopt/' <<< "$list" || true; grep '^pzopt/' <<< "$list" || true)
   while IFS= read -r rel; do
     [[ -z "$rel" ]] && continue
     [[ -f "$dir/$rel" ]] && { rm -f "$dir/$rel"; n=$((n+1)); }
@@ -241,12 +283,39 @@ remove_install() {
     while [[ "$d" != "." && -d "$dir/$d" && -z "$(ls -A "$dir/$d")" ]]; do rmdir "$dir/$d"; d=$(dirname "$d"); done
   done <<< "$list"
   rm -f "$MANIFEST" "$dir/pzopt-files.txt"
+  clear_game_notes
   echo "removed $n files; projectzomboid.jar was never modified"
+}
+
+# No manifest and no pzopt-files.txt: the files that are PZ Optimization's by is_ours, among the loose class folders,
+# every path with "pzopt" in it, and the files of the Steam Workshop copy's list that are byte-identical to it (overrides
+# that never name the pzopt package, e.g. zombie/FliesSound.class, only when something of ours is there too). The game's own classes are in the jar.
+find_leftovers() {
+  local top rel found="" copy
+  for top in zombie org se fmod pzopt media natives; do
+    [[ -d "$dir/$top" ]] || continue
+    while IFS= read -r rel; do
+      [[ -z "$rel" ]] && continue
+      [[ "$top" == media && "$rel" != *pzopt* ]] && continue
+      is_ours "$rel" && found+="$rel"$'\n'
+    done < <(cd "$dir" && find "$top" -type f)
+  done
+  if [[ -n "$found" ]]; then
+    copy=$(workshop_copy any)
+    if [[ -n "$copy" ]]; then
+      while IFS= read -r rel; do
+        # only a byte-identical copy: a class of the same name that differs may be another mod's
+        [[ -n "$rel" && -f "$dir/$rel" ]] && cmp -s "$copy/$rel" "$dir/$rel" && ! grep -qxF -- "$rel" <<< "$found" && found+="$rel"$'\n'
+      done < "$copy/pzopt-files.txt"
+    fi
+  fi
+  printf '%s' "$found"
 }
 
 if [[ $mode == uninstall ]]; then
   wait_game_closed
-  remove_install || { echo "not installed (no pzopt-installed.txt or pzopt-files.txt in $dir)"; exit 0; }
+  remove_install || { clear_game_notes; echo "PZ Optimization is not installed in $dir (nothing of it found there)"; exit 0; }
+  echo "PZ Optimization is uninstalled: the next launch is the stock game. You can unsubscribe from the Workshop item now."
   echo "caches under ~/Zomboid/pzopt/ (anims, packs, framecap.ini, options.ini) can be deleted by hand"
   exit 0
 fi
@@ -339,10 +408,11 @@ list_zip() {
   if command -v unzip >/dev/null; then unzip -Z1 "$1"
   else python3 -c 'import zipfile,sys; print("\n".join(n for n in zipfile.ZipFile(sys.argv[1]).namelist() if not n.endswith("/")))' "$1"; fi
 }
+# the pzopt package first, then the overrides that call it (each pass skips what exists)
 extract_zip() {
-  if command -v unzip >/dev/null; then unzip -q -n "$1" -d "$2"
-  elif command -v bsdtar >/dev/null; then bsdtar -xkf "$1" -C "$2"
-  else python3 -c 'import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$1" "$2"; fi
+  if command -v unzip >/dev/null; then unzip -q -n "$1" 'pzopt/*' -d "$2" && unzip -q -n "$1" -d "$2"
+  elif command -v bsdtar >/dev/null; then bsdtar -xkf "$1" -C "$2" 'pzopt/*' && bsdtar -xkf "$1" -C "$2"
+  else python3 -c 'import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); n=z.namelist(); [z.extract(e, sys.argv[2]) for e in [e for e in n if e.startswith("pzopt/")] + [e for e in n if not e.startswith("pzopt/")]]' "$1" "$2"; fi
 }
 
 read_zip_entry() {
@@ -356,8 +426,8 @@ copy_dir() {
   while IFS= read -r rel; do
     [[ -z "$rel" ]] && continue
     mkdir -p "$2/$(dirname "$rel")"
-    cp -n "$1/$rel" "$2/$rel"
-  done < <(list_dir "$1")
+    cp "$1/$rel" "$2/$rel" || return 1
+  done < <(list_dir "$1" | grep '^pzopt/' || true; list_dir "$1" | grep -v '^pzopt/' || true)
 }
 
 if [[ -n "$from" ]]; then
@@ -373,21 +443,51 @@ fi
 if [[ "$zip_rev" != "$REV" ]]; then
   die "$src was built for game revision $zip_rev but this game is $REV; the classes would disable themselves. Get the build for $REV"
 fi
+# No manifest is left at this point, so a release file already in the folder is either the remains of an install that
+# stopped before writing one (the game keeps its own classes in the jar), replaced (refusing left no way out: --uninstall
+# found nothing to remove, and the game crashed on an override whose pzopt classes were missing), or another Java mod's
+# copy of a class we replace too (Better Vehicle Dynamics: zombie/iso/IsoChunkMap.class), refused unless --force. What
+# is not recognisably ours is moved to ~/Zomboid/pzopt/replaced-files/<time>/ first.
+ours=""; foreign=""
 while IFS= read -r rel; do
-  [[ -e "$dir/$rel" ]] && die "refusing to overwrite existing file: $dir/$rel (a previous install? run --uninstall)"
+  [[ -n "$rel" && -e "$dir/$rel" ]] || continue
+  if is_ours "$rel"; then ours+="$rel"$'\n'; else foreign+="$rel"$'\n'; fi
 done <<< "$files"
+backup="$ZOMBOID_PZOPT/replaced-files/$(date +%Y%m%d-%H%M%S)"
+if [[ -n "$foreign" && -z "$ours" && $force -eq 0 ]]; then
+  die "$(grep -c . <<< "$foreign") game classes this release replaces are already in $dir and are not PZ Optimization's, e.g. $(head -3 <<< "$foreign" | paste -sd, -).
+Another Java mod put them there (Better Vehicle Dynamics ships zombie/iso/IsoChunkMap.class, for one); two mods cannot both replace the same class. Remove that mod's files, or run the installer again with --force: they are moved to $backup first."
+fi
+while IFS= read -r rel; do
+  [[ -z "$rel" ]] && continue
+  mkdir -p "$backup/$(dirname "$rel")" && mv -f "$dir/$rel" "$backup/$rel"
+done <<< "$foreign"
+[[ -n "$foreign" ]] && echo "moved $(grep -c . <<< "$foreign") files that were not PZ Optimization's to $backup"
+[[ -n "$ours" ]] && echo "replacing $(grep -c . <<< "$ours") files an unfinished install left behind"
+while IFS= read -r rel; do [[ -n "$rel" ]] && rm -f "$dir/$rel"; done <<< "$ours"
 
 jar_before=$(sha256 "$JAR")
-if [[ -n "$from" ]]; then copy_dir "$from" "$dir"; else extract_zip "$zip" "$dir"; fi
+# The manifest goes first, so an install cut short is still replaced by the next run or removed by --uninstall.
+stamp="# revision=$zip_rev installed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 {
   echo "# files written by install.sh — do not edit"
-  echo "# revision=$zip_rev installed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "$stamp"
+  echo "# unfinished: the install stopped before the end; run the installer again"
+  while IFS= read -r rel; do echo "$rel -"; done <<< "$files"
+} > "$MANIFEST"
+if [[ -n "$from" ]]; then copy_dir "$from" "$dir"; else extract_zip "$zip" "$dir"; fi \
+  || die "the install stopped before the end; run the installer again (it replaces the unfinished install) or with --uninstall"
+{
+  echo "# files written by install.sh — do not edit"
+  echo "$stamp"
   while IFS= read -r rel; do echo "$rel $(sha256 "$dir/$rel")"; done <<< "$files"
 } > "$MANIFEST"
 jar_after=$(sha256 "$JAR")
 [[ "$jar_before" == "$jar_after" ]] || die "projectzomboid.jar changed during install (this should be impossible)"
 [[ -n "${tmp:-}" ]] && rm -rf "$tmp"
 
+clear_game_notes
 echo "installed $(echo "$files" | wc -l | tr -d ' ') files into $dir for game revision $zip_rev; projectzomboid.jar untouched"
 echo "launch from Steam; ~/Zomboid/console.txt shows one '[pzopt] loaded override ... active' line per class"
-echo "settings: Options > Optimizations in the game, or $dir/pzopt.properties"
+echo "settings: Options > PZ Optimization in the game, or $dir/pzopt.properties"
+echo "to remove it: Options > PZ Optimization > Uninstall PZ Optimization, or: bash \"$dir/uninstall-pz-optimization.bash\""

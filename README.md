@@ -482,10 +482,12 @@ so **close the game first** whichever method you pick.
 
 Every installer below does the same thing: locate the game through Steam's library list
 (or `-Dir` / `--dir <folder>` / `PZ_DIR`), read the game revision from the jar, check that
-the launcher classpath loads loose classes and that no file it would write already exists,
-copy the classes next to `projectzomboid.jar` (on macOS that is
-`Project Zomboid.app/Contents/Java`), and record every file in
-`pzopt-installed.txt` so the uninstall is exact. The jar is never touched.
+the launcher classpath loads loose classes, record every file in `pzopt-installed.txt` so the
+uninstall is exact, then copy the classes next to `projectzomboid.jar` (on macOS that is
+`Project Zomboid.app/Contents/Java`). The jar is never touched. The list is written before the
+copy, so an install that stopped half-way (an antivirus blocking a file, a closed window) is
+replaced by the next run or removed by the uninstall; files of ours that an older unfinished
+install left without a list are replaced too.
 
 ### Method A: Steam Workshop
 
@@ -613,25 +615,43 @@ grep -c '\[pzopt\] loaded override' ~/Zomboid/console.txt
 | dozens of lines | the overrides are active. Options has an **Optimizations** tab and Display has the **Uncapped** entry. Done. |
 | `0` | the class files did not load. Check that `<game>\pzopt\Overrides.class` exists and that `ProjectZomboid64.json` lists `"."` before `"projectzomboid.jar"` under `classpath` (it does on the stock depot; the macOS bundle has no JSON, its launcher puts `Contents/Java` first by itself). |
 | a line saying the overrides were built for another revision | your game is not 42.21 / `4a0e9546ec`; the game runs as stock. Switch Steam to that branch or wait for a matching release. |
+| the game stops at start with `NoClassDefFoundError: pzopt/...` | an unfinished install: some override classes are in the game folder without the `pzopt` folder they call. Run the installer again (it replaces what is there), or run it with `-Uninstall` / `--uninstall`. |
+| the game closes at start after a game update, or Uninstall in the menu removed nothing | builds since 2026-10-07 fix both at the next start (`Zomboid/pzopt/boot-repair.log`). Older installs: double-click `Uninstall-PZ-Optimization.cmd` in the game folder if it is there, else the `uninstall.ps1` / `uninstall.sh` line above. |
 
 ### Uninstall
 
-**In the game:** Options > Optimizations > **Uninstall PZ Optimization...** (main menu). The
+**In the game:** Options > PZ Optimization > **Uninstall PZ Optimization...** (main menu). The
 game closes; once it has, a helper removes every file the installer or the updater recorded,
 the DLSS files the Enhancements tab fetched and the AOT cache, and the launcher settings it
-changed are put back (log: `Zomboid/pzopt/uninstall.log`). Do this before unsubscribing from
-the Workshop item: unsubscribing deletes the item, not the installed files.
+changed are put back (log: `Zomboid/pzopt/uninstall.log`). If the files are still there at the
+next start, the game removes them then and restarts stock (`Zomboid/pzopt/boot-repair.log`).
+Unsubscribing from the Workshop item and Steam's "Verify integrity of game files" leave the
+installed files in the game folder.
+
+**Without starting the game:** double-click `Uninstall-PZ-Optimization.cmd` in the game folder
+(Steam: Project Zomboid > Manage > Browse local files; Linux / macOS: `bash
+uninstall-pz-optimization.bash` there). Every install since 2026-10-07 leaves it there, with its
+own copy of the installer under `pzopt/uninstall/`.
+
+**After a game update** the first start removes a build made for the old game revision (or
+installs the matching one from the Steam Workshop copy) and starts the game again, so the game
+never crashes on an outdated install.
 
 **From a terminal** (the game may be running; the script waits for it to close):
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1))) -Uninstall
+irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.ps1 | iex
 ```
 
 ```sh
-curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.sh | bash -s -- --uninstall
+curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.sh | bash
 scripts/pzopt.sh uninstall      # Linux, from-source install
 ```
+
+Without a list of installed files (an install that stopped early) the uninstallers still find
+PZ Optimization's files: paths with `pzopt` in them, classes that call the `pzopt` package, and
+files identical to the Workshop copy's. Another Java mod's class in the way of an install is
+refused by name; `-Force` / `--force` moves it to `Zomboid/pzopt/replaced-files/` first.
 
 A local copy works the same (`install.ps1 -Uninstall`, `install.sh --uninstall`, the Workshop
 item's `install.bash --uninstall`). The jar was never modified, so no Steam file verification

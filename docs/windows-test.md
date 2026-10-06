@@ -342,20 +342,12 @@ Bring back `%USERPROFILE%\Zomboid\console.txt` and any `hs_err_pid*.log` from
 
 ### 6. Uninstall
 
-Removes exactly the files the zip added, then the empty folders. The jar was
-never modified, so no Steam file verification is needed.
-
-```powershell
-$PZ = "C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid"
-Get-Content "$PZ\pzopt-files.txt" | ForEach-Object { Remove-Item -LiteralPath (Join-Path $PZ $_) -ErrorAction SilentlyContinue }
-Remove-Item "$PZ\pzopt-files.txt", "$PZ\pzopt.properties" -ErrorAction SilentlyContinue
-foreach ($d in "pzopt","zombie","org","se","media\lua\client\pzopt") {
-  Get-ChildItem "$PZ\$d" -Recurse -Directory -ErrorAction SilentlyContinue | Sort-Object FullName -Descending |
-    Where-Object { -not (Get-ChildItem $_.FullName -Force) } | Remove-Item
-  if ((Test-Path "$PZ\$d") -and -not (Get-ChildItem "$PZ\$d" -Force)) { Remove-Item "$PZ\$d" }
-}
-Test-Path "$PZ\pzopt"   # False
-```
+Options > PZ Optimization > Uninstall PZ Optimization... in the game, or without the game: double-click
+`Uninstall-PZ-Optimization.cmd` in `$PZ` (every install since 2026-10-07), or
+`irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.ps1 | iex`. Each removes exactly the
+files of `pzopt-installed.txt` (without one: the files that are PZ Optimization's), the folders they leave and the
+launcher edits. The jar was never modified, so no Steam file verification is needed (and it would not remove the
+loose files). The test list for these paths and the boot repair is in `docs/findings-uninstall-2026-10-07.md`.
 
 The caches in `%USERPROFILE%\Zomboid\pzopt\` can be deleted by hand; the game
 never reads them without the overrides installed.
