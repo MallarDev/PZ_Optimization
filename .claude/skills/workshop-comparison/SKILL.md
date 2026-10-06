@@ -39,10 +39,10 @@ Recipes that produced the published ones (copy the queue job's argv: `~/.local/s
   --prop instrument=true --prop hdr=false --prop overlay=false`, enhanced `--prop macGlCore=true` (the Mac's own tab file
   left on), stock `--prop enabled=false --prop macGlCore=false --quit-after 110`, capture `devCapture=4,30,60,50` (stock
   `4,45,60,50`). Start one `python3 harness/explore-director.py --machine mac --wait 1800` in the background before each job
-  (Jev walks the lap; one director per run). The local wrappers that did this are `build/showcase/pond-runs.sh` /
-  `pond-stock-runs.sh` (gitignored). As of 2026-10-06 `circle_center` / `circle_lead` (`pzopt.CircleWalk`) and
-  `run-mac.sh --template` are uncommitted changes in the main checkout (pz-optimization-86's): check they are in the build
-  before relying on them.
+  (Jev walks the lap; one director per run). `harness/pond-runs.sh` (OpenGL 2.1 / 4.1 with the build, capture + numbers)
+  and `harness/pond-stock-runs.sh` (the stock side) do exactly this. They need `circle_center` / `circle_lead`
+  (`pzopt.CircleWalk`) in the installed build and `run-mac.sh --template`; the save template must exist on the Mac
+  (`Saves/Sandbox/pzopt-template-pond`, a copy of the desktop's `Sandbox/PZ-Optimization-pond`).
 - **Dell, low-end mode** (`dell`): drive-120; stock `--prop enabled=false --option lightFPS=15 --option uiRenderFPS=60
   --option textureCompression=false`, enhanced = empty options file + the "Low-end hardware" preset keys + `dynRes=true
   dynResUpscaler=taau dynResFps=60`, capture `devCapture=0,100,30,50` (no `ram`: 8 GB RAM).

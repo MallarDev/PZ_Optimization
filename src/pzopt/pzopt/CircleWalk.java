@@ -53,6 +53,7 @@ final class CircleWalk {
    private static final Set<Long> blocked = new HashSet<>();
    private static int[] pathX = new int[0], pathY = new int[0];
    private static int pathIdx, pathLen;
+   private static float lead = 45F;
 
    static boolean finished() {
       return finished;
@@ -60,6 +61,7 @@ final class CircleWalk {
 
    static void worldReady(IsoPlayer p) {
       radius = Float.parseFloat(HarnessFlags.get("circle_radius", "1.5").trim());
+      lead = Float.parseFloat(HarnessFlags.get("circle_lead", "45").trim());
       radiusIn = Float.parseFloat(HarnessFlags.get("circle_radius_in", "1.0").trim());
       laps = Float.parseFloat(HarnessFlags.get("circle_laps", "1").trim());
       int max = Integer.parseInt(HarnessFlags.get("circle_spots", "4").trim());
@@ -108,6 +110,14 @@ final class CircleWalk {
          s0[1] = (int)p.getY();
          arrivedNs = System.nanoTime(); // standing on its square (start= puts the player on the corner, 0.7 from the centre)
       }
+      // circle_center=x,y: lap round that square instead (a pond, a statue: a centre the player cannot stand on), 2026-10-06
+      String cc = HarnessFlags.get("circle_center", "").trim();
+      if (!cc.isEmpty()) {
+         String[] xy = cc.split(",");
+         s0[0] = Integer.parseInt(xy[0].trim());
+         s0[1] = Integer.parseInt(xy[1].trim());
+         Log.info(String.format(Locale.ROOT, "harness: circle: spot 0 centred on %d,%d (circle_center=), player at %.1f,%.1f", s0[0], s0[1], p.getX(), p.getY()));
+      }
       startNs = System.nanoTime();
       lastProgressNs = startNs;
       spotEvent(p);
@@ -137,7 +147,9 @@ final class CircleWalk {
             }
             lastAngle = a;
             angleValid = true;
-            float t = a + sign * (float)Math.PI / 4F; // + angle = clockwise on screen (+y is south)
+            // + angle = clockwise on screen (+y is south); circle_lead degrees ahead on the circle (45: the walk cuts about a
+            // tile inside the radius, onto a pond's rocks in pondmac-legacy-cap; 20: close to the circle itself)
+            float t = a + sign * (float)Math.toRadians(lead);
             Showcase.moveKeys(cx + r * (float)Math.cos(t) - p.getX(), cy + r * (float)Math.sin(t) - p.getY());
             // no progress for 3 s (furniture in the way): the spot is blocked, the director moves on
             if (Math.hypot(p.getX() - stuckX, p.getY() - stuckY) > 0.3) {
