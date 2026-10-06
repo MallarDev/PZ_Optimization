@@ -113,7 +113,7 @@ fi
 
 # the animated preview: its own GIF since 2026-10-06 (00-preview.gif: harness/efficiency-anim.py --single ... --header
 # --align left at 630, its first 5 s scaled to 268 px = the item page's size, gifski 25 fps quality 70), the page's headline
-# is the 60 fps AVIF 00-headline.avif (the same --single render with the left strip); workshop-upload.py sends the preview
+# is the 60 fps AVIF 00-headline-strip.avif (the same --single render with the left strip); workshop-upload.py sends the preview
 # when it is <= 1,000,000 bytes (the in-game uploader could only send preview.png)
 [[ -f docs/workshop/images/00-preview.gif ]] && cp docs/workshop/images/00-preview.gif "$out/preview.gif"
 
