@@ -47,8 +47,23 @@ SW, SH = SIZE - STRIP, SIZE
 FPS, FADE = 60, 0.35
 CAPTION, WHITE, DETAIL = (190, 190, 196), (240, 240, 244), (200, 200, 206)
 
-ITEM = r'C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3805285544\mods\PZ_Optimization\42'
-GAME = r'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid'
+OSES = {   # the helper's command per OS (PZ_Optimization_InstallHelper.lua installCommand) and the installers' own lines
+    'win': dict(item=r'C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3805285544\mods\PZ_Optimization\42',
+                game=r'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid', sep='\\', prompt='PS C:\\Users\\player> ',
+                shell='PowerShell (Start menu, type powershell, Enter)', paste='into PowerShell, press Enter',
+                console='C:\\Users\\player\\Zomboid\\console.txt', uninstall=' -Uninstall'),
+    'linux': dict(item='/home/player/.local/share/Steam/steamapps/workshop/content/108600/3805285544/mods/PZ_Optimization/42',
+                  game='/home/player/.local/share/Steam/steamapps/common/ProjectZomboid/projectzomboid', sep='/',
+                  prompt='player@pc:~$ ', shell='a terminal', paste='into a terminal, press Enter', console='~/Zomboid/console.txt',
+                  uninstall=' --uninstall'),
+    'mac': dict(item='/Users/player/Library/Application Support/Steam/steamapps/workshop/content/108600/3805285544/mods/PZ_Optimization/42',
+                game='/Users/player/Library/Application Support/Steam/steamapps/common/ProjectZomboid/Project Zomboid.app/Contents/Java',
+                sep='/', prompt='player@Mac ~ % ', shell='Terminal (Applications > Utilities)', paste='into Terminal, press Enter',
+                console='~/Zomboid/console.txt', uninstall=' --uninstall'),
+}
+OS = 'win'
+ITEM = OSES['win']['item']
+GAME = OSES['win']['game']
 REV, NFILES = '4a0e9546ec', 1064   # the 5f910d9 release (2026-10-07): pzopt-files.txt lists 1064 files
 COMMAND = f'powershell -ExecutionPolicy Bypass -File "{ITEM}\\install.ps1"'
 PROMPT = 'PS C:\\Users\\player> '
@@ -57,6 +72,35 @@ DONE = [f'installing from folder {ITEM}\\pzopt-classes',
         f'installed {NFILES} files into {GAME} for game revision {REV}; projectzomboid.jar untouched',
         "launch from Steam; C:\\Users\\player\\Zomboid\\console.txt shows one '[pzopt] loaded override ... active' line per class",
         f'settings: Options > PZ Optimization in the game, or {GAME}\\pzopt.properties']
+
+
+def set_os(o):
+    """Rebind the command, prompt and installer lines to one OS (install.ps1 on Windows, install.sh elsewhere)."""
+    global OS, ITEM, GAME, COMMAND, PROMPT, WAITING, DONE
+    OS, c = o, OSES[o]
+    ITEM, GAME, PROMPT = c['item'], c['game'], c['prompt']
+    if o == 'win':
+        COMMAND = f'powershell -ExecutionPolicy Bypass -File "{ITEM}\\install.ps1"'
+    else:
+        COMMAND = "bash '" + ITEM.replace("'", "'\\''") + "/install.bash'"
+    WAITING = (f'the game is running from {GAME}: quit it (QUIT in the main menu); this goes on once it has closed '
+               '(Ctrl+C cancels)')
+    sep = c['sep']
+    DONE = [f'installing from folder {ITEM}{sep}pzopt-classes',
+            f'installed {NFILES} files into {GAME} for game revision {REV}; projectzomboid.jar untouched',
+            f"launch from Steam; {c['console']} shows one '[pzopt] loaded override ... active' line per class",
+            f'settings: Options > PZ Optimization in the game, or {GAME}{sep}pzopt.properties']
+
+
+DET_PX = 16
+
+
+def set_canvas(w, h, strip, label_px, k, det_px):
+    """The canvas: w x h with a strip of `strip` px (the AVIFs 630 x 630 / 80; the helper's frames 960 x 600 / 64)."""
+    global SIZE, SW, SH, STRIP, LABEL_PX, K, DET_PX
+    SIZE, SH, STRIP, LABEL_PX, K, DET_PX = w, h, strip, label_px, k, det_px
+    SW = w - strip
+    _play.clear()
 
 
 HEADLINE = os.path.expanduser('~/Videos/Project Zomboid/Video_2026-10-06_16-23-03.mp4')   # the page headline's capture
@@ -120,7 +164,7 @@ HELPER_LINES = [   # PZ_Optimization_InstallHelper.lua as of the 5f910d9 release
     ("this item, and one command copies them in. The game does not load them from here.", None),
     ("", None),
     ("1. Copy the command below.", 'install'),
-    ("2. Open PowerShell (Start menu, type powershell, Enter), paste it, press Enter.", None),
+    ("2. Open {shell}, paste it, press Enter.", None),
     ("3. Quit the game (QUIT). The installer waits for that, then copies the files.", None),
     ("4. Start the game: Options now has a PZ Optimization tab.", None),
     ("", None),
@@ -131,6 +175,16 @@ HELPER_LINES = [   # PZ_Optimization_InstallHelper.lua as of the 5f910d9 release
 ]
 
 
+_frame01 = {}
+
+
+def helper_frame_01(o):
+    """The helper's own first walkthrough frame, as the window shows it (read once: --helper-frames rewrites the files)."""
+    if o not in _frame01:
+        _frame01[o] = Image.open(f'{REPO}/src/workshop/42/media/ui/pzopt_install/{o}/pzopt_install_{o}_01.png').convert('RGB')
+    return _frame01[o]
+
+
 def helper_window(screen, copied):
     """PZOptInstallHelper's layout (pad 20, the walkthrough frames 480x300 at k = 0.75, a command box under line 4 and
     the uninstall command under the last line, 25 px buttons) on the 4096x1691 menu; returns the window box and the
@@ -139,22 +193,23 @@ def helper_window(screen, copied):
     small, medium, code = font(18), font(24, 'Medium'), font(18, mono=True)
     sh_, mh, ch = 25, 32, 25
     pad, aw, ah = 20, 480, 300
-    cmds = {'install': COMMAND, 'uninstall': COMMAND + ' -Uninstall'}
-    w = max([aw, medium.getlength('PZ Optimization is not installed yet')] + [small.getlength(l) for l, _ in HELPER_LINES]
+    cmds = {'install': COMMAND, 'uninstall': COMMAND + OSES[OS]['uninstall']}
+    lines = [(l.format(shell=OSES[OS]['shell']), b) for l, b in HELPER_LINES]
+    w = max([aw, medium.getlength('PZ Optimization is not installed yet')] + [small.getlength(l) for l, _ in lines]
             + [code.getlength(c) + 16 for c in cmds.values()])
     w = int(w + 2 * pad)
-    h = pad + mh + 12 + ah + 12 + len(HELPER_LINES) * sh_ + len(cmds) * (ch + 24) + 12 + 25 + pad
+    h = pad + mh + 12 + ah + 12 + len(lines) * sh_ + len(cmds) * (ch + 24) + 12 + 25 + pad
     x0, y0 = (screen.width - w) // 2, (screen.height - h) // 2
     d.rectangle((x0, y0, x0 + w, y0 + h), fill=(0, 0, 0, 235), outline=(255, 255, 255, 102))
     y = y0 + pad
     d.text((x0 + pad, y), 'PZ Optimization is not installed yet', font=medium, fill=(255, 217, 102))
     y += mh + 12
-    fr = Image.open(f'{REPO}/src/workshop/42/media/ui/pzopt_install/win/pzopt_install_win_01.png').convert('RGB')
+    fr = helper_frame_01(OS)
     fx = x0 + (w - aw) // 2
     screen.paste(fr.resize((aw, ah), Image.LANCZOS), (fx, y))
     d.rectangle((fx, y, fx + aw, y + ah), outline=(128, 128, 128))
     y += ah + 12
-    for line, box in HELPER_LINES:
+    for line, box in lines:
         d.text((x0 + pad, y), line, font=small, fill=(255, 255, 255))
         y += sh_
         if box:
@@ -243,10 +298,24 @@ def win_frame(d, box, title, fs=1.0, dark=True):
 
 
 def terminal(screen, box, lines, cursor_on=True, fs=1.0):
-    """Windows Terminal with a Windows PowerShell tab: the lines wrapped at the window's width, the last rows that fit."""
+    """Windows Terminal with a Windows PowerShell tab (Linux: a plain terminal, macOS: Terminal with its traffic lights):
+    the lines wrapped at the window's width, the last rows that fit."""
     d = ImageDraw.Draw(screen)
     x0, y0, x1, y1 = box
     tb = round(40 * fs)
+    if OS != 'win':
+        d.rounded_rectangle(box, radius=round(10 * fs), fill=(30, 30, 30), outline=(80, 80, 88))
+        d.rectangle((x0 + 1, y0 + 1, x1 - 1, y0 + tb), fill=(48, 48, 52))
+        title = 'player@pc: ~' if OS == 'linux' else 'player \u2014 zsh'
+        d.text(((x0 + x1) / 2, y0 + tb / 2), title, font=font(round(15 * fs), 'Medium'), fill=(225, 225, 228), anchor='mm')
+        if OS == 'mac':
+            for i, col in enumerate(((255, 95, 86), (255, 189, 46), (39, 201, 63))):
+                cx = x0 + round((20 + i * 22) * fs)
+                d.ellipse((cx - 6 * fs, y0 + tb / 2 - 6 * fs, cx + 6 * fs, y0 + tb / 2 + 6 * fs), fill=col)
+        else:
+            caption_buttons(d, x1, y0 + tb / 2, fs)
+        _term_text(d, box, tb, lines, cursor_on, fs)
+        return
     d.rounded_rectangle(box, radius=round(8 * fs), fill=(12, 12, 12), outline=(70, 70, 74))
     d.rectangle((x0 + 1, y0 + 1, x1 - 1, y0 + tb), fill=(32, 32, 32))
     tab = (x0 + round(8 * fs), y0 + round(6 * fs), x0 + round(250 * fs), y0 + tb)
@@ -257,6 +326,11 @@ def terminal(screen, box, lines, cursor_on=True, fs=1.0):
     d.line((tx - r, ty + r, tx + r, ty - r), fill=(170, 170, 170), width=max(1, round(fs)))
     d.text((tab[2] + round(22 * fs), (tab[1] + tab[3]) / 2), '+', font=font(round(20 * fs)), fill=(200, 200, 200), anchor='mm')
     caption_buttons(d, x1, y0 + tb / 2, fs)
+    _term_text(d, box, tb, lines, cursor_on, fs)
+
+
+def _term_text(d, box, tb, lines, cursor_on, fs):
+    x0, y0, x1, y1 = box
     f = font(round(20 * fs), mono=True)
     cw, lh = f.getlength('M'), round(27 * fs)
     per = int((x1 - x0 - 28 * fs) // cw)
@@ -383,18 +457,19 @@ class Script:
             return s
         return self.screen(('helper', copied), make)
 
-    TERM = win_box(1500, 300, 800)
-
     def steps(self):
         self.with_helper(False)
         hb, (bx, by) = self.helper_box, self.copy_at
-        term = self.TERM
+        portrait = SH >= SW
+        term = win_box(1500, 300, 800 if portrait else 1000)
+        self.term = term
 
         def copy(lt):
             s = self.with_helper(lt >= 2.0)
             # inside the window from its left edge, the Copy button at ~70 % of the height (above the caption); what is
             # below the window falls under the caption's opaque bottom
-            c = (hb[0] + 4, hb[3] - 542, 620)
+            cw = 620 if portrait else 760
+            c = (hb[0] + 4, by - 0.70 * cw * SH / SW, cw)
             cx, cy = ease(hb[0] + 700, bx, 0.9, 1.8, lt), ease(hb[3] - 200, by, 0.9, 1.8, lt)
             return s, c, (cx, cy, 1.85 <= lt < 2.35)
 
@@ -420,7 +495,7 @@ class Script:
         def quit_(lt):
             s = self.with_helper(True)
             qy = STOCK_ROWS['QUIT'] + 10
-            c = cam(MENU_X + 260, STOCK_ROWS['OPTIONS'] - 260, 720)
+            c = cam(MENU_X + 260, qy - 0.62 * 720 * SH / SW, 720)
             cx, cy = ease(MENU_X + 420, MENU_X + 40, 0.3, 1.2, lt), ease(qy - 220, qy + 4, 0.3, 1.2, lt)
             if lt > 1.8:   # the game closes
                 k = min(1.0, (lt - 1.8) / 0.5)
@@ -682,7 +757,7 @@ def step_overlay(n, total, big, detail):
     img = Image.fromarray(g, 'RGBA')
     d = ImageDraw.Draw(img)
     pad = round(26 * K)
-    f_det, f_big = mfont(16), mfont(round(64 * K))
+    f_det, f_big = mfont(DET_PX), mfont(round(64 * K))
     y = SH - pad
     for line in reversed(detail):
         d.text((pad, y), line, font=f_det, fill=DETAIL, anchor='ls')
@@ -741,6 +816,71 @@ def render(name, menu, a):
     EA.encode(a, work, (SH, SIZE), a.out or (f'workshop-media/template-{name}.gif' if a.gif else f'workshop-media/{name}.avif'))
 
 
+# --- the Workshop item's in-game walkthrough (the helper window plays it above the command) ---------------------------
+
+HELPER_BEATS = [   # (Script step, lt s, hold ms, number, big word, detail): the helper's own four steps
+    ('COPY', 1.2, 700, 1, 'COPY', 'with the button in this window'),
+    ('COPY', 1.95, 600, 1, 'COPY', 'with the button in this window'),
+    ('COPY', 2.7, 1100, 1, 'COPY', 'with the button in this window'),
+    ('PASTE', 1.3, 1000, 2, 'PASTE', None),          # None: this OS's paste line
+    ('PASTE', 2.6, 1800, 2, 'PASTE', None),
+    ('QUIT', 1.45, 1300, 3, 'QUIT', 'the game: the installer waits for it'),
+    ('DONE', 1.6, 2200, 3, 'QUIT', 'then the installer copies the files'),
+    ('PLAY', 1.0, 2400, 4, 'PLAY', 'Options > PZ Optimization'),
+]
+
+
+def helper_frames(menu, a):
+    """src/workshop/42/media/ui/pzopt_install/<os>/pzopt_install_<os>_NN.png (640 x 400, the size the helper window
+    expects: it draws them at 480 x 300) + PZ_Optimization_InstallFrames.lua, from the Script storyboard on a 960 x 600
+    canvas (strip 64 px, bigger type for the small window). Replaces harness/install-walkthrough.py --frames."""
+    set_canvas(960, 600, 64, 34, 0.875, 26)
+    base = EA.chrome('light', '2 Minute Install', SH, SIZE, STRIP, LABEL_PX, round(26 * K))
+    root = os.path.join(REPO, 'src/workshop/42/media/ui/pzopt_install')
+    lua = ['-- generated by harness/install-anim.py --helper-frames: the install walkthrough frames the helper window plays',
+           '-- (media/ui/pzopt_install/<os>/pzopt_install_<os>_NN.png, hold time in ms)', 'PZOptInstallFrames = {']
+    total = 0
+    for o in ('win', 'linux', 'mac'):
+        helper_frame_01(o)
+    for o in ('win', 'linux', 'mac'):
+        set_os(o)
+        steps = {st[1]: st[3] for st in Script(menu).steps()}
+        if not a.still:
+            shutil.rmtree(os.path.join(root, o), ignore_errors=True)
+            os.makedirs(os.path.join(root, o))
+        lua.append(f'    {o} = {{')
+        for i, (step, lt, ms, n, big, det) in enumerate(HELPER_BEATS):
+            s, box, cur = steps[step](lt)
+            img = s.copy() if box is None else view(s, box)
+            if cur:
+                x0, y0, w = box
+                sc = SW / w
+                draw_cursor(img, (cur[0] - x0) * sc, (cur[1] - y0) * sc, cur[2])
+            img = img.convert('RGBA')
+            img.alpha_composite(step_overlay(n, 4, big, [det or OSES[o]['paste']]))
+            out = base.copy()
+            out.paste(img.convert('RGB'), (STRIP, 0))
+            if a.still:
+                if o == a.os and i == a.beat:
+                    out.save(a.still)
+                    print('still', a.still, o, step, lt)
+                continue
+            # a unique name: getTexture looks the bare file name up in the game's texture packs first
+            f = os.path.join(root, o, f'pzopt_install_{o}_{i + 1:02d}.png')
+            out.resize((640, 400), Image.LANCZOS).quantize(colors=128, method=Image.Quantize.MEDIANCUT,
+                                                           dither=Image.Dither.NONE).save(f, optimize=True)
+            total += os.path.getsize(f)
+            lua.append(f'        {{ "media/ui/pzopt_install/{o}/pzopt_install_{o}_{i + 1:02d}.png", {ms} }},')
+        lua.append('    },')
+    lua.append('}')
+    set_os('win')
+    if a.still:
+        return
+    with open(os.path.join(REPO, 'src/workshop/42/media/lua/client/PZ_Optimization_InstallFrames.lua'), 'w') as fh:
+        fh.write('\n'.join(lua) + '\n')
+    print(f'helper frames: {len(HELPER_BEATS)} per OS, {total / 1e6:.2f} MB in all under {root}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--menu', required=True, help='the main menu screenshot (pzopt-menu.png of a compat_check=1 run)')
@@ -750,9 +890,15 @@ def main():
     ap.add_argument('--gif-fps', default='25')
     ap.add_argument('--crf', default='35')
     ap.add_argument('--out')
-    ap.add_argument('names', nargs='+')
+    ap.add_argument('--helper-frames', action='store_true', help="write the Workshop item's in-game walkthrough frames")
+    ap.add_argument('--os', default='win', help='with --helper-frames --still: the OS of the frame')
+    ap.add_argument('--beat', type=int, default=0, help='with --helper-frames --still: the frame index')
+    ap.add_argument('names', nargs='*')
     a = ap.parse_args()
     menu = Image.open(a.menu).convert('RGB')
+    if a.helper_frames:
+        helper_frames(menu, a)
+        return
     for name in a.names:
         render(name, menu, a)
 
