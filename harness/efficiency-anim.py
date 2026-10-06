@@ -26,6 +26,18 @@ showcase drive: --numbers 156:512 --second "p99 16.5 ms:p99 5.8 ms". --header pu
 instead of the strip (13 % of the height, the label centred, --label-px sets its size, default 42 at 630); the scene takes the
 rest of the canvas round the same centre; --align left puts the label at the numbers' left padding. --label-px without
 --header sets the strip label's size (the strip is 80 px with a 42 px label at 630 by default, the header bar's band).
+
+A TRIPLES name (2026-10-06, the maintainer's choice for the Workshop mods section) is the three-pane cut of the same template:
+stock | another performance mod | ours from three desktop `--record` runs of one route (the route start found in each
+recording from the quit-to-black instant, the other two shifted onto stock by thumbnail matching); the view starts on ours,
+both dividers sweep out to thirds, the three stand side by side THIRDS_HOLD s with a number block centred in each (route fps
+and p99 of the uncaptured runs), then sweep back. `python3 harness/efficiency-anim.py --size 630 [--still png] mods-drive120`.
+
+A RACES name (2026-10-06, boot and load) is a real-time race from launch: stock | ours from two desktop `--record` runs of the
+`load` bench, each started at the game's first log line, synced on the world-visible instant and stretched per phase onto the
+uncaptured runs' mean boot (-> Continue) and load (-> world visible); a live clock per side freezes when its world shows. The
+divider runs one cycle while both boot, holds on ours past its finish, then on stock past its finish, and sweeps back.
+`python3 harness/efficiency-anim.py --size 630 [--still png] boot-load`.
 """
 import argparse
 import json
@@ -56,6 +68,29 @@ VIDEOS = {  # name: (t0 s, strip label, stitch-efficiency.py kind, secondary lin
     'mac-opengl-2.1-vs-4.1-pond': (5, 'MacOS OpenGL 4.1', 'macpond', ('OpenGL 2.1', 'OpenGL 4.1')),
     'dell-low-end-vs-stock': (2.0, 'Low End HW Mode', 'dell', None),   # 2.0-9.9 s: longest enhanced-capture freeze 107 ms, no black chunks
 }
+TRIPLES = {  # three-pane comparisons (2026-10-06, the Workshop mods section): stock | another mod | ours, one view of the same
+             # route from three desktop recordings (run.sh --record --prop overlay=false); numbers from uncaptured runs.
+             # cap / num: run labels (newest run dir of each), words: the captions, crop: x:y:w square of the screen whose
+             # centre the scene keeps, t0: route seconds where the clip starts
+    'mods-drive120': dict(label='Vs Other Mods', t0=6.0, crop='1750:270:1620',
+                          cap=('mxcap-drive120-stock', 'mxcap-drive120-zedska', 'mxcap-drive120-opt'),
+                          num=('mx-drive120-stock', 'mx-drive120-zedska', 'mx-drive120-opt'),
+                          words=('STOCK', "ZED'S BETTER FPS KA", 'ENHANCED')),
+}
+RACES = {  # real-time races from launch (2026-10-06, the maintainer's choice for boot and load): stock | ours from two desktop
+           # `--record` runs of the `load` bench, each clock running from the game's first log line and frozen when the world
+           # shows. cap: capture run labels; num: the uncaptured runs' label (every run dir of it, averaged); crop: x:y:w square
+           # of the screen whose centre the scene keeps; mask: x:y:w:h box blacked out in the first mask_s video seconds (the
+           # queue's "job started" desktop notification over the still-black game window)
+    'boot-load': dict(label='Fast Boot & Load', cap=('boot-stock-cap', 'boot-opt-cap'), num=('boot-stock', 'boot-opt'),
+                      crop='1480:0:2160', mask='2040:1400:420:280', mask_s=3.0),
+}
+# the same race with both clocks always on screen (maintainer, 2026-10-06: the divider wipes the pictures, not the numbers)
+RACES['boot-load-clocks'] = dict(RACES['boot-load'], keep_numbers=True)
+# no sweep (maintainer, 2026-10-06): each side its own half of the scene (the crop's centre at half the width), a fixed
+# separator between them, both clocks always on screen
+RACES['boot-load-split'] = dict(RACES['boot-load'], keep_numbers=True, split=True)
+THIRDS_HOLD = 2.6                  # triple: seconds the three panes stand side by side
 THEMES = {  # strip, strip text
     'dark': ((240, 240, 244), (11, 11, 14)),
     'light': ((0, 0, 0), (255, 255, 255)),
@@ -211,6 +246,363 @@ def divider_positions(fps=60):
     return ([0.0] * h + [ease((i + 1) / n) for i in range(n)] + [1.0] * h + [1 - ease((i + 1) / n) for i in range(n)] + [0.0] * round(END_HOLD * fps))
 
 
+def triple_positions(fps=60):
+    """(a, b) per frame for the three-pane cut: stock left of a, the other mod between a and b, ours right of b. Hold on
+    ours, sweep both dividers out to thirds, hold the three side by side, sweep back, hold on ours again."""
+    n, h = round(SWEEP * fps), round(HOLD * fps)
+    out = [(0.0, 0.0)] * h
+    out += [(ease((i + 1) / n) / 3, ease((i + 1) / n) * 2 / 3) for i in range(n)]
+    out += [(1 / 3, 2 / 3)] * round(THIRDS_HOLD * fps)
+    out += [((1 - ease((i + 1) / n)) / 3, (1 - ease((i + 1) / n)) * 2 / 3) for i in range(n)]
+    return out + [(0.0, 0.0)] * round(END_HOLD * fps)
+
+
+def kv(path):
+    return dict(l.strip().split('=', 1) for l in open(path) if '=' in l)
+
+
+def run_dir(label):
+    runs = sorted(d for d in os.listdir('harness/runs') if d.startswith(label + '-2'))
+    if not runs:
+        raise SystemExit(f'no run {label}')
+    return f'harness/runs/{runs[-1]}'
+
+
+def route_window(d):
+    """(route start, route end) epoch ms of a run."""
+    s = kv(f'{d}/pzopt-schedule.out')
+    b = kv(f'{d}/pzopt-bench.out')
+    return int(s['route_start_epoch_ms']), int(s.get('route_end_epoch_ms') or b['route_end_epoch_ms'])
+
+
+def route_numbers(d):
+    """Route-window fps and p99 frame time of an uncaptured run's presented frames (pzopt-overlay.out)."""
+    r0, r1 = route_window(d)
+    rows = [l.strip().split(',') for l in open(f'{d}/pzopt-overlay.out') if l.strip()]
+    head = rows[0]
+    ie, ift = head.index('epoch_ms'), head.index('frametime')
+    ft = np.array([float(r[ift]) for r in rows[1:] if len(r) == len(head) and r0 <= float(r[ie]) <= r1])
+    return dict(fps=len(ft) / ((r1 - r0) / 1000.0), p99=float(np.percentile(ft, 99)))
+
+
+def thumbs(video, t, secs, fps=30, w=96, h=40):
+    raw = subprocess.run(['ffmpeg', '-v', 'error', '-ss', f'{max(0.0, t):.3f}', '-t', f'{secs:.3f}', '-i', video,
+                          '-vf', f'fps={fps},scale={w}:{h},format=gray', '-f', 'rawvideo', '-'], capture_output=True, check=True).stdout
+    n = len(raw) // (w * h)
+    return np.frombuffer(raw[:n * w * h], np.uint8).reshape(n, h, w).astype(np.float32)
+
+
+def route_start_in_video(d):
+    """Seconds into <run>/recording.mp4 where the route starts: the game quits the instant the route ends and the capture
+    goes black (stitch-louisville-sbs.sh), minus the route's length."""
+    r0, r1 = route_window(d)
+    video = f'{d}/recording.mp4'
+    guess = r1 / 1000 - int(subprocess.run(['stat', '-c', '%W', video], capture_output=True, text=True).stdout) - 4
+    m = thumbs(video, guess, 8, 20, 64, 27).mean(axis=(1, 2))
+    black = next(i for i in range(1, len(m)) if m[i] < 8 and m[i - 1] >= 8)
+    return guess + black / 20 - (r1 - r0) / 1000
+
+
+def video_shift(va, ta, vb, tb, secs=14.0, search=1.0, fps=30):
+    """Seconds to add to tb so that vb shows what va shows at ta (thumbnail difference over `secs` of route)."""
+    a = thumbs(va, ta + 1, secs, fps)
+    b = thumbs(vb, tb + 1 - search, secs + 2 * search, fps)
+    best, err = 0.0, None
+    for k in range(0, int(2 * search * fps) + 1):
+        n = min(len(a), len(b) - k)
+        e = float(np.abs(a[:n] - b[k:k + n]).mean())
+        if err is None or e < err:
+            best, err = k / fps - search, e
+    return best
+
+
+def triple_frames(videos, starts, secs, crop, sw, sh):
+    """Tone-mapped frames of the three recordings from their own start seconds, the crop square's centre at the scene size."""
+    x, y, w = (int(v) for v in crop.split(':'))
+    procs = [subprocess.Popen(['ffmpeg', '-hide_banner', '-v', 'error', '-ss', f'{t:.3f}', '-t', str(secs), '-i', v,
+                               '-vf', f'fps=60,{TONEMAP},crop={w}:{w}:{x}:{y},scale=-2:{sh}:flags=lanczos,crop={sw}:{sh},format=rgb24',
+                               '-f', 'rawvideo', '-'], stdout=subprocess.PIPE) for v, t in zip(videos, starts)]
+    n = sw * sh * 3
+    while True:
+        bufs = [p.stdout.read(n) for p in procs]
+        if any(len(b) < n for b in bufs):
+            break
+        yield [np.frombuffer(b, np.uint8).reshape(sh, sw, 3) for b in bufs]
+    for p in procs:
+        p.stdout.close()
+        p.wait()
+
+
+def triple_overlay(nums, words, sw, sh, k=1.0):
+    """Layers over the three-pane scene: the bottom gradient (always) and one number block centred in each third, side
+    'a' (stock, grey), 'm' (the other mod, grey), 'b' (ours, white); each is wiped with its picture."""
+    g = np.zeros((sh, sw, 4), np.uint8)
+    rows = int(sh * 0.42)
+    g[sh - rows:, :, 3] = (np.linspace(0, 1, rows) ** 1.6 * 200).astype(np.uint8)[:, None]
+    layers = [(g, None)]
+    pad = round(26 * k)
+    third = sw / 3
+    kk = k
+    while True:   # one size for all three blocks, as large as fits a third
+        F = lambda px: ImageFont.truetype(FONT, max(9, round(px * kk)))
+        cap, big, unit, sec = F(15), F(64), F(32), F(26)
+        d = ImageDraw.Draw(Image.new('RGBA', (8, 8)))
+        wide = max(max(d.textlength(f"{v['fps']:.0f}", font=big) + round(8 * kk) + d.textlength('fps', font=unit),
+                       d.textlength(f"p99 {v['p99']:.1f} ms", font=sec), d.textlength(wd, font=cap)) for v, wd in zip(nums, words))
+        if wide <= third - 2 * round(10 * k) or kk < 0.3:
+            break
+        kk *= 0.95
+    for i, (side, col) in enumerate((('a', BEFORE), ('m', BEFORE), ('b', AFTER))):
+        img = Image.new('RGBA', (sw, sh), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        v, cx, y = nums[i], third * (i + 0.5), sh - pad
+        s = f"p99 {v['p99']:.1f} ms"
+        d.text((cx, y), s, font=sec, fill=col, anchor='ms')
+        y -= sec.size + round(14 * kk)
+        num, gap = f"{v['fps']:.0f}", round(8 * kk)
+        wn, wu = d.textlength(num, font=big), d.textlength('fps', font=unit)
+        x0 = cx - (wn + gap + wu) / 2
+        d.text((x0, y), num, font=big, fill=col, anchor='ls')
+        d.text((x0 + wn + gap, y), 'fps', font=unit, fill=col, anchor='ls')
+        y -= big.size + round(14 * kk)
+        d.text((cx, y + round(4 * kk)), words[i], font=cap, fill=CAPTION, anchor='ms')
+        layers.append((np.asarray(img), side))
+    return layers
+
+
+def compose3(base, panes, ov, xa, xb, STRIP=STRIP):
+    """One frame of the three-pane cut: stock left of xa, the other mod from xa to xb, ours right of xb, two dividers."""
+    fr = base.copy()
+    sc = fr[:, STRIP:]
+    sc[:, :xa] = panes[0][:, :xa]
+    sc[:, xa:xb] = panes[1][:, xa:xb]
+    sc[:, xb:] = panes[2][:, xb:]
+    cols = {'a': slice(0, xa), 'm': slice(xa, xb), 'b': slice(xb, None), None: slice(None)}
+    for layer, side in ov:
+        c = cols[side]
+        a = layer[:, c, 3:4].astype(np.float32) / 255.0
+        sc[:, c] = (sc[:, c] * (1 - a) + layer[:, c, :3] * a).astype(np.uint8)
+    w = sc.shape[1]
+    for x in sorted({xa, xb}):
+        fade = ease(min(1.0, min(x, w - x) / (LINE_FADE * w)))
+        if 0 < x < w and fade > 0:
+            sh_ = slice(max(0, x - 3), x + 3)
+            sc[:, sh_] = (sc[:, sh_] * (1 - 0.45 * fade)).astype(np.uint8)
+            ln = slice(max(0, x - 1), x + 1)
+            sc[:, ln] = (sc[:, ln] * (1 - fade) + 255 * fade).astype(np.uint8)
+    return fr
+
+
+def triple(a, name, cw, strip, label_px, k):
+    c = TRIPLES[name]
+    sw = cw - strip
+    sh = a.size or int(round(sw * 9 / 16))
+    sh -= sh % 2
+    base = np.asarray(chrome(a.theme, a.label or c['label'], sh, cw, strip, label_px, round(26 * k))).copy()
+    caps = [run_dir(l) for l in c['cap']]
+    videos = [f'{d}/recording.mp4' for d in caps]
+    rs = [route_start_in_video(d) for d in caps]
+    shifts = [0.0] + [video_shift(videos[0], rs[0], v, t) for v, t in zip(videos[1:], rs[1:])]
+    starts = [t + c['t0'] + s for t, s in zip(rs, shifts)]
+    nums = [route_numbers(run_dir(l)) for l in c['num']]
+    print(f'== {name}: route start in the videos {[round(t, 2) for t in rs]}, shifts {[round(s, 3) for s in shifts]}, '
+          f'numbers ' + ', '.join(f"{w} {n['fps']:.1f} fps p99 {n['p99']:.1f}" for w, n in zip(c['words'], nums)))
+    ov = triple_overlay(nums, c['words'], sw, sh, k)
+    seq = triple_positions()
+    if a.still:
+        panes = next(triple_frames(videos, [s + 2 for s in starts], 0.1, c['crop'], sw, sh))
+        Image.fromarray(compose3(base, panes, ov, sw // 3, sw * 2 // 3, strip)).save(a.still)
+        print('still', a.still, base.shape)
+        return
+    work = f'build/anim/{name}-{a.theme}-{cw}'
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(f'{work}/frames')
+    i = 0
+    for panes in triple_frames(videos, starts, len(seq) / 60, c['crop'], sw, sh):
+        xa, xb = (round(sw * f) for f in seq[min(i, len(seq) - 1)])
+        Image.fromarray(compose3(base, panes, ov, xa, xb, strip)).save(f'{work}/frames/f{i:05d}.png', compress_level=1)
+        i += 1
+    print(f'== {name}: {i} frames {base.shape[1]}x{base.shape[0]} from route +{c["t0"]} s')
+    encode(a, work, base.shape, a.out or (f'workshop-media/template-{name}.gif' if a.gif else f'workshop-media/{name}.avif'))
+
+
+def load_events(d):
+    """Epoch ms of the first log line, the Continue press and the world showing (pzopt-loadtrace.out; LoadTrace's
+    "load step: world visible", the player's chunk lit, is the moment the picture changes from the loading screen)."""
+    ev = {}
+    for l in open(f'{d}/pzopt-loadtrace.out', errors='replace'):
+        try:
+            ep = int(l.split('\t', 1)[0])
+        except ValueError:
+            continue
+        ev.setdefault('log', ep)
+        if 'continuing latest save' in l:
+            ev.setdefault('cont', ep)
+        if 'load step: world visible' in l:
+            ev.setdefault('vis', ep)
+    return ev
+
+
+def race_numbers(label):
+    """(boot, load) seconds averaged over every run dir of an uncaptured label: launch -> Continue, Continue -> world visible."""
+    runs = sorted(f'harness/runs/{r}' for r in os.listdir('harness/runs') if r.startswith(label + '-2'))
+    if not runs:
+        raise SystemExit(f'no run {label}')
+    ev = [load_events(d) for d in runs]
+    return (float(np.mean([(e['cont'] - e['log']) / 1000 for e in ev])), float(np.mean([(e['vis'] - e['cont']) / 1000 for e in ev])),
+            [os.path.basename(d) for d in runs])
+
+
+def race_sync(d):
+    """Video seconds of the first log line, Continue and the world showing in <run>/recording.mp4. The recorder starts a few
+    hundred ms after its file is created; the exact offset comes from the world-visible instant, where the picture jumps
+    from the black loading screen."""
+    ev = load_events(d)
+    video = f'{d}/recording.mp4'
+    birth = float(subprocess.run(['stat', '-c', '%.9W', video], capture_output=True, text=True).stdout.replace(',', '.'))
+    guess = ev['vis'] / 1000 - birth
+    m = thumbs(video, guess - 2, 5, 60).mean(axis=(1, 2))
+    rise = next(i for i in range(len(m)) if m[i] > 3)
+    off = guess - 2 + rise / 60 - ev['vis'] / 1000
+    return {k: v / 1000 + off for k, v in ev.items()}
+
+
+def race_positions(done, fps=60):
+    """Divider per frame for a race (share of the width showing stock): the New! cards' cycle once while both boot, hold on
+    ours until a hold after it finished, sweep to stock and hold there until a hold after stock finished, sweep back.
+    done = (stock, ours) seconds to the world."""
+    n = round(SWEEP * fps)
+    out = [0.0] * round(HOLD * fps) + [ease((i + 1) / n) for i in range(n)] + [1.0] * round(HOLD * fps)
+    out += [1 - ease((i + 1) / n) for i in range(n)]
+    out += [0.0] * max(0, round((done[1] + HOLD) * fps) - len(out))
+    out += [ease((i + 1) / n) for i in range(n)]
+    out += [1.0] * max(0, round((done[0] + HOLD) * fps) - len(out))
+    out += [1 - ease((i + 1) / n) for i in range(n)]
+    return out + [0.0] * round((END_HOLD - 0.7) * fps)
+
+
+def race_overlay(t, nums, sw, sh, k=1.0, words=('STOCK', 'ENHANCED'), keep=False):
+    """Layers at race second t: the bottom gradient and per side a live clock (frozen at the world), the boot line and,
+    from the Continue press, the load line, each ticking until its phase ends. keep: both blocks always shown (not wiped
+    with their pictures)."""
+    g = np.zeros((sh, sw, 4), np.uint8)
+    rows = int(sh * 0.42)
+    g[sh - rows:, :, 3] = (np.linspace(0, 1, rows) ** 1.6 * 200).astype(np.uint8)[:, None]
+    layers = [(g, None)]
+    F = lambda px: ImageFont.truetype(FONT, max(11, round(px * k)))
+    cap, big, unit, sec = F(15), F(64), F(32), F(26)
+    pad = round(26 * k)
+    for side, col, word, right, (boot, load) in (('a', BEFORE, words[0], False, nums[0]), ('b', AFTER, words[1], True, nums[1])):
+        img = Image.new('RGBA', (sw, sh), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        x = sw - pad if right else pad
+        anchor = 'rs' if right else 'ls'
+        y = sh - pad
+        if t >= boot:
+            d.text((x, y), f'load {min(t - boot, load):4.1f} s', font=sec, fill=col, anchor=anchor)
+        y -= sec.size + round(8 * k)
+        d.text((x, y), f'boot {min(t, boot):4.1f} s', font=sec, fill=col, anchor=anchor)
+        y -= sec.size + round(14 * k)
+        num, gap = f'{min(t, boot + load):.1f}', round(8 * k)
+        wn, wu = d.textlength(num, font=big), d.textlength('s', font=unit)
+        x0 = sw - pad - (wn + gap + wu) if right else pad
+        d.text((x0, y), num, font=big, fill=col, anchor='ls')
+        d.text((x0 + wn + gap, y), 's', font=unit, fill=col, anchor='ls')
+        y -= big.size + round(14 * k)
+        d.text((x, y + round(4 * k)), word, font=cap, fill=CAPTION, anchor=anchor)
+        layers.append((np.asarray(img), None if keep else side))
+    return layers
+
+
+class RaceSide:
+    """One capture read forward from its first log line at 60 fps, tone-mapped and cut to the scene; frame(v) returns the
+    frame at video second v (monotonic calls), so a time map can stretch the capture onto the uncaptured run's phases."""
+
+    def __init__(self, video, t0, secs, crop, mask, mask_s, sw, sh):
+        x, y, w = (int(v) for v in crop.split(':'))
+        cw = round(w * sw / sh)
+        mx, my, mw, mh = (int(v) for v in mask.split(':'))
+        vf = (f'fps=60,{TONEMAP},drawbox=x={mx}:y={my}:w={mw}:h={mh}:color=black:t=fill:enable=\'lt(t,{mask_s - t0:.3f})\','
+              f'crop={cw}:{w}:{x + (w - cw) // 2}:{y},scale={sw}:{sh}:flags=lanczos,format=rgb24')
+        self.p = subprocess.Popen(['ffmpeg', '-hide_banner', '-v', 'error', '-ss', f'{t0:.3f}', '-t', f'{secs:.3f}', '-i', video,
+                                   '-vf', vf, '-f', 'rawvideo', '-'], stdout=subprocess.PIPE)
+        self.t0, self.n, self.shape, self.i, self.cur = t0, sw * sh * 3, (sh, sw, 3), -1, None
+
+    def frame(self, v):
+        want = max(0, round((v - self.t0) * 60))
+        while self.i < want:
+            b = self.p.stdout.read(self.n)
+            if len(b) < self.n:
+                break   # past the end: hold the last frame
+            self.cur, self.i = np.frombuffer(b, np.uint8).reshape(self.shape), self.i + 1
+        return self.cur
+
+    def close(self):
+        self.p.stdout.close()
+        self.p.kill()
+        self.p.wait()
+
+
+def race(a, name, cw, strip, label_px, k):
+    c = RACES[name]
+    sw = cw - strip
+    sh = a.size or int(round(sw * 9 / 16))
+    sh -= sh % 2
+    base = np.asarray(chrome(a.theme, a.label or c['label'], sh, cw, strip, label_px, round(26 * k))).copy()
+    caps = [run_dir(l) for l in c['cap']]
+    syncs = [race_sync(d) for d in caps]
+    nums = [race_numbers(l) for l in c['num']]
+    done = [b + l for b, l, _ in nums]
+    split = c.get('split', False)
+    seq = [0.5] * round((done[0] + HOLD + END_HOLD) * 60) if split else race_positions(done)
+    secs = len(seq) / 60
+    pw = sw // 2 if split else sw   # pane width
+    print(f'== {name}: ' + '; '.join(f"{w} boot {b:.2f} s load {l:.2f} s = {b + l:.2f} s ({', '.join(r)}), capture video "
+                                    f"log {s['log']:.2f} cont {s['cont']:.2f} vis {s['vis']:.2f}"
+                                    for w, (b, l, r), s in zip(('stock', 'ours'), nums, syncs)) + f'; {secs:.2f} s, {len(seq)} frames')
+
+    def vmap(s, n, t):
+        """Race second t -> capture video second: boot and load each stretched onto the uncaptured runs' means."""
+        b, l, _ = n
+        if t <= b:
+            return s['log'] + t / b * (s['cont'] - s['log'])
+        if t <= b + l:
+            return s['cont'] + (t - b) / l * (s['vis'] - s['cont'])
+        return s['vis'] + t - b - l
+    sides = [RaceSide(f'{d}/recording.mp4', s['log'], vmap(s, n, secs) - s['log'] + 0.5, c['crop'], c['mask'], c['mask_s'], pw, sh)
+             for d, s, n in zip(caps, syncs, nums)]
+    tn = [(b, l) for b, l, _ in nums]
+    keep = c.get('keep_numbers', False)
+
+    def frames(t):
+        """(left, right) scene-sized frames at race second t; split: each pane in its own half."""
+        fr = [side.frame(vmap(s, n, t)) for side, s, n in zip(sides, syncs, nums)]
+        if not split:
+            return fr
+        blank = np.zeros((sh, sw - pw, 3), np.uint8)
+        return np.hstack([fr[0], blank]), np.hstack([np.zeros((sh, sw - pw, 3), np.uint8), fr[1]])
+    if a.still:
+        t = done[1] + 2.0
+        fr = frames(t)
+        Image.fromarray(compose(base, fr[0], fr[1], race_overlay(t, tn, sw, sh, k, keep=keep), pw if split else sw // 2, strip)).save(a.still)
+        for side in sides:
+            side.close()
+        print('still', a.still, base.shape, f'at race {t:.1f} s')
+        return
+    work = f'build/anim/{name}-{a.theme}-{cw}'
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(f'{work}/frames')
+    for i, x in enumerate(seq):
+        t = i / 60
+        fr = frames(t)
+        Image.fromarray(compose(base, fr[0], fr[1], race_overlay(t, tn, sw, sh, k, keep=keep), pw if split else round(sw * x), strip)).save(
+            f'{work}/frames/f{i:05d}.png', compress_level=1)
+    for side in sides:
+        side.close()
+    print(f'== {name}: {len(seq)} frames {base.shape[1]}x{base.shape[0]}')
+    encode(a, work, base.shape, a.out or (f'workshop-media/template-{name}.gif' if a.gif else f'workshop-media/{name}.avif'))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--theme', default='light', choices=THEMES)
@@ -299,6 +691,12 @@ def main():
         encode(a, work, base.shape, a.out)
         return
     for name in a.names or list(VIDEOS):
+        if name in TRIPLES:
+            triple(a, name, cw, strip, label_px, k)
+            continue
+        if name in RACES:
+            race(a, name, cw, strip, label_px, k)
+            continue
         t0, label, kind, second, *mode = VIDEOS[name]
         label = a.label or label
         video = f'workshop-media/{name}.mp4'

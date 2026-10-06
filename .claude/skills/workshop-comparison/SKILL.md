@@ -47,7 +47,20 @@ Recipes that produced the published ones (copy the queue job's argv: `~/.local/s
   --option textureCompression=false`, enhanced = empty options file + the "Low-end hardware" preset keys + `dynRes=true
   dynResUpscaler=taau dynResFps=60`, capture `devCapture=0,100,30,50` (no `ram`: 8 GB RAM).
 
+- **Desktop, boot and load race** (`boot-load`, a `RACES` entry of `efficiency-anim.py`, no stitch step): `--bench load` +
+  `--option frameRate=244 --option uncappedFPS=false --vmarg -Dpzopt.userOptionsFile=<empty file> --prop hdr=false --prop
+  upscaler=off --prop vrrCap=false`, stock `--prop enabled=false`. Numbers: two uncaptured runs per side (`boot-stock`,
+  `boot-opt`, every dir of the label is averaged); capture: `--record --prop overlay=false` (`boot-{stock,opt}-cap`), the
+  enhanced one with `--flag settle=15` (a drive-mode run turns the overlay on at its route start, i.e. world + settle, which
+  would land inside the clip). Clock = first log line → Continue (boot) → LoadTrace's "world visible" (load: what the viewer
+  sees, ~1.4 s after world-ready on stock). Each capture is synced on the world-visible brightness jump and stretched per
+  phase onto the numbers runs' means (recorded runs are 3-9 % slower). 2026-10-06: stock 7.36 + 10.29 = 17.65 s, ours
+  5.31 + 2.52 = 7.83 s; 21.7 s loop, 576 KB.
+
 Traps (each cost a run on 2026-10-06):
+- A `--record` capture shows the desktop for ~0.9 s before the game window covers it, and the queue's "job started"
+  notification over the black window for a moment after: start panes at the game's first log line and black the
+  notification's box out (`RACES` `mask` / `mask_s`).
 - `--quit-after` counts from **launch**; the stock game boots slower, so give stock runs ~40 s more (the first Mac stock run
   quit 17 s into the route). Check `route done` in the console of every run.
 - `enabled=false` does **not** turn off `macGlCore` (it applies at window creation): a Mac stock run needs `--prop
@@ -88,7 +101,15 @@ loop) and fades out over the last 12 % of the width at each edge; each side's nu
 bottom left, enhanced white bottom right; fps big, the second line under it); the captions are always **STOCK** and
 **ENHANCED**, never before / after. AVIF, 60 fps, CRF 35, ~0.5-1 MB.
 
-Strip labels in use: "Handheld Efficiency", "MacOS OpenGL 4.1", "Low End HW Mode".
+Strip labels in use: "Handheld Efficiency", "MacOS OpenGL 4.1", "Low End HW Mode", "Fast Boot & Load".
+
+**Race variant** (maintainer, 2026-10-06, for boot / load): same strip, divider and captions, but real time from launch until
+stock's world shows + a hold (~22 s, not 7.9); per side a live clock (big, frozen when its world shows) with `boot` / `load`
+lines under it. Divider: the usual cycle once while both boot, hold on ours until 1.2 s after it finished, sweep to stock and
+hold there until 1.2 s after stock finished, sweep back. `python3 harness/efficiency-anim.py --size 630 [--still png] boot-load`.
+Variants: `boot-load-clocks` (same sweep, both clocks always on screen) and **`boot-load-split`, the published one**
+(maintainer, 2026-10-06: no sweep; each side its own half with the crop's centre, a fixed white separator, both clocks;
+loop = stock's finish + 2.7 s), `docs/workshop/images/65-feature-fast-boot-load-split.avif`, the first Features card.
 
 ```bash
 python3 harness/efficiency-anim.py --size 630 --still /tmp/x.png <name>                # layout check, one frame (no queue needed)
