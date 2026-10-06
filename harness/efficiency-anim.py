@@ -83,7 +83,8 @@ TRIPLES = {  # three-pane comparisons (2026-10-06, the Workshop mods section): s
     # camera keeps the car near 1760,720 at 5120x2160), the thirds held for the whole clip
     'mods-stormfog120': dict(label='{x} Vs Other Mods', t0=6.0, split='1760:226:1300',
                              cap=('mxcap-stormfog120-stock', 'mxcap-stormfog120-zedska', 'mxcap-stormfog120-opt'),
-                             num=('mx-stormfog120-stock-c', 'mx-stormfog120-zedska', 'mx-stormfog120-optg1'),
+                             num=(('mx-stormfog120-stock-b1', 'mx-stormfog120-stock-b2'), 'mx-stormfog120-zedska-b',
+                                  'mx-stormfog120-optg1-b'),   # one back-to-back block, 2026-10-07 00:19-00:24
                              words=('STOCK', "ZED'S BETTER FPS KA", 'ENHANCED')),
 }
 RACES = {  # real-time races from launch (2026-10-06, the maintainer's choice for boot and load): stock | ours from two desktop
@@ -440,7 +441,11 @@ def triple(a, name, cw, strip, label_px, k):
     rs = [route_start_in_video(d) for d in caps]
     shifts = [0.0] + [video_shift(videos[0], rs[0], v, t) for v, t in zip(videos[1:], rs[1:])]
     starts = [t + c['t0'] + s for t, s in zip(rs, shifts)]
-    nums = [route_numbers(run_dir(l)) for l in c['num']]
+    def num_of(l):   # a tuple of labels = the mean of those runs (stock at both ends of a back-to-back block)
+        ls = l if isinstance(l, tuple) else (l,)
+        ns = [route_numbers(run_dir(x)) for x in ls]
+        return {k: sum(n[k] for n in ns) / len(ns) for k in ns[0]}
+    nums = [num_of(l) for l in c['num']]
     r = nums[2]['fps'] / nums[1]['fps']   # ours over the other mod
     x = f'{r:.0f}x' if r >= 10 or abs(r - round(r)) < 0.05 else f'{r:.1f}x'
     base = np.asarray(chrome(a.theme, (a.label or c['label']).replace('{x}', x), sh, cw, strip, label_px, round(26 * k))).copy()

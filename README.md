@@ -330,7 +330,7 @@ against our sources, 0.43–0.81, where unrelated classes of similar size score 
 PZ Optimization for some of its improvements; its code does not.
 
 The Workshop page shows the same table and a stock | Zed's KA | ours clip of the drive in a thunderstorm with heavy fog
-(56.8 / 64.5 / 385.5 fps).
+(57.7 / 66.5 / 386.1 fps, one back-to-back block, stock at both ends).
 
 ### Input latency: NVIDIA Reflex-style low latency
 
