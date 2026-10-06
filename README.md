@@ -290,32 +290,34 @@ the four cores) and GraalVM 25.3 is 25–40 % behind HotSpot C2. Full pass in `d
 
 ### Against the Workshop's performance mods
 
-The most-subscribed Build 42 performance mods, each run on the same three routes (120 km/h
-drive, the same drive in a thunderstorm, the Rosewood spin), uncapped, one mod at a time on
-the stock game, checked in the console to be loaded and patching (2026-09-21; per-mod detail
-in `docs/archive/2026-09-24/results.md`).
+The most-subscribed Build 42 performance mods, each installed the way its page says and run alone on the stock game, on
+three routes: the 120 km/h highway drive, the same drive in a thunderstorm, and the Louisville horde (~2,000 zombies),
+uncapped (2026-10-06, Build 42.21, the desktop: Ryzen 7 9800X3D, RTX 4090, 5120x2160, Linux; runs `mx-*`, rig in
+`harness/mods-table-card.py`). Stock and the other mods keep the game's own launcher (ZGC, 3 GB heap); PZ_Optimization
+runs on G1, as its install sets it for players.
 
-![Workshop performance mods vs PZ_Optimization on the three routes](docs/media/workshop-mods-comparison.png)
+![Workshop performance mods vs PZ_Optimization](docs/workshop/images/68-vs-other-mods-table.png)
 
-| Mod | Subscribers | What it is | Drive fps / p99 | Storm | Spin |
-|---|---|---|---|---|---|
-| Stock game | | | 167 / 15.5 ms | 75 / 59 | 135 / 27 |
-| [Project Zomboid Optimiser](https://steamcommunity.com/sharedfiles/filedetails/?id=3787481250) | 23 k | Lua toggles, F10 control centre | 159 / 15.6 | 72 / 66 | 128 / 30 |
-| … + its [PZO-Launcher](https://github.com/prop11/PZO-Launcher) engine jar and JVM flags | | agent jar, native lib, launcher JSON | 165 / 15.5 | 72 / 66 | 129 / 29 |
-| [Tempo](https://steamcommunity.com/sharedfiles/filedetails/?id=3736629791) | 42 k | Lua sampler and menu memo | 160 / 15.3 | 71 / 61 | 130 / 28 |
-| … + its optional class shadows | | chunk-finalize budget, 3D-zombie cap | 162 / 15.3 | 76 / 57 | 131 / 30 |
-| [Multi-Cpu Enhance](https://steamcommunity.com/sharedfiles/filedetails/?id=3459875383) | 28 k | launcher JSON: ParallelGC, 8 GB heap | 169 / 15.2, **one 320 ms stall** | 74 / 62, **one 320 ms stall** | 136 / 29, **two 300–350 ms stalls** |
-| [Every Texture Optimized](https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162) | 616 k | 6,142 re-encoded textures | 163 / 15.2 | 72 / 63 | 135 / 29 |
-| [Lugli – Optimizations](https://steamcommunity.com/sharedfiles/filedetails/?id=3790863696) | 3 k | ZombieBuddy patches | 162 / 15.3 | 73 / 60 | 135 / 28 |
-| [Zed's Better FPS](https://steamcommunity.com/sharedfiles/filedetails/?id=3622986450) ([42.20 fix](https://steamcommunity.com/sharedfiles/filedetails/?id=3782613536)) | 47 k | ZombieBuddy patches: GL state cache, sprite batching | 161 / 15.2 | 75 / 59 | 134 / 28 |
-| [Let Me Drive!](https://steamcommunity.com/sharedfiles/filedetails/?id=3805307651) | new (posted 2026-09-20) | Lua event gate: other mods' chunk handlers deferred, GC-call block, optional zoom cap / speed limit | 154 / 15.9 | 69 / 60 | — (drive only; fog 111 / 18.2 vs stock 114 / 17.7, storm + fog 63 / 64 vs 66 / 66) |
-| **PZ_Optimization** | | class overrides | **481 / 8.8** | **246 / 13.8** | **456 / 8.5** |
+| Mod | What it is | Drive fps / p99 ms | Storm | Louisville horde |
+|---|---|---|---|---|
+| Stock game | | 97 / 20.7 | 63 / 61.6 | 22 / 112 |
+| [Project Zomboid Optimiser](https://steamcommunity.com/sharedfiles/filedetails/?id=3787481250) + its [PZO-Launcher](https://github.com/prop11/PZO-Launcher) V0.9.9.4 | Lua toggles; agent jar, native lib, launcher JSON (G1, 8 GB) | 117 / 16.8 | 61 / 64.4 | 25 / 96.5 |
+| [Tempo](https://steamcommunity.com/sharedfiles/filedetails/?id=3736629791) | Lua sampler and menu memo | 93 / 21.8 | 52 / 68.2 | 24 / 112 |
+| [Multi-Cpu Enhance](https://steamcommunity.com/sharedfiles/filedetails/?id=3459875383) | launcher JSON: ParallelGC, 8 GB heap | 98 / 21.4, **301 ms stall** | 67 / 64.4, **332 ms stall** | 29 / 97.9, **390 ms stall** |
+| [Every Texture Optimized](https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162) | re-encoded textures | 94 / 21.6 | 63 / 63.1 | 24 / 104 |
+| [Lugli – Optimizations](https://steamcommunity.com/sharedfiles/filedetails/?id=3790863696) | ZombieBuddy patches | 93 / 22.0 | 62 / 62.6 | 23 / 109 |
+| [Zed's Better FPS](https://steamcommunity.com/sharedfiles/filedetails/?id=3622986450) | ZombieBuddy patches | does not load: needs ZombieBuddy 2.4, the Workshop's is 2.3.4 | | |
+| [Zed's Better FPS KA](https://steamcommunity.com/sharedfiles/filedetails/?id=3793137588) | ZombieBuddy patches (a port that reuses this repo's code) | 113 / 17.4 | 73 / 18.5 | 29 / 89.0 |
+| [Let Me Drive!](https://steamcommunity.com/sharedfiles/filedetails/?id=3805307651) | Lua event gate, GC-call block | 107 / 19.0 | 60 / 66.9 | 23 / 108 |
+| **PZ_Optimization** | class overrides | **507 / 5.3** | **447 / 6.3** | **86 / 43.9** |
 
-Every one of them measures within run-to-run noise of the stock game (fps ±4 %, p99 ±3 ms):
-none touches the per-frame chunk, tree and translucent drawing on the render thread or the
-world update on the game thread that set the frame time. Multi-Cpu Enhance's
-`-XX:+UseParallelGC` is worse than stock: a 300–350 ms stop-the-world collection landed inside
-every route (the game's own G1 never paused longer than 21 ms).
+Two mods gain only through the launcher's garbage collector. PZ Optimiser's installer swaps the game's ZGC / 3 GB for
+G1 / 8 GB, and stock with that same switch runs as fast (spin 125 vs 123 fps, drive 118 vs 117: runs `mx-*-stockg1`).
+Multi-Cpu Enhance's ParallelGC helps the horde but puts a 300–390 ms stop-the-world pause inside every route. Zed's
+Better FPS KA is the only one with a gain of its own (+17 % drive, +15 % storm with a far shorter tail, +28 % horde).
+The rest are within run-to-run noise of stock (two stock runs of the storm drive differ by up to 23 %, of the horde by
+16 %). The Workshop page shows the same table and a stock | Zed's KA | ours clip of the drive in a thunderstorm with
+heavy fog (49.5 / 64.5 / 385.5 fps).
 
 ### Input latency: NVIDIA Reflex-style low latency
 

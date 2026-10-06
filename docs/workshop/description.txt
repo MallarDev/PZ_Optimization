@@ -46,7 +46,7 @@ Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/66-vs-other-mods-storm-fog.avif[/img]
 [i]Desktop (Ryzen 7 9800X3D, GeForce RTX 4090, 5120x2160, Linux). 120 km/h highway drive in a thunderstorm with heavy fog, uncapped. Stock: the game as it ships. Zed's Better FPS KA: the other mod with the largest gain of its own, installed as its page says. Enhanced: every optimization at its default. Numbers from runs without capture.[/i] [url=https://pzo.diegov.dev/d/pzopt-compare/compare?var-runs=mx-stormfog120-stock-20261006-223508&var-runs=mx-stormfog120-zedska-20261006-223640&var-runs=mx-stormfog120-optg1-20261006-223805&var-base=mx-stormfog120-stock-20261006-223508]The three runs on the dashboard[/url]
 
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/67-vs-other-mods-table.png[/img]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/68-vs-other-mods-table.png[/img]
 [i]Project Zomboid Optimiser's gain is its launcher's garbage-collector switch (G1, 8 GB): stock with the same switch runs as fast.[/i]
 
 [h1]Updates, uninstall[/h1]
