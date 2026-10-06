@@ -15,7 +15,8 @@ zoom-and-pan variant (hold, ease from GIF_START to GIF_END, hold).
        GIF_SCENE_VF (ffmpeg filter chain run over the scene rows only, default
        "hqdn3d=3:2:0:0,bilateral=sigmaS=2:sigmaR=0.03"; empty = none),
        GIF_LOSSY (gifsicle --lossy level, 0 = off, default 100; binary from GIFSICLE or PATH),
-       GIF_LABEL (default "PZ Optimized"), GIF_LABEL_POS top|bottom (default top),
+       GIF_LABEL (default "PZ Optimized"), GIF_LABEL_POS top|bottom (default top), GIF_FONT (header font file,
+       default Noto Sans Black), GIF_FONT_AXES (a variable font's axis values in order, e.g. 72,800),
        GIF_BANNER x:y:w:h (source rectangle of the overlay pasted live along the bottom, default
        0:0:747:305 = fps / percentiles / loads / verdict / graph; empty = none), GIF_BANNER_SCALE
        (default 0.6, text ~14 px), GIF_BAND (header band height as a fraction of the side, default 0.15),
@@ -87,6 +88,8 @@ hud_tol = int(os.environ.get('GIF_HUD_TOL', '32'))
 text_tol = int(os.environ.get('GIF_TEXT_TOL', '64'))
 graph_every = int(os.environ.get('GIF_GRAPH_EVERY', '4'))
 BLACK = '/usr/share/fonts/noto/NotoSans-Black.ttf'
+label_font = os.environ.get('GIF_FONT', BLACK)        # e.g. Literata's variable TTF (the 2026-10-06 remaster)
+label_axes = os.environ.get('GIF_FONT_AXES', '')      # a variable font's axis values in its order, e.g. 72,800 (opsz, wght)
 
 W, H = 5120, 2160
 n = int(round(total * fps))
@@ -103,7 +106,9 @@ bh = int(S * band_frac)
 band = Image.new('RGBA', (S, S), (0, 0, 0, 0))
 ImageDraw.Draw(band).rectangle((0, 0, S, bh) if label_top else (0, S - bh, S, S), fill=(0, 0, 0, 170))
 band = band.filter(ImageFilter.GaussianBlur(S // 40))
-font = ImageFont.truetype(BLACK, int(S * 0.6 * band_frac))
+font = ImageFont.truetype(label_font, int(S * 0.6 * band_frac))
+if label_axes:
+    font.set_variation_by_axes([float(v) for v in label_axes.split(',')])
 ly = bh // 2 if label_top else S - bh // 2
 # the overlay banner: its own scale (not the crop's), pasted 1:1 along the bottom, no denoise
 bsz = (S, int(round(bhh * bscale * S / (bw * bscale)))) if banner else None    # full width, height in proportion
@@ -138,6 +143,17 @@ for i in range(n):
     frames.append(np.asarray(im.convert('RGB')))
 proc.kill(); proc.wait()
 assert len(frames) >= n - 1, f'only {len(frames)} frames decoded'
+
+# GIF_FRAMES_DIR: the composited frames as lossless PNGs (f00000.png ...), the common input and quality reference of the
+# other encoders (animated AVIF / WebP, gifski; harness/anim-encode.py); GIF_FRAMES_ONLY=1 stops here (2026-10-06)
+frames_dir = os.environ.get('GIF_FRAMES_DIR')
+if frames_dir:
+    os.makedirs(frames_dir, exist_ok=True)
+    for i, f in enumerate(frames):
+        Image.fromarray(f).save(f'{frames_dir}/f{i:05d}.png', compress_level=1)
+    print(f'wrote {len(frames)} frames to {frames_dir} ({S}x{S}, {fps} fps)')
+    if os.environ.get('GIF_FRAMES_ONLY') == '1':
+        sys.exit(0)
 
 work = '/tmp/pzopt-thumb-gif'
 os.makedirs(work, exist_ok=True)

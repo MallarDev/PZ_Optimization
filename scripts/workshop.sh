@@ -111,9 +111,10 @@ else
   echo "warning: no $src_img or no ffmpeg; put a square preview.png in $out and poster.png in $MOD" >&2
 fi
 
-# the animated preview (harness/showcase-thumbnail-gif.py); workshop-upload.py sends it when it is
+# the animated preview: its own GIF since 2026-10-06 (00-preview.gif: gifski, 268 px = the item page's size, 25 fps, 5 s;
+# harness/anim-encode.py), the page's headline is the 60 fps AVIF 00-headline.avif; workshop-upload.py sends it when it is
 # <= 1,000,000 bytes (the in-game uploader could only send preview.png)
-[[ -f docs/workshop/images/00-showcase-thumbnail.gif ]] && cp docs/workshop/images/00-showcase-thumbnail.gif "$out/preview.gif"
+[[ -f docs/workshop/images/00-preview.gif ]] && cp docs/workshop/images/00-preview.gif "$out/preview.gif"
 
 # workshop.txt: keep the id= of an earlier upload (the game writes it back after the first one)
 id=""

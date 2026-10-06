@@ -1,124 +1,58 @@
-[b]Game closes at start since the 42.21 update?[/b] The 42.20 build is still installed: run the one-line installer below again, it replaces it. Vanilla instead: the uninstall line below.
+[h1]Project Zomboid without the stutter[/h1]
+[url=https://github.com/xD3I/PZ_Optimization#readme][img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/00-headline.avif[/img][/url]
+Driving, hordes, storms: the game's own work spread over frames and CPU cores, so the frame time stays even. 120 km/h drive p99 19 -> 8 ms, thunderstorm 83 -> 188 fps, loading twice as fast. Optional graphics on top: lighting, shadows, reflections, glass. Steam version, Windows / Linux / macOS, Build @VERSION@.
 
-[b]The optimizations are class files for the game folder, not a Lua mod.[/b] Subscribe, enable the mod once: the main menu shows the install command for your computer with a Copy button. To remove it: Options > PZ Optimization > Uninstall PZ Optimization.
+[url=https://github.com/xD3I/PZ_Optimization][img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/link-github-small.png[/img][/url] [url=https://discord.gg/W32aAnKpK][img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/link-discord-small.png[/img][/url]
 
-Class overrides for Project Zomboid Build @VERSION@ (game revision @REV@) that shorten chunk-streaming stalls and tighten the frame time, plus graphics options (Options > PZ Optimization > Visuals) and a frame-time overlay (F9 / L3 + R3). Single player and multiplayer, client side only. Steam version on Windows, Linux and macOS. Source, measurements and the same files as a GitHub release: https://github.com/xD3I/PZ_Optimization
+[quote][b]Read before subscribing[/b]
+[list]
+[*][b]Subscribing is not enough.[/b] This replaces game classes; it needs the one-time install below.
+[*][b]Mods: untested, unsupported.[/b] Other mods may work alongside it; nobody checks them and problems with them are not fixed.
+[*][b]Multiplayer: untested, unsupported.[/b] It installs on your client only; joining a server may work, may not.
+[*]Something wrong? Options > PZ Optimization > "Stock game" preset, restart, then tell us on Discord.
+[/list][/quote]
 
-[h1]Install[/h1]
+[h1]Install (once, about two minutes)[/h1]
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/40-install.gif[/img]
-1. Subscribe and wait until Steam has downloaded the item.
-2. Mods (main menu): enable [b]PZ_Optimization[/b]. A window shows the install command with this item's folder in it.
-3. Press [b]Copy the command[/b], open PowerShell (Windows: Start menu, type powershell) or a terminal (Linux, macOS), paste, Enter.
-4. Quit the game (QUIT): the installer waits for that, then copies the files. Start the game: Options now has a [b]PZ Optimization[/b] tab. Disable the mod again, it only carries that window.
-
-[b]Without the window[/b], one line (finds this item's download itself, waits for the game to close):
-Windows (PowerShell): [code]irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1 | iex[/code]
-Linux, macOS (terminal): [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.sh | bash[/code]
-Or run install.ps1 / install.bash from this item's folder (steamapps/workshop/content/108600/@ID@/mods/PZ_Optimization/42/). The installer checks the game version, never overwrites a file and never modifies projectzomboid.jar; the first boot is a few seconds slower (caches under Zomboid/pzopt/).
-
-[h1]Stock game again, or uninstall[/h1]
-[b]To compare with stock:[/b] Options > PZ Optimization > "Stock game" preset, restart. Nothing is removed; "Recommended" brings it back.
-[b]To uninstall:[/b] Options > PZ Optimization > [b]Uninstall PZ Optimization[/b] (main menu). The game closes, then every installed file is removed and the launcher settings it changed are put back. Your settings in Zomboid/pzopt/ stay.
-[b]Uninstall before you unsubscribe:[/b] unsubscribing deletes this item, not the installed files. Already unsubscribed, or no game? The one-line installer with -Uninstall: [code]& ([scriptblock]::Create((irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1))) -Uninstall[/code] (Linux, macOS: the curl line ending in [b]| bash -s -- --uninstall[/b]).
-
-[h1]Updates[/h1]
-No need to run the installer again: the main menu shows PZ OPTIMIZATION UPDATE when a new build is out (copied from this item's download or GitHub, only the changed files), then Restart game. Off in Options > PZ Optimization. After a game update the old build can stop the game at start: run the installer again once the new build is out.
-
-[url=https://github.com/xD3I/PZ_Optimization#readme][img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/00-showcase-thumbnail.gif[/img][/url]
-[i]Uncapped at 5120x2160, the in-game overlay (F9 / L3 + R3) live at the bottom; video on the repository page.[/i]
+[olist]
+[*]Subscribe, let Steam download it.
+[*]Mods (main menu): enable [b]PZ_Optimization[/b]; a window shows your install command.
+[*][b]Copy the command[/b], paste it into PowerShell (Windows) or a terminal (Linux, macOS), Enter.
+[*]Quit the game; the installer copies the files when it has closed.
+[*]Start the game, disable the mod again. Options has a new [b]PZ Optimization[/b] tab.
+[/olist]
+No window? Windows: [code]irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1 | iex[/code]
+Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.sh | bash[/code]
 
 [h1]New! Settings in one place[/h1]
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/59-settings-in-one-place.gif[/img]
 
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/58-soft-god-rays.gif[/img]
+[h1]What you get[/h1]
+[table]
+[tr][th]Performance (on)[/th][th]Visuals (opt-in)[/th][th]Tools[/th][/tr]
+[tr][td]Even frame time while driving[/td][td]Per-pixel lighting[/td][td]F9 performance overlay[/td][/tr]
+[tr][td]Hordes on all CPU cores[/td][td]Sun, moon, cloud shadows[/td][td]Game-thread profiler[/td][/tr]
+[tr][td]Cached rain, puddles, fog[/td][td]God rays, ambient occlusion[/td][td]Stock-game preset[/td][/tr]
+[tr][td]Faster boot and loading[/td][td]Reflections, mirrors[/td][td]Settings export / import[/td][/tr]
+[tr][td]Smooth zoom and car camera[/td][td]Glass car windows[/td][td]Built-in updater[/td][/tr]
+[tr][td]Lag-free UI[/td][td]Colour grading, HDR[/td][td]One-click uninstall[/td][/tr]
+[tr][td]FSR, dynamic resolution[/td][td]Sharp sprites, foliage sway[/td][td]Mod conflict check[/td][/tr]
+[/table]
 
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/57-mirrors-and-windows.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/56-torch-source.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/55-occluded-outlines.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/54-people-in-cars.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/53-dynamic-resolution.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/52-driving-trees.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/51-mod-compatibility-check.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/50-glass-car-windows.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/49-mac-unbound.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/48-mod-compatibility.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/47-share-settings.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/46-relief.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/45-zero-lag-ui.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/44-real-blood.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/43-foliage-sway.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/42-pixel-perfect-shadows.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/41-god-rays.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/39-sun-moon-clouds.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/38-sharp-sprites.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/37-darkness-memory-grading.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/36-fluid-driving.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/35-reflections.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/34-faster-local-updates.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/33-let-there-be-light.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/32-texture-compression.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/31-per-pixel-lighting.gif[/img]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/30-smooth-operator-driving.gif[/img]
-
-[h1]What it does[/h1]
-Project Zomboid loads and bakes the map in chunks; on stock, the loading, baking and lighting work of a busy screen lands in the same frame and shows as stutter while driving or turning. These overrides move that work off the game thread, spread it over frames, and cache what stock recomputes every frame (puddles, rain, cutaways, lights, sound zones). At 5120x2160 on an RTX 4090: driving p99 frame time 19 -> 8 ms, uncapped ~270 -> ~500 fps, thunderstorms 83 -> 188 fps.
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/07-results.jpg[/img]
-
-[h1]Low-end hardware mode[/h1]
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/11-low-end-hardware.jpg[/img]
-
-[h1]Boot and load times[/h1]
-Launch to main menu and Continue to world ready, same save: stock 7.55 s + 7.67 s, optimized 4.88 s + 3.47 s (FMOD and the animation sets on boot threads, precompiled Lua, animation and pack indexes cached under Zomboid/pzopt/; the first boot after installing is slower).
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/01-boot-load.jpg[/img]
-
-[h1]Performance overlay (F9 / L3 + R3)[/h1]
-Off by default: tick "Sample frame times and utilization" in Options > PZ Optimization > Tools (no restart), then F9 or a pad's L3 + R3 toggles it. Frame time, its tail (p99 / p99.9 / max, 1 %-low, jitter, spikes), GPU busy, game- and render-thread load, a verdict line, the game-thread tree and flame graph below, the frame graph; every element is a dropdown there. Same on every platform, no MangoHud / RivaTuner.
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/13-profiler.jpg[/img]
-
-[h1]Settings[/h1]
-Options > PZ Optimization: presets, a tile per category, subcategory tabs, Simple / Advanced / Everything, Fix a problem, one search; each setting with a stock-vs-optimized clip and effect bars. Performance applies on the next launch, most Visuals at once. Options > Display gains an "Uncapped" framerate entry and a separate menu framerate.
-
-[h1]Stock vs optimized, frame by frame[/h1]
-Left: stock, cap removed. Right: the overrides, uncapped. Big number = 1 s average, small block = whole route.
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/02-drive-120kmh.jpg[/img]
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/04-rosewood-spin.jpg[/img]
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/05-fog-drive.jpg[/img]
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/06-storm-drive.jpg[/img]
-
-[h1]Compared with the other performance mods[/h1]
-The most-subscribed Build 42 performance mods on the same three routes (120 km/h drive, the drive in a thunderstorm, a Rosewood spin), uncapped, one at a time; fps mean / p99 frame time:
+[h1]Against the other performance mods[/h1]
+Same three uncapped routes, one mod at a time:
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/10-workshop-mods-comparison.jpg[/img]
-All of them measure within noise of stock: [b]Project Zomboid Optimiser[/b] (Lua debug toggles, shader copies), [b]Tempo[/b] (chunk finalizing), [b]Multi-Cpu Enhance[/b] (ParallelGC: 300 ms pauses, worse than stock), [b]Every Texture Optimized[/b] (VRAM, not frame time), [b]Lugli[/b] and [b]Zed's Better FPS[/b] (ZombieBuddy patches off the per-frame drawing). This item: 481 / 246 / 456 fps, p99 8.8 / 13.8 / 8.5 ms.
+[table]
+[tr][th]Mod[/th][th]Result[/th][/tr]
+[tr][td]Project Zomboid Optimiser[/td][td]stock, within noise[/td][/tr]
+[tr][td]Tempo[/td][td]stock, within noise[/td][/tr]
+[tr][td]Every Texture Optimized[/td][td]less VRAM, same frame time[/td][/tr]
+[tr][td]Lugli, Zed's Better FPS[/td][td]stock, within noise[/td][/tr]
+[tr][td]Multi-Cpu Enhance[/td][td]worse: 300 ms GC pauses[/td][/tr]
+[tr][td][b]PZ Optimization[/b][/td][td][b]481 / 246 / 456 fps, p99 8.8 / 13.8 / 8.5 ms[/b][/td][/tr]
+[/table]
 
-[h1]How it works[/h1]
-The launcher (ProjectZomboid64.json) searches the game folder before projectzomboid.jar, so a loose .class file with the same name as one in the jar replaces it. The item holds those files (@NFILES@ files: @NOVERRIDES@ shadowed game classes, the pzopt package, Lua, preview clips, a manifest) under [b]pzopt-classes[/b]; projectzomboid.jar is never modified. A guard checks the game revision and the sha256 of every shadowed stock class at start-up; on any difference its changes switch off (one log line).
+[h1]Updates, uninstall[/h1]
+Updates arrive in the main menu (PZ OPTIMIZATION UPDATE, one click). To remove: Options > PZ Optimization > [b]Uninstall PZ Optimization[/b], [b]before[/b] you unsubscribe (unsubscribing leaves the installed files). After unsubscribing: the install command with [b]-Uninstall[/b] (Windows) or [b]| bash -s -- --uninstall[/b] (Linux, macOS).
 
-[h1]This build[/h1]
-Game revision @REV@ (Build @VERSION@), repository commit @COMMIT@, @NFILES@ files, zip sha256 @SHA@.
+Build @VERSION@, game revision @REV@, commit @COMMIT@, @NFILES@ files, sha256 @SHA@. projectzomboid.jar is never modified.

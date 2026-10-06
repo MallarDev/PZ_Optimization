@@ -4,6 +4,7 @@
   scripts/workshop-upload.py --notes "Release <commit> (Build <version>, game revision <rev>). ..."
   scripts/workshop-upload.py --check        # everything up to the submit: Steam logged on, fields, paths
   scripts/workshop-upload.py --notes "..." [--dir <staged item>] [--preview gif|png|<file>] [--timeout 600]
+  scripts/workshop-upload.py --description-only --notes "..." --dir <dir with a workshop.txt + Contents/>   # page text only
 
 Loads the game's own natives/libsteam_api.so with SteamAppId=108600 and talks to the running,
 logged-on Steam client (no password, no steamcmd login), then does what the in-game uploader
@@ -167,6 +168,8 @@ def main():
     ap.add_argument("--lib", default=os.environ.get("PZ_DIR", "/games/steamapps/common/ProjectZomboid/projectzomboid") + "/natives/libsteam_api.so")
     ap.add_argument("--timeout", type=float, default=600)
     ap.add_argument("--check", action="store_true", help="no submit: Steam session, fields and paths only")
+    ap.add_argument("--description-only", action="store_true",
+                    help="send the page text alone (no title, tags, files or preview): try a new page without a release")
     a = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)  # the queue's `log -f` follows it live
     if not a.check and not a.notes:
@@ -217,12 +220,15 @@ def main():
         class StringArray(C.Structure):  # SteamParamStringArray_t
             _fields_ = [("strings", C.POINTER(C.c_char_p)), ("count", C.c_int32)]
         tag_arr = StringArray(tags, len(item["tags"]))
-        steps = [("title", api.SteamAPI_ISteamUGC_SetItemTitle(ugc, h, item["title"].encode())),
-                 ("description", api.SteamAPI_ISteamUGC_SetItemDescription(ugc, h, desc.encode())),
-                 ("visibility", api.SteamAPI_ISteamUGC_SetItemVisibility(ugc, h, vis)),
-                 ("tags", api.SteamAPI_ISteamUGC_SetItemTags(ugc, h, C.addressof(tag_arr), False)),
-                 ("content", api.SteamAPI_ISteamUGC_SetItemContent(ugc, h, str(contents.resolve()).encode())),
-                 ("preview", api.SteamAPI_ISteamUGC_SetItemPreview(ugc, h, str(preview.resolve()).encode()))]
+        setters = [("title", lambda: api.SteamAPI_ISteamUGC_SetItemTitle(ugc, h, item["title"].encode())),
+                   ("description", lambda: api.SteamAPI_ISteamUGC_SetItemDescription(ugc, h, desc.encode())),
+                   ("visibility", lambda: api.SteamAPI_ISteamUGC_SetItemVisibility(ugc, h, vis)),
+                   ("tags", lambda: api.SteamAPI_ISteamUGC_SetItemTags(ugc, h, C.addressof(tag_arr), False)),
+                   ("content", lambda: api.SteamAPI_ISteamUGC_SetItemContent(ugc, h, str(contents.resolve()).encode())),
+                   ("preview", lambda: api.SteamAPI_ISteamUGC_SetItemPreview(ugc, h, str(preview.resolve()).encode()))]
+        if a.description_only:
+            setters = [s for s in setters if s[0] == "description"]
+        steps = [(n, f()) for n, f in setters]
         refused = [n for n, r in steps if not r]
         if refused:
             die(2, f"Steam refused: {', '.join(refused)} (update handle {h})")
