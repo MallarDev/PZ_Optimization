@@ -65,5 +65,6 @@ https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/imag
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/68-vs-other-mods-table.png https://da.gd/9Psd1
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/69-vs-other-mods-storm-fog.avif https://da.gd/naMu4P
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/70-vs-other-mods-table.png https://da.gd/aj8vYg
+https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/71-vs-other-mods-storm-fog.avif https://da.gd/fcdog
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/link-discord-small.png https://da.gd/1vw0V
 https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/link-github-small.png https://da.gd/evzPKc
