@@ -27,17 +27,10 @@ Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/
 [h1]New! Settings in one place[/h1]
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/59-settings-in-one-place.gif[/img]
 
-[h1]What you get[/h1]
-[table]
-[tr][th]Performance (on)[/th][th]Visuals (opt-in)[/th][th]Tools[/th][/tr]
-[tr][td]Even frame time while driving[/td][td]Per-pixel lighting[/td][td]F9 performance overlay[/td][/tr]
-[tr][td]Hordes on all CPU cores[/td][td]Sun, moon, cloud shadows[/td][td]Game-thread profiler[/td][/tr]
-[tr][td]Cached rain, puddles, fog[/td][td]God rays, ambient occlusion[/td][td]Stock-game preset[/td][/tr]
-[tr][td]Faster boot and loading[/td][td]Reflections, mirrors[/td][td]Settings export / import[/td][/tr]
-[tr][td]Smooth zoom and car camera[/td][td]Glass car windows[/td][td]Built-in updater[/td][/tr]
-[tr][td]Lag-free UI[/td][td]Colour grading, HDR[/td][td]One-click uninstall[/td][/tr]
-[tr][td]FSR, dynamic resolution[/td][td]Sharp sprites, foliage sway[/td][td]Mod conflict check[/td][/tr]
-[/table]
+[h1]Features[/h1]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/60-feature-handheld-efficiency.avif[/img]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/61-feature-macos-opengl41.avif[/img]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/62-feature-low-end-hw-mode.avif[/img]
 
 [h1]Against the other performance mods[/h1]
 Same three uncapped routes, one mod at a time:
