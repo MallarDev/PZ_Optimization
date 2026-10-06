@@ -3244,6 +3244,17 @@ it later gets the stock build. Flip (flip-lazymenu-*): main menu build 654 -> 41
 same key bindings with the screen deferred, and opening it builds the 119 stock options (28 ms) then the Optimizations
 tab on activation. `--prop lazyOptionsScreen=false` restores the eager build.
 
+Fixed 2026-10-06: the deferred path's `keysB42.ini` rewrite wiped every key binding. Stock writes the file from
+`MainOptions.keyText`, which only `addKeybindingPanel` fills, so on the unbuilt screen the list was empty (at boot) or
+left from another screen (in game), and the file kept only its `VERSION=2` line: the next load had every binding at its
+default. `loadKeys` asks for the rewrite on the first launch with a new `options.ini` (`updateSneakButton`) and while Toggle
+Health Panel and Vehicle Horn share a key. The deferred path now builds the same entries from `MainOptions.keys` (the rows
+`loadKeys` just read; `addKeybindingPanel` makes one `keyText` entry per row, and the mod bindings it adds are the ones
+stock skips) and writes them through stock's `MainOptions.writeKey`. Rig `harness/.../pzopt_harness_keybind.lua` with
+`--option updateSneakButton=true` and `Map=key:66` seeded: before, 1 line left and Map back on M (`keywipe-before`); after,
+96 lines / 84 bindings and Map on F8 (`keywipe-after`), byte-identical to the file stock's eager build writes
+(`keywipe-stockref`, `--prop lazyOptionsScreen=false`).
+
 Dropped (2026-09-23): building the main menu's other screens (server settings, sandbox options, character creation,
 multiplayer, credits, spawn select) on first use. A `lua_wrap` profile had put them at ~600 ms, but that rig's per-call
 overhead inflated them; without it the whole main menu builds in 378 ms eager vs 348 ms lazy on the flip

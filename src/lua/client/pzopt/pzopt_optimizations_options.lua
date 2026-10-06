@@ -4929,11 +4929,20 @@ local function install()
         if lazy and MainOptions.create == ourCreate and not self.pzoptCreated and not self:getIsVisible() then
             local reload = MainOptions.loadKeys()
             if reload then
+                -- Stock writes MainOptions.keyText, which only its addKeybindingPanel fills (one entry per
+                -- MainOptions.keys row, plus mod binds it skips here). Unbuilt, keyText is empty at boot and stale in
+                -- game, and writing it wiped every binding from keysB42.ini (2026-10-06). The same entries, made
+                -- from the rows loadKeys just read, through stock's writeKey:
                 local fileOutput = getFileWriter("keysB42.ini", true, false)
                 fileOutput:write("VERSION=" .. tostring(MainOptions.KEYS_VERSION) .. "\r\n")
-                for _, v in ipairs(MainOptions.keyText) do
-                    if not v.isModBind then
-                        MainOptions.writeKey(v, fileOutput)
+                for _, v in ipairs(MainOptions.keys) do
+                    if luautils.stringStarts(v.value, "[") then
+                        MainOptions.writeKey({ value = v.value }, fileOutput)
+                    else
+                        local name = v.value
+                        MainOptions.writeKey({ txt = { getName = function() return name end },
+                            keyCode = tonumber(v.key) or 0, altCode = tonumber(v.altCode) or 0,
+                            shift = v.shift, ctrl = v.ctrl, alt = v.alt }, fileOutput)
                     end
                 end
                 fileOutput:close()
