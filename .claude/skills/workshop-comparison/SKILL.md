@@ -120,7 +120,13 @@ plus black blocks from a 4 fps decode of the mp4's panes (`crop=3840:1072:0:150`
 
 1. `cp workshop-media/<name>.avif docs/workshop/images/NN-<slug>.avif` (next free number; a new name, Steam and browsers cache
    the old one) and put `[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/NN-<slug>.avif[/img]`
-   in `docs/workshop/description.txt` (page limit ~7,900 characters after the short links).
+   in `docs/workshop/description.txt` (page limit ~7,900 characters after the short links). Under each animation an
+   `[i]...[/i]` disclaimer: the machine (CPU, GPU, screen, OS from the console's `OS:` / `Desktop resolution` lines), the
+   scene and cap, what stock and enhanced mean, then `[url=https://pzo.diegov.dev/d/pzopt-compare/compare?var-runs=<stock
+   numbers run>&var-runs=<enhanced numbers run>&var-base=<stock numbers run>]The two runs on the dashboard[/url]` (full
+   run-dir names; check the public DB has them: POST `https://pzo.diegov.dev/api/ds/query` with datasource uid `pzopt-pg`,
+   `SELECT run FROM runs WHERE run = '...'`). One closing line says the numbers are route averages of uncaptured runs and
+   the pictures come from slower capture runs.
 2. Commit only those files (+ the scripts if changed), push master. raw.githubusercontent serves `image/avif` with
    `Access-Control-Allow-Origin: *`; check with a HEAD request before going on.
 3. Stage: `scripts/workshop.sh --tag <current release tag> --out /tmp/ws` (or `--zip build/workshop/<tag>/pzopt-*-classes.zip
