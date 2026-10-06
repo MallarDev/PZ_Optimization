@@ -154,6 +154,7 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
 | `run-queue` | scheduling any run (bench / drive / preset / mp / Workshop upload / showcase) on the desktop or a laptop, and every media encode / stitch (never beside a run), through `harness/queue.sh`; reading its result, reacting to machine events |
 | `bench-run` | the run.sh arguments of a measurement run (bench / drive / parity / verify); launch them through `run-queue` |
 | `showcase-drive` | recording the stock-vs-optimized drive videos and the quad stitch |
+| `workshop-comparison` | the Workshop page's stock-vs-enhanced comparison animations (630x630 AVIF template, Features section): runs, stitch, window choice, publishing |
 | `build-install` | compiling the overrides and installing them into the game dir |
 | `release-windows` | building the Windows zip and publishing it as a GitHub release asset |
 | `analyze-run` | reading a finished run: analyze, compare, waits, loadtime, dashboard |
