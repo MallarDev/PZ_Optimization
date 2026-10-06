@@ -64,12 +64,7 @@ public final class SceneCullBatch {
    /** Game thread: copy one stable zombie reference into the batch. */
    public static void set(int index, IsoZombie zombie) {
       zombies[index] = zombie;
-      if (zombie.isCurrentState(ClimbThroughWindowState.instance())) {
-         result[index] = SERIAL;
-         serialObjects++;
-      } else {
-         result[index] = PENDING;
-      }
+      result[index] = PENDING;
    }
 
    /** Run the read-only classifications. False means the caller must use the stock path for this frame. */
@@ -89,10 +84,12 @@ public final class SceneCullBatch {
       int to = Math.min(count, from + PER_TASK);
       IsoWorld owner = world;
       for (int i = from; i < to; i++) {
-         if (result[i] == SERIAL) {
-            continue;
+         IsoZombie zombie = zombies[i];
+         if (zombie.isCurrentState(ClimbThroughWindowState.instance())) {
+            result[i] = SERIAL;
+         } else {
+            result[i] = owner.pzoptCullClassify(zombie) ? WITH_MODEL : WITHOUT_MODEL;
          }
-         result[i] = owner.pzoptCullClassify(zombies[i]) ? WITH_MODEL : WITHOUT_MODEL;
       }
    }
 
@@ -104,6 +101,7 @@ public final class SceneCullBatch {
       IsoZombie zombie = zombies[index];
       byte worker = result[index];
       if (worker == SERIAL) {
+         serialObjects++;
          return world.pzoptCullClassify(zombie);
       }
 
