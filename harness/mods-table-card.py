@@ -20,23 +20,26 @@ spec.loader.exec_module(anim)
 BENCHES = (('DRIVE', 'drive120'), ('STORM', 'storm120'), ('HORDE', 'louisville'))   # horde: Louisville replaced the spin (maintainer)
 # shown name, run label per bench ({b} = the bench; a tuple = the mean of those runs' fps); ours last
 ROWS = [
-    ('Stock', {'drive120': 'mx-drive120-stock', 'storm120': 'mx-storm120-stock-r',
-               'louisville': ('mx-louisville-stock', 'mx-louisville-stock-r')}),
-    ('PZ Optimiser', {'drive120': 'mx-drive120-pzo-r', 'storm120': 'mx-storm120-pzo', 'louisville': 'mx-louisville-pzo'}),
-    ('Tempo', 'mx-{b}-tempo'),
+    # *-c: re-runs of the runs that overlapped this session's own batch submits (cpu_pct 29-40 % vs 18-25 %, 2026-10-07 00:02)
+    # drive: the late2 block (2026-10-06 23:44-23:58, every side back to back; the 20:15-20:30 drive runs had ~2 cores and
+    # part of the GPU taken by something outside the queue), stock = the mean of the two at its ends
+    ('Stock', {'drive120': ('mx-drive120-stock-late2', 'mx-drive120-stock-late3'), 'storm120': 'mx-storm120-stock-r',
+               'louisville': ('mx-louisville-stock-r', 'mx-louisville-stock-c')}),
+    ('PZ Optimiser', {'drive120': 'mx-drive120-pzo-late2', 'storm120': 'mx-storm120-pzo-c', 'louisville': 'mx-louisville-pzo-c'}),
+    ('Tempo', {'drive120': 'mx-drive120-tempo-late2', 'storm120': 'mx-storm120-tempo-c', 'louisville': 'mx-louisville-tempo'}),
     ('Multi-Cpu Enhance', 'mx-{b}-multicpu'),
     ('Every Texture Opt.', 'mx-{b}-eto'),
     ('Lugli Optimizations', 'mx-{b}-lugli'),
     # 2026-10-06: ZombieBuddy skips it ("requires: 2.4.0 to 2.99.99, ZombieBuddy version: 2.3.4"; the Workshop's ZombieBuddy
     # is 2.3.4 since 10-03, the mod asks for 2.4 since 10-04) and its 42.20 fix stops at versionMax=42.20.99: no numbers
     ("Zed's Better FPS", None, 'does not load: needs ZombieBuddy 2.4'),
-    ("Zed's Better FPS KA", {'drive120': 'mx-drive120-zedska-r', 'storm120': 'mx-storm120-zedska',
+    ("Zed's Better FPS KA", {'drive120': 'mx-drive120-zedska-late2', 'storm120': 'mx-storm120-zedska',
                              'louisville': 'mx-louisville-zedska'}),
     ('Let Me Drive!', 'mx-{b}-lmd'),
     ('PZ Optimization', 'mx-{b}-optg1'),
 ]
 ROUTES = '120 km/h drive / the drive in a thunderstorm / Louisville horde (~2,000 zombies), uncapped, fps mean'
-DISCLAIMER = ('Measured 2026-10-06 on one desktop (Ryzen 7 9800X3D, RTX 4090, 5120x2160, Linux), Build 42.21, one run per route (stock re-run in the storm, the mean of two in the horde), each mod '
+DISCLAIMER = ('Measured 2026-10-06 on one desktop (Ryzen 7 9800X3D, RTX 4090, 5120x2160, Linux), Build 42.21, one run per route, every side of a route back to back (stock: the mean of two in the drive and the horde, the re-run in the storm), each mod '
               'alone and installed as its page says. Stock and the other mods keep the game\'s own launcher (ZGC, 3 GB); '
               'PZ Optimization sets G1, as it does for players. Numbers differ with hardware, settings and save; '
               'frame rate only, not a verdict on any mod\'s other features.')
@@ -46,7 +49,9 @@ def label_of(row, b):
     lab = row[1]
     if lab is None:
         return None
-    return lab[b] if isinstance(lab, dict) else lab.format(b=b)
+    if isinstance(lab, dict):
+        return lab[b]
+    return lab.format(b=b) + ('-late2' if b == 'drive120' else '')   # the drive's same-window block
 
 
 def wrap(d, text, font, width):

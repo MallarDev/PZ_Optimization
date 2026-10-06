@@ -83,7 +83,7 @@ TRIPLES = {  # three-pane comparisons (2026-10-06, the Workshop mods section): s
     # camera keeps the car near 1760,720 at 5120x2160), the thirds held for the whole clip
     'mods-stormfog120': dict(label='{x} Vs Other Mods', t0=6.0, split='1760:226:1300',
                              cap=('mxcap-stormfog120-stock', 'mxcap-stormfog120-zedska', 'mxcap-stormfog120-opt'),
-                             num=('mx-stormfog120-stock', 'mx-stormfog120-zedska', 'mx-stormfog120-optg1'),
+                             num=('mx-stormfog120-stock-c', 'mx-stormfog120-zedska', 'mx-stormfog120-optg1'),
                              words=('STOCK', "ZED'S BETTER FPS KA", 'ENHANCED')),
 }
 RACES = {  # real-time races from launch (2026-10-06, the maintainer's choice for boot and load): stock | ours from two desktop

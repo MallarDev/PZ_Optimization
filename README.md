@@ -292,32 +292,45 @@ the four cores) and GraalVM 25.3 is 25–40 % behind HotSpot C2. Full pass in `d
 
 The most-subscribed Build 42 performance mods, each installed the way its page says and run alone on the stock game, on
 three routes: the 120 km/h highway drive, the same drive in a thunderstorm, and the Louisville horde (~2,000 zombies),
-uncapped (2026-10-06, Build 42.21, the desktop: Ryzen 7 9800X3D, RTX 4090, 5120x2160, Linux; runs `mx-*`, rig in
-`harness/mods-table-card.py`). Stock and the other mods keep the game's own launcher (ZGC, 3 GB heap); PZ_Optimization
-runs on G1, as its install sets it for players.
+uncapped (2026-10-06/07, Build 42.21, the desktop: Ryzen 7 9800X3D, RTX 4090, 5120x2160, Linux; runs `mx-*`, rig in
+`harness/mods-table-card.py`). All sides of a route ran back to back; stock is the mean of its runs at both ends of the
+drive and the horde blocks. Stock and the other mods keep the game's own launcher (ZGC, 3 GB heap); PZ_Optimization runs
+on G1, as its install sets it for players.
 
-![Workshop performance mods vs PZ_Optimization](docs/workshop/images/68-vs-other-mods-table.png)
+![Workshop performance mods vs PZ_Optimization](docs/workshop/images/70-vs-other-mods-table.png)
 
 | Mod | What it is | Drive fps / p99 ms | Storm | Louisville horde |
 |---|---|---|---|---|
-| Stock game | | 97 / 20.7 | 63 / 61.6 | 22 / 112 |
-| [Project Zomboid Optimiser](https://steamcommunity.com/sharedfiles/filedetails/?id=3787481250) + its [PZO-Launcher](https://github.com/prop11/PZO-Launcher) V0.9.9.4 | Lua toggles; agent jar, native lib, launcher JSON (G1, 8 GB) | 117 / 16.8 | 61 / 64.4 | 25 / 96.5 |
-| [Tempo](https://steamcommunity.com/sharedfiles/filedetails/?id=3736629791) | Lua sampler and menu memo | 93 / 21.8 | 52 / 68.2 | 24 / 112 |
-| [Multi-Cpu Enhance](https://steamcommunity.com/sharedfiles/filedetails/?id=3459875383) | launcher JSON: ParallelGC, 8 GB heap | 98 / 21.4, **301 ms stall** | 67 / 64.4, **332 ms stall** | 29 / 97.9, **390 ms stall** |
-| [Every Texture Optimized](https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162) | re-encoded textures | 94 / 21.6 | 63 / 63.1 | 24 / 104 |
-| [Lugli – Optimizations](https://steamcommunity.com/sharedfiles/filedetails/?id=3790863696) | ZombieBuddy patches | 93 / 22.0 | 62 / 62.6 | 23 / 109 |
-| [Zed's Better FPS](https://steamcommunity.com/sharedfiles/filedetails/?id=3622986450) | ZombieBuddy patches | does not load: needs ZombieBuddy 2.4, the Workshop's is 2.3.4 | | |
-| [Zed's Better FPS KA](https://steamcommunity.com/sharedfiles/filedetails/?id=3793137588) | ZombieBuddy patches (a port that reuses this repo's code) | 113 / 17.4 | 73 / 18.5 | 29 / 89.0 |
-| [Let Me Drive!](https://steamcommunity.com/sharedfiles/filedetails/?id=3805307651) | Lua event gate, GC-call block | 107 / 19.0 | 60 / 66.9 | 23 / 108 |
-| **PZ_Optimization** | class overrides | **507 / 5.3** | **447 / 6.3** | **86 / 43.9** |
+| Stock game | | 115 / 17.0 | 63 / 61.6 | 24 / 110 |
+| [Project Zomboid Optimiser](https://steamcommunity.com/sharedfiles/filedetails/?id=3787481250) + its [PZO-Launcher](https://github.com/prop11/PZO-Launcher) V0.9.9.4 | Lua toggles; agent jar, native lib, launcher JSON (G1, 8 GB) | 114 / 16.8 | 68 / 64.8 | 29 / 84.8 |
+| [Tempo](https://steamcommunity.com/sharedfiles/filedetails/?id=3736629791) | Lua sampler and menu memo | 116 / 16.6 | 63 / 60.5 | 24 / 112 |
+| [Multi-Cpu Enhance](https://steamcommunity.com/sharedfiles/filedetails/?id=3459875383) | launcher JSON: ParallelGC, 8 GB heap | 118 / 16.6, **291 ms stall** | 67 / 64.4, **332 ms stall** | 29 / 97.9, **390 ms stall** |
+| [Every Texture Optimized](https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162) | re-encoded textures | 117 / 16.6 | 63 / 63.1 | 24 / 104 |
+| [Lugli – Optimizations](https://steamcommunity.com/sharedfiles/filedetails/?id=3790863696) | ZombieBuddy patches | 117 / 16.9 | 62 / 62.6 | 23 / 109 |
+| [Zed's Better FPS](https://steamcommunity.com/sharedfiles/filedetails/?id=3622986450) | ZombieBuddy patches | does not load (below) | | |
+| [Zed's Better FPS KA](https://steamcommunity.com/sharedfiles/filedetails/?id=3793137588) | ZombieBuddy patches, partly ported from this repository (below) | 113 / 17.1 | 73 / 18.5 | 29 / 89.0 |
+| [Let Me Drive!](https://steamcommunity.com/sharedfiles/filedetails/?id=3805307651) | Lua event gate, GC-call block | 116 / 16.7 | 60 / 66.9 | 23 / 108 |
+| **PZ_Optimization** | class overrides | **523 / 5.2** | **447 / 6.3** | **86 / 43.9** |
 
-Two mods gain only through the launcher's garbage collector. PZ Optimiser's installer swaps the game's ZGC / 3 GB for
-G1 / 8 GB, and stock with that same switch runs as fast (spin 125 vs 123 fps, drive 118 vs 117: runs `mx-*-stockg1`).
-Multi-Cpu Enhance's ParallelGC helps the horde but puts a 300–390 ms stop-the-world pause inside every route. Zed's
-Better FPS KA is the only one with a gain of its own (+17 % drive, +15 % storm with a far shorter tail, +28 % horde).
-The rest are within run-to-run noise of stock (two stock runs of the storm drive differ by up to 23 %, of the horde by
-16 %). The Workshop page shows the same table and a stock | Zed's KA | ours clip of the drive in a thunderstorm with
-heavy fog (49.5 / 64.5 / 385.5 fps).
+On the drive every mod is within 3 % of stock. In the horde, PZ Optimiser and Multi-Cpu Enhance gain ~20 % by changing
+the launcher's garbage collector and heap: the horde's live data nearly fills the game's 3 GB (stock with PZO's G1 / 8 GB
+switch alone matches PZO on the spin route too: 125 vs 123 fps, runs `mx-*-stockg1`); Multi-Cpu's ParallelGC also puts a
+300–390 ms stop-the-world pause inside every route. Zed's Better FPS KA is the only one with a gain of its own: +15 % in
+the storm with a far shorter tail (p99 18.5 vs 61.6 ms) and +19 % in the horde. Run-to-run noise: two stock runs of the
+drive differ by 2 %, of the horde by under 1 %.
+
+Zed's Better FPS does not load on Build 42.21 today: ZombieBuddy (2.3.4 on the Workshop, the latest release) skips it,
+because it now asks for ZombieBuddy 2.4.0–2.99.99, which is not released (ZombieBuddy's master is 3.0.0-beta1). Pointing
+its mod.info at its other jar loads that one, which then stops the game with a `NoSuchMethodError` (it is built for
+ZombieBuddy 3).
+
+Zed's Better FPS KA ports code from this repository: five of its classes are our `pzopt` classes decompiled and renamed
+(`ScriptText`, `ZombieNoise`, `PngFilters`, `AnimClipCache`, `RainTiles`; measured as identifier-blind token similarity
+against our sources, 0.43–0.81, where unrelated classes of similar size score at most 0.39). Its Workshop page credits
+PZ Optimization for some of its improvements; its code does not.
+
+The Workshop page shows the same table and a stock | Zed's KA | ours clip of the drive in a thunderstorm with heavy fog
+(56.8 / 64.5 / 385.5 fps).
 
 ### Input latency: NVIDIA Reflex-style low latency
 
