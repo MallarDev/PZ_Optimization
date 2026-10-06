@@ -6,7 +6,8 @@ optimized build needs a better container where the page allows one).
     harness/anim-encode.py --frames DIR [--src-fps 60] [--out DIR] VARIANT...
 
 DIR holds the composited lossless frames f00000.png ... (harness/showcase-thumbnail-gif.py with GIF_FRAMES_DIR and
-GIF_FRAMES_ONLY=1). A VARIANT is fmt:fps:size[:key=value,...]:
+GIF_FRAMES_ONLY=1, or any tone-mapped frame dump). A VARIANT is fmt:fps:size[:key=value,...], size = N (square) or WxH
+(e.g. 630x-2: 630 wide, the aspect kept):
     avif   AV1 still-image-sequence through ffmpeg libsvtav1, 10-bit 4:2:0, BT.709 tags   keys crf (35), preset (4)
     webp   animated lossy WebP through ffmpeg libwebp_anim                                   keys q (75), m (6)
     gifski GIF through gifski (per-frame palettes, temporal dithering)                       keys q (90), mq (motion quality), lq (lossy quality)
@@ -43,7 +44,8 @@ def reference(frames, src_fps, fps, size, work, t0=0.0, length=0.0, pre=''):
         return d
     os.makedirs(d, exist_ok=True)
     trim = [f'trim=start={t0}' + (f':duration={length}' if length else ''), 'setpts=PTS-STARTPTS'] if (t0 or length) else []
-    chain = ','.join(trim + [f'fps={fps}'] + ([pre] if pre else []) + [f'scale={size}:{size}:flags=lanczos'])
+    w, h = (size.split('x') + [None])[:2] if 'x' in str(size) else (size, size)
+    chain = ','.join(trim + [f'fps={fps}'] + ([pre] if pre else []) + [f'scale={w}:{h if h else -2}:flags=lanczos'])
     run(['ffmpeg', '-v', 'error', '-y', '-framerate', str(src_fps), '-i', f'{frames}/f%05d.png',
          '-vf', chain, '-start_number', '0', f'{d}/f%05d.png'])
     return d
@@ -115,7 +117,7 @@ def main():
     print(f'{"variant":<34} {"bytes":>10} {"KB":>7} {"played fps":>10} {"SSIM":>7} {"dB":>6} {"PSNR":>6}')
     for v in a.variants:
         parts = v.split(':')
-        fmt, fps, size = parts[0], int(parts[1]), int(parts[2])
+        fmt, fps, size = parts[0], int(parts[1]), parts[2]   # size: N (square) or WxH (H = -2: keep the aspect)
         kv = dict(p.split('=', 1) for p in parts[3].split(',')) if len(parts) > 3 and parts[3] else {}
         ext = {'avif': 'avif', 'webp': 'webp'}.get(fmt, 'gif')
         name = re.sub(r'[^A-Za-z0-9=.-]+', '_', v)

@@ -4,7 +4,7 @@
   scripts/workshop-upload.py --notes "Release <commit> (Build <version>, game revision <rev>). ..."
   scripts/workshop-upload.py --check        # everything up to the submit: Steam logged on, fields, paths
   scripts/workshop-upload.py --notes "..." [--dir <staged item>] [--preview gif|png|<file>] [--timeout 600]
-  scripts/workshop-upload.py --description-only --notes "..." --dir <dir with a workshop.txt + Contents/>   # page text only
+  scripts/workshop-upload.py --description-only [--with-preview] --notes "..." --dir <staged dir>   # page text (+ preview) only
 
 Loads the game's own natives/libsteam_api.so with SteamAppId=108600 and talks to the running,
 logged-on Steam client (no password, no steamcmd login), then does what the in-game uploader
@@ -170,6 +170,8 @@ def main():
     ap.add_argument("--check", action="store_true", help="no submit: Steam session, fields and paths only")
     ap.add_argument("--description-only", action="store_true",
                     help="send the page text alone (no title, tags, files or preview): try a new page without a release")
+    ap.add_argument("--with-preview", action="store_true",
+                    help="with --description-only: the preview image too (the page and its preview without a release)")
     a = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)  # the queue's `log -f` follows it live
     if not a.check and not a.notes:
@@ -227,7 +229,7 @@ def main():
                    ("content", lambda: api.SteamAPI_ISteamUGC_SetItemContent(ugc, h, str(contents.resolve()).encode())),
                    ("preview", lambda: api.SteamAPI_ISteamUGC_SetItemPreview(ugc, h, str(preview.resolve()).encode()))]
         if a.description_only:
-            setters = [s for s in setters if s[0] == "description"]
+            setters = [s for s in setters if s[0] == "description" or (a.with_preview and s[0] == "preview")]
         steps = [(n, f()) for n, f in setters]
         refused = [n for n, r in steps if not r]
         if refused:
