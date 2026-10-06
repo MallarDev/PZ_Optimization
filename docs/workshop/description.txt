@@ -28,6 +28,9 @@ Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/59-settings-in-one-place.gif[/img]
 
 [h1]Features[/h1]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/64-feature-fast-boot-load-clocks.avif[/img]
+[i]Desktop (Ryzen 7 9800X3D, GeForce RTX 4090, Crucial T705 2 TB NVMe SSD, 5120x2160, Linux). Launch to the world on screen, Continue pressed as soon as the menu answers, caches warm. Stock: the game as it ships. Enhanced: every optimization at its default. The clocks are the means of two runs per side without capture.[/i] [url=https://pzo.diegov.dev/d/pzopt-compare/compare?var-runs=boot-stock-20261006-205652&var-runs=boot-opt-20261006-205745&var-base=boot-stock-20261006-205652]The two runs on the dashboard[/url]
+
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/60-feature-handheld-efficiency.avif[/img]
 [i]Ayaneo Flip (Ryzen AI 9 HX 370, Radeon 890M, 1920x1080, Linux). Thunderstorm preset, 120 fps cap; energy per frame = the chip's socket power over the frame rate. Stock: the game as it ships. Enhanced: every optimization at its default + efficient cores.[/i] [url=https://pzo.diegov.dev/d/pzopt-compare/compare?var-runs=flip-flipw120-storm-stock-20261006-190420&var-runs=flip-flipw120-storm-eff-20261006-190634&var-base=flip-flipw120-storm-stock-20261006-190420]The two runs on the dashboard[/url]
 
@@ -36,9 +39,6 @@ Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/
 
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/62-feature-low-end-hw-mode.avif[/img]
 [i]Dell laptop (Core i5-6300HQ 4 cores, GeForce GTX 960M 4 GB, 8 GB RAM, 1920x1080, Linux). 120 km/h highway drive. Stock: the game's default options. Enhanced: the "Low-end hardware" preset + dynamic resolution (TAAU) held to 60 fps.[/i] [url=https://pzo.diegov.dev/d/pzopt-compare/compare?var-runs=dell-delllow-stock-20261006-154553&var-runs=dell-delllow-dr-r2-20261006-162131&var-base=dell-delllow-stock-20261006-154553]The two runs on the dashboard[/url]
-
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/63-feature-fast-boot-load.avif[/img]
-[i]Desktop (Ryzen 7 9800X3D, GeForce RTX 4090, Crucial T705 2 TB NVMe SSD, 5120x2160, Linux). Launch to the world on screen, Continue pressed as soon as the menu answers, caches warm. Stock: the game as it ships. Enhanced: every optimization at its default. The clocks are the means of two runs per side without capture.[/i] [url=https://pzo.diegov.dev/d/pzopt-compare/compare?var-runs=boot-stock-20261006-205652&var-runs=boot-opt-20261006-205745&var-base=boot-stock-20261006-205652]The two runs on the dashboard[/url]
 
 [i]The fps numbers are averages over the whole route of runs without frame capture; the pictures come from separate runs that save every frame, which slows the game (the low-end laptop's picture plays at about 20 fps).[/i]
 
