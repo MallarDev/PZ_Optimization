@@ -13,7 +13,7 @@ Driving, hordes, storms: the game's own work spread over frames and CPU cores, s
 [/list][/quote]
 
 [h1]Install (once, about two minutes)[/h1]
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/40-install.gif[/img]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/72-install-script.avif[/img]
 [olist]
 [*]Subscribe, let Steam download it.
 [*]Mods (main menu): enable [b]PZ_Optimization[/b]; a window shows your install command.
@@ -23,6 +23,10 @@ Driving, hordes, storms: the game's own work spread over frames and CPU cores, s
 [/olist]
 No window? Windows: [code]irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1 | iex[/code]
 Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.sh | bash[/code]
+
+[b]By hand[/b], no command:
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/73-install-manual.avif[/img]
+Steam: right-click the game, Manage > Browse local files. Go up to [b]steamapps[/b], then workshop\content\108600\3805285544\mods\PZ_Optimization\42\pzopt-classes. Copy everything in it into the game folder (where projectzomboid.jar is), skipping files that already exist.
 
 [h1]New! Settings in one place[/h1]
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/59-settings-in-one-place.gif[/img]

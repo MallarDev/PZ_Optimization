@@ -101,7 +101,10 @@ loop) and fades out over the last 12 % of the width at each edge; each side's nu
 bottom left, enhanced white bottom right; fps big, the second line under it); the captions are always **STOCK** and
 **ENHANCED**, never before / after. AVIF, 60 fps, CRF 35, ~0.5-1 MB.
 
-Strip labels in use: "Handheld Efficiency", "MacOS OpenGL 4.1", "Low End HW Mode", "Fast Boot & Load".
+Strip labels in use: "Handheld Efficiency", "MacOS OpenGL 4.1", "Low End HW Mode", "Fast Boot & Load", "2 Minute Install"
+(both install walkthroughs, `harness/install-anim.py`, 2026-10-07: where the numbers go, "n." in grey + the step's big word +
+two or three detail lines, no step counter, no divider; every step full size, no desktop around a window; PLAY = the headline's
+footage; `docs/workshop/images/72-install-script.avif`, `73-install-manual.avif`).
 
 **Race variant** (maintainer, 2026-10-06, for boot / load): same strip, divider and captions, but real time from launch until
 stock's world shows + a hold (~22 s, not 7.9); per side a live clock (big, frozen when its world shows) with `boot` / `load`

@@ -560,6 +560,10 @@ local function onMainMenuEnter()
         end
         return
     end
+    if flags.mods_shot and flags.mods_shot ~= "" then   -- pzopt_harness_mods.lua drives the Mods screen and quits
+        appendFlag("consumed=1")
+        return
+    end
     if flags.options_tab and flags.options_tab ~= "" then
         if optionsCheck == nil then
             appendFlag("consumed=1")
