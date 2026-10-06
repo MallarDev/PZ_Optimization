@@ -1656,7 +1656,7 @@ public final class LightingJNI {
       private void update() {
          if (this.playerIndex != -1 && PerformanceSettings.fboRenderChunk) {
             java.util.ArrayList<Runnable> pzoptDefer = pzopt.LightingDefer.current(); // pzopt: entityUpdateParallel, a batched entity reading light
-            if (pzoptDefer != null) { // pzopt: one refresh of this square at a time; its side effects to the game thread at the join
+            if (pzoptDefer != null || pzopt.DrawRecorder.recording) { // pzopt: one refresh of this square at a time; its side effects to the game thread at the join (tileRecordParallel: also the game thread's own refreshes while units record)
                synchronized (this) { // pzopt
                   this.updateFBORenderChunk(); // pzopt
                } // pzopt

@@ -1869,6 +1869,10 @@ public final class FBORenderCell {
          FBORenderChunkManager.instance.endFrame();
       } // pzopt
       pzopt.GpuSections.end(pzopt.Relief.section(pzopt.Sway.section(pzopt.SpriteFilter.section("composite")))); // pzopt: sprite filter, devSpriteFilterAlternate splits the section; foliage sway, devSwayAlternate too
+      if (!pzopt.ResumeShot.noTranslucent && DebugOptions.instance.fboRenderChunk.renderTranslucentNonFloor.getValue()) { // pzopt: tileRecordAsync, every level's translucent units to the workers while the frame goes on
+         IsoChunkMap pzoptCm = IsoWorld.instance.currentCell.getChunkMap(playerIndex); // pzopt
+         pzopt.TileRecord.startFrame(this, perPlayerData1.chunksWithTranslucentNonFloor, playerIndex, pzoptCm.minHeight, pzoptCm.maxHeight, floorRenderShader, wallRenderShader, currentTimeMillis); // pzopt
+      } // pzopt
       pzopt.Ssr.afterComposite(); // pzopt: reflections, dev timing of the composite with its scatter
       pzopt.Sway.afterComposite(); // pzopt: foliage sway, the motion-vector attachment off the world framebuffer
       pzopt.CloudShadow.afterComposite(); // pzopt: cloudShadows, dev timing of the composite
@@ -2085,6 +2089,7 @@ public final class FBORenderCell {
          pzopt.Mirrors.afterTranslucent(); // pzopt: mirrors, the reflections over the panes this level drew
       }
 
+      pzopt.TileRecord.endFrame(); // pzopt: tileRecordAsync, a level the loop did not pass leaves nothing recording
       FBORenderShadows.getInstance().endRender();
       pzopt.Mirrors.afterLevels(); // pzopt: mirrors, mirrorsCompositeOnce: every level's panes in one composite
       pzopt.GpuSections.end("zloop"); // pzopt: GPU section
@@ -4316,9 +4321,9 @@ public final class FBORenderCell {
                floorShaper.setShore(isShore);
                floorShaper.setWaterDepth(depth0, depth1, depth2, depth3);
                floorShaper.setVertColors(col0, col1, col2, col3);
-               TileSeamModifier.instance.setShore(isShore);
-               TileSeamModifier.instance.setWaterDepth(depth0, depth1, depth2, depth3);
-               TileSeamModifier.instance.setVertColors(col0, col1, col2, col3);
+               pzopt.RenderScratch.tsm().setShore(isShore); // pzopt: tileRecordParallel, the thread's own modifier (pzopt.RenderScratch)
+               pzopt.RenderScratch.tsm().setWaterDepth(depth0, depth1, depth2, depth3); // pzopt: tileRecordParallel, the thread's own modifier (pzopt.RenderScratch)
+               pzopt.RenderScratch.tsm().setVertColors(col0, col1, col2, col3); // pzopt: tileRecordParallel, the thread's own modifier (pzopt.RenderScratch)
                IsoGridSquare.setBlendFunc();
                Shader floorShader = null;
                IndieGL.StartShader(floorShader, playerIndex);
@@ -4541,7 +4546,7 @@ public final class FBORenderCell {
 
       IndieGL.glAlphaFunc(516, 0.0F);
       object.setAlphaAndTarget(playerIndex, renderInfo.targetAlpha);
-      this.defColorInfo.set(1.0F, 1.0F, 1.0F, 1.0F);
+      if (!pzopt.DrawRecorder.recording || pzopt.DrawRecorder.currentRecorder() == null) this.defColorInfo.set(1.0F, 1.0F, 1.0F, 1.0F); // pzopt: tileRecordParallel, unused below; a recording thread leaves the shared field alone
       int stenciled = 0;
       Shader wallRenderShader = null;
       boolean bHasSeenDoorN = false;
@@ -4549,49 +4554,50 @@ public final class FBORenderCell {
       boolean bHasSeenWindowN = false;
       boolean bHasSeenWindowW = false;
       boolean bCouldSee = square.lighting[playerIndex].bCouldSee();
-      lowestCutawayObjectN = null;
-      lowestCutawayObjectW = null;
+      IsoObject pzoptLowN = null; // pzopt: tileRecordParallel, the thread's own copy
+      IsoObject pzoptLowW = null; // pzopt: tileRecordParallel, the thread's own copy
       IsoObject[] objects = (IsoObject[])square.getObjects().getElements();
       int numObjects = square.getObjects().size();
 
       for (int i = 0; i < numObjects; i++) {
          IsoObject obj = objects[i];
          IsoObjectType t2 = obj.sprite == null ? IsoObjectType.MAX : obj.sprite.getTileType();
-         if (lowestCutawayObjectN == null && square.isWindowOrWindowFrame(obj, true) && (cutawaySelf & 1) != 0) {
+         if (pzoptLowN == null && square.isWindowOrWindowFrame(obj, true) && (cutawaySelf & 1) != 0) { // pzopt: tileRecordParallel, the thread's own copy
             IsoGridSquare toNorth = square.getAdjacentSquare(IsoDirections.N);
             bHasSeenWindowN = bCouldSee || toNorth != null && toNorth.isCouldSee(playerIndex);
-            lowestCutawayObjectN = obj;
+            pzoptLowN = obj; // pzopt: tileRecordParallel, the thread's own copy
          }
 
-         if (lowestCutawayObjectW == null && square.isWindowOrWindowFrame(obj, false) && (cutawaySelf & 2) != 0) {
+         if (pzoptLowW == null && square.isWindowOrWindowFrame(obj, false) && (cutawaySelf & 2) != 0) { // pzopt: tileRecordParallel, the thread's own copy
             IsoGridSquare toWest = square.getAdjacentSquare(IsoDirections.W);
             bHasSeenWindowW = bCouldSee || toWest != null && toWest.isCouldSee(playerIndex);
-            lowestCutawayObjectW = obj;
+            pzoptLowW = obj; // pzopt: tileRecordParallel, the thread's own copy
          }
 
-         if (lowestCutawayObjectN == null
+         if (pzoptLowN == null // pzopt: tileRecordParallel, the thread's own copy
             && obj.sprite != null
             && (t2 == IsoObjectType.doorFrN || t2 == IsoObjectType.doorN || obj.sprite.getProperties().has(IsoFlagType.DoorWallN))
             && (cutawaySelf & 1) != 0) {
             IsoGridSquare toNorth = square.getAdjacentSquare(IsoDirections.N);
             bHasSeenDoorN = bCouldSee || toNorth != null && toNorth.isCouldSee(playerIndex);
-            lowestCutawayObjectN = obj;
+            pzoptLowN = obj; // pzopt: tileRecordParallel, the thread's own copy
          }
 
-         if (lowestCutawayObjectW == null
+         if (pzoptLowW == null // pzopt: tileRecordParallel, the thread's own copy
             && obj.sprite != null
             && (t2 == IsoObjectType.doorFrW || t2 == IsoObjectType.doorW || obj.sprite.getProperties().has(IsoFlagType.DoorWallW))
             && (cutawaySelf & 2) != 0) {
             IsoGridSquare toWest = square.getAdjacentSquare(IsoDirections.W);
             bHasSeenDoorW = bCouldSee || toWest != null && toWest.isCouldSee(playerIndex);
-            lowestCutawayObjectW = obj;
+            pzoptLowW = obj; // pzopt: tileRecordParallel, the thread's own copy
          }
       }
 
-      IsoGridSquare.circleStencil = true;
+      pzoptSetLowestCutaway(pzoptLowN, pzoptLowW); // pzopt: tileRecordParallel, IsoGridSquare.DoCutawayShader reads them (per thread)
+      IsoGridSquare.pzoptSetCircleStencil(true); // pzopt: tileRecordParallel
       boolean bNeverCutaway = object.getProperties() != null && object.getProperties().has(IsoFlagType.NeverCutaway);
       if (bNeverCutaway) {
-         IsoGridSquare.circleStencil = false;
+         IsoGridSquare.pzoptSetCircleStencil(false); // pzopt: tileRecordParallel
       }
 
       IndieGL.glDepthMask(true);
@@ -4620,7 +4626,7 @@ public final class FBORenderCell {
       ObjectRenderInfo renderInfo = object.getRenderInfo(playerIndex);
       IsoGridSquare square = object.square;
       IndieGL.glAlphaFunc(516, 0.0F);
-      if (this.renderTranslucentOnly) {
+      if (pzoptTranslucentOnly()) { // pzopt: tileRecordParallel, a recording thread sees the translucent pass's render mode
          object.setTargetAlpha(playerIndex, renderInfo.targetAlpha);
          if (object.getType() == IsoObjectType.WestRoofT) {
             object.setAlphaAndTarget(playerIndex, renderInfo.targetAlpha);
@@ -4680,24 +4686,24 @@ public final class FBORenderCell {
          boolean bHasSeenWindowN = false;
          boolean bHasSeenWindowW = false;
          if (window.getNorth() && object == square.getWall(true)) {
-            IsoGridSquare.circleStencil = false;
+            IsoGridSquare.pzoptSetCircleStencil(false); // pzopt: tileRecordParallel
             square.DoWallLightingN(object, 0, cutawaySelf, cutawayN, cutawayS, cutawayW, cutawayE, false, false, wallRenderShader);
             return;
          }
 
          if (!window.getNorth() && object == square.getWall(false)) {
-            IsoGridSquare.circleStencil = false;
+            IsoGridSquare.pzoptSetCircleStencil(false); // pzopt: tileRecordParallel
             square.DoWallLightingW(object, 0, cutawaySelf, cutawayN, cutawayS, cutawayW, cutawayE, false, false, wallRenderShader);
             return;
          }
       }
 
-      if (!this.renderTranslucentOnly && object instanceof IsoCurtain curtain && pzoptCurtainDepthNudge(curtain) > 0.0F) { // pzopt: issue #4
+      if (!pzoptTranslucentOnly() && object instanceof IsoCurtain curtain && pzoptCurtainDepthNudge(curtain) > 0.0F) { // pzopt: issue #4
          pzoptRenderCurtainNudged(curtain, square, lightInfo, pzoptCurtainDepthNudge(curtain));
          return;
       }
 
-      boolean pzoptSway = pzopt.Sway.begin(object, this.renderTranslucentOnly); // pzopt: foliage sway, a baked plant writes its sway attributes
+      boolean pzoptSway = pzopt.Sway.begin(object, pzoptTranslucentOnly()); // pzopt: foliage sway, a baked plant writes its sway attributes
       object.render(square.x, square.y, square.z, lightInfo, true, false, null);
       if (pzoptSway) pzopt.Sway.end(); // pzopt
    }
@@ -4822,7 +4828,7 @@ public final class FBORenderCell {
                   object2.renderSquareOverride = square;
                   object2.renderDepthAdjust = -1.0E-5F;
                   object2.sx = 0.0F;
-                  if (this.renderTranslucentOnly) {
+                  if (pzoptTranslucentOnly()) { // pzopt: tileRecordParallel, a recording thread sees the translucent pass's render mode
                      object2.setTargetAlpha(playerIndex, object2.getRenderInfo(playerIndex).targetAlpha);
                   } else {
                      object2.setAlphaAndTarget(playerIndex, object2.getRenderInfo(playerIndex).targetAlpha);
@@ -4892,7 +4898,7 @@ public final class FBORenderCell {
          }
       }
 
-      if (this.renderTranslucentOnly) {
+      if (pzoptTranslucentOnly()) { // pzopt: tileRecordParallel, a recording thread sees the translucent pass's render mode
          if (worldObj.zoff < 0.01F) {
             return;
          }
@@ -4986,6 +4992,8 @@ public final class FBORenderCell {
          IsoObject object = objects[i];
          ObjectRenderInfo renderInfo = object.getRenderInfo(playerIndex);
          if (renderInfo.layer == renderLayer) {
+            if (!(object instanceof IsoTree) && pzopt.DrawRecorder.recording && pzopt.TileRecord.treeFlushPoint()) { // pzopt: tileRecordParallel, the flush happens at splice time
+            } else // pzopt
             if (!(object instanceof IsoTree) && !FBORenderTrees.current.trees.isEmpty()) {
                SpriteRenderer.instance.drawGeneric(FBORenderTrees.current);
                FBORenderTrees.current = FBORenderTrees.alloc();
@@ -5499,6 +5507,7 @@ public final class FBORenderCell {
       sb.append(" | ").append(pzopt.AnimBatch.describe()); // pzopt: the zombies' bone-math batch
       sb.append(" | ").append(pzopt.ActionEval.describe()); // pzopt: the zombies' transition-evaluation batch
       sb.append(" | ").append(pzopt.AnimParallel.describe()); // pzopt: animatorParallel
+      sb.append(" | ").append(pzopt.TileRecord.describe()); // pzopt: tileRecordParallel
       sb.append(" | ").append(pzopt.CharDraw.describe()); // pzopt: charDrawPrep, the characters draw pre-pass
       sb.append(" | ").append(pzopt.LightingBatch.describe()); // pzopt: the lighting reads on the workers
       sb.append(" | ").append(pzopt.SeparateMask.describe()); // pzopt: separateFast, the cached grid answers
@@ -5512,7 +5521,10 @@ public final class FBORenderCell {
    }
 
    public void renderTranslucent(IsoObject object) {
-      if (pzopt.Config.INSTRUMENT && (pzoptTlFrames & 15) == 0) pzoptCountTranslucent(object); // pzopt: dev counter, one frame in 16 (it was 1.7 % of a harness run's game thread)
+      if (pzopt.DrawRecorder.recording && pzopt.TileRecord.deferObject(object)) { // pzopt: tileRecordParallel, an object the recording thread may not draw: the game thread draws it at splice time
+         return; // pzopt
+      } // pzopt
+      if (pzopt.Config.INSTRUMENT && (pzoptTlFrames & 15) == 0 && !pzopt.DrawRecorder.recording) pzoptCountTranslucent(object); // pzopt: dev counter, one frame in 16 (it was 1.7 % of a harness run's game thread); not while units record (its tileset map is not thread-safe)
       boolean pzoptMirror = pzopt.Mirrors.beginCapture(object); // pzopt: mirrors, a window / mirror tile: its quad is captured as it draws
       try { // pzopt
          this.pzoptRenderTranslucent(object); // pzopt
@@ -5555,7 +5567,7 @@ public final class FBORenderCell {
             this.renderMinusFloor_NotDoorOrWall(object);
          }
 
-         if (!(object instanceof IsoBarbecue) || !FBORenderObjectHighlight.getInstance().isRendering()) {
+         if (!(object instanceof IsoBarbecue) || !FBORenderCell.pzoptHighlightRendering()) { // pzopt: tileRecordParallel, a recording thread sees the translucent pass's render mode
             if (object.hasAnimatedAttachments()) {
                this.renderAnimatedAttachments(object);
             }
@@ -5682,6 +5694,10 @@ public final class FBORenderCell {
    public void renderAnimatedAttachments(IsoObject object) {
       int playerIndex = IsoCamera.frameState.playerIndex;
       ColorInfo lightInfo = object.square.getLightInfo(playerIndex);
+      FBORenderCell.PzoptCellScratch pzoptCs = this.pzoptCellScratch(); // pzopt: tileRecordParallel, IsoObject.renderAnimatedAttachments changes the colour it is given for a moment: a recording thread hands it a copy, not the square's own light
+      if (pzoptCs != null && lightInfo != null) { // pzopt
+         lightInfo = pzoptCs.light.set(lightInfo); // pzopt
+      } // pzopt
       if (DebugOptions.instance.fboRenderChunk.nolighting.getValue()) {
          this.defColorInfo.set(1.0F, 1.0F, 1.0F, lightInfo.a);
          lightInfo = this.defColorInfo;
@@ -6699,14 +6715,153 @@ public final class FBORenderCell {
          FBORenderTrees.current.init();
          FBORenderCell.PerPlayerData perPlayerData1 = this.perPlayerData[playerIndex];
 
+         long pzoptTl = pzopt.GtAb.begin(); // pzopt: tileRecordParallel, section tl_pass
+         if (pzopt.TileRecord.active()) { // pzopt: tileRecordParallel, each chunk recorded into its own list, spliced in this order
+            pzopt.TileRecord.translucentPass(this, perPlayerData1.chunksWithTranslucentNonFloor, playerIndex, z, floorRenderShader, wallRenderShader, currentTimeMillis); // pzopt
+         } else { // pzopt
+         long pzoptT0 = System.nanoTime(); // pzopt: tileRecordParallel's stock-pass timer (tile record line)
          for (int i = 0; i < perPlayerData1.chunksWithTranslucentNonFloor.size(); i++) {
             IsoChunk chunk = perPlayerData1.chunksWithTranslucentNonFloor.get(i);
             this.renderOneChunk_Translucent(chunk, playerIndex, z, floorRenderShader, wallRenderShader, currentTimeMillis);
          }
+         pzopt.TileRecord.stockPass(System.nanoTime() - pzoptT0); // pzopt
+         } // pzopt
+         pzopt.GtAb.end(pzopt.GtAb.S_TL_PASS, pzoptTl); // pzopt
 
          SpriteRenderer.instance.drawGeneric(FBORenderTrees.current);
       }
    }
+
+   /** pzopt: tileRecordParallel, a recording thread's own copies of the pass's instance temporaries (null on any other thread). */
+   private static final class PzoptCellScratch { // pzopt
+      final TimSort timSort = new TimSort(); // pzopt
+      final PZArrayList<IsoGridSquare> tempSquares = new PZArrayList(IsoGridSquare.class, 64); // pzopt
+      final ColorInfo light = new ColorInfo(); // pzopt
+   } // pzopt
+
+   private FBORenderCell.PzoptCellScratch pzoptCellScratch() { // pzopt
+      if (!pzopt.DrawRecorder.recording) { // pzopt
+         return null; // pzopt
+      } // pzopt
+      pzopt.DrawRecorder r = pzopt.DrawRecorder.currentRecorder(); // pzopt
+      if (r == null) { // pzopt
+         return null; // pzopt
+      } // pzopt
+      if (r.cellScratch == null) { // pzopt
+         r.cellScratch = new FBORenderCell.PzoptCellScratch(); // pzopt
+      } // pzopt
+      return (FBORenderCell.PzoptCellScratch)r.cellScratch; // pzopt
+   } // pzopt
+
+
+   /** pzopt: tileRecordParallel, renderTranslucentOnly as the calling thread sees it: true on a thread recording a translucent unit (the game thread flips the field for its own passes meanwhile). */
+   public static boolean pzoptTranslucentOnly() { // pzopt
+      return pzopt.DrawRecorder.recording && pzopt.DrawRecorder.currentRecorder() != null || instance.renderTranslucentOnly; // pzopt
+   } // pzopt
+
+   /** pzopt: tileRecordParallel, renderAnimatedAttachments as the calling thread sees it (false while recording a translucent unit). */
+   public static boolean pzoptAnimatedAttachments() { // pzopt
+      return !(pzopt.DrawRecorder.recording && pzopt.DrawRecorder.currentRecorder() != null) && instance.renderAnimatedAttachments; // pzopt
+   } // pzopt
+
+   /** pzopt: tileRecordParallel, the highlight / outline / caching render modes as the calling thread sees them (off while recording a translucent unit). */
+   public static boolean pzoptHighlightRendering() { // pzopt
+      return !(pzopt.DrawRecorder.recording && pzopt.DrawRecorder.currentRecorder() != null) && FBORenderObjectHighlight.getInstance().isRendering(); // pzopt
+   } // pzopt
+
+   public static boolean pzoptGhostTileRendering() { // pzopt
+      return !(pzopt.DrawRecorder.recording && pzopt.DrawRecorder.currentRecorder() != null) && FBORenderObjectHighlight.getInstance().isRenderingGhostTile(); // pzopt
+   } // pzopt
+
+   public static boolean pzoptOutlineRendering() { // pzopt
+      return !(pzopt.DrawRecorder.recording && pzopt.DrawRecorder.currentRecorder() != null) && FBORenderObjectOutline.getInstance().isRendering(); // pzopt
+   } // pzopt
+
+   public static boolean pzoptCaching() { // pzopt
+      return !(pzopt.DrawRecorder.recording && pzopt.DrawRecorder.currentRecorder() != null) && FBORenderChunkManager.instance.isCaching(); // pzopt
+   } // pzopt
+
+   /** pzopt: tileRecordParallel, lowestCutawayObjectN / W as the calling thread set them (a recording thread keeps its own). */
+   private static void pzoptSetLowestCutaway(IsoObject n, IsoObject w) { // pzopt
+      pzopt.DrawRecorder r; // pzopt
+      if (pzopt.DrawRecorder.recording && (r = pzopt.DrawRecorder.currentRecorder()) != null) { // pzopt
+         r.lowestCutawayN = n; // pzopt
+         r.lowestCutawayW = w; // pzopt
+      } else { // pzopt
+         lowestCutawayObjectN = n; // pzopt
+         lowestCutawayObjectW = w; // pzopt
+      } // pzopt
+   } // pzopt
+
+   public static IsoObject pzoptLowestCutawayN() { // pzopt
+      pzopt.DrawRecorder r; // pzopt
+      return pzopt.DrawRecorder.recording && (r = pzopt.DrawRecorder.currentRecorder()) != null ? r.lowestCutawayN : lowestCutawayObjectN; // pzopt
+   } // pzopt
+
+   public static IsoObject pzoptLowestCutawayW() { // pzopt
+      pzopt.DrawRecorder r; // pzopt
+      return pzopt.DrawRecorder.recording && (r = pzopt.DrawRecorder.currentRecorder()) != null ? r.lowestCutawayW : lowestCutawayObjectW; // pzopt
+   } // pzopt
+
+   /** pzopt: tileRecordParallel, renderWindowFrameOutline as the calling thread set it (a recording thread keeps its own). */
+   public static boolean pzoptWindowFrameOutline() { // pzopt
+      pzopt.DrawRecorder r; // pzopt
+      return pzopt.DrawRecorder.recording && (r = pzopt.DrawRecorder.currentRecorder()) != null ? pzopt.TileRecord.windowFrameOutline(r) : instance.renderWindowFrameOutline; // pzopt
+   } // pzopt
+
+   private void pzoptSetWindowFrameOutline(boolean v) { // pzopt: tileRecordParallel
+      if (pzopt.DrawRecorder.recording && pzopt.TileRecord.setWindowFrameOutline(v)) { // pzopt
+         return; // pzopt
+      } // pzopt
+      this.renderWindowFrameOutline = v; // pzopt
+   } // pzopt
+
+   /** pzopt: tileRecordParallel, one unit of the translucent pass (the stock chunk loop's body). */
+   public void pzoptRecordChunkTranslucent(IsoChunk c, int playerIndex, int zza, Shader floorRenderShader, Shader wallRenderShader, long currentTimeMillis) { // pzopt
+      this.renderOneChunk_Translucent(c, playerIndex, zza, floorRenderShader, wallRenderShader, currentTimeMillis); // pzopt
+   } // pzopt
+
+   /** pzopt: tileRecordParallel, whether the chunk has anything to draw in this level's translucent pass (else the stock call, state entries only, runs at its place in the splice). */
+   public boolean pzoptTranslucentWork(IsoChunk c, int playerIndex, int level) { // pzopt
+      if (c == null || !c.IsOnScreen(true) || c.lightingNeverDone[playerIndex]) { // pzopt
+         return false; // pzopt
+      } // pzopt
+      FBORenderLevels renderLevels = c.getRenderLevels(playerIndex); // pzopt
+      return renderLevels.isOnScreen(level) // pzopt
+         && renderLevels.getCachedSquares_TranslucentNonFloor(level).size() + renderLevels.getCachedSquares_Items(level).size() // pzopt
+               + renderLevels.getCachedSquares_CutawayWindowFrames(level).size() != 0; // pzopt
+   } // pzopt
+
+   /** pzopt: tileRecordParallel, a square's items drawn by the game thread at their place in the spliced stream. */
+   public void pzoptRenderItemsTranslucent(IsoGridSquare square, IsoGridSquare renderSquare) { // pzopt
+      this.renderWorldInventoryObjects(square, renderSquare, false); // pzopt
+   } // pzopt
+
+   /** pzopt: tileRecordParallel, stock's tree flush before a non-tree object, at its place in the spliced stream. */
+   public void pzoptFlushTrees() { // pzopt
+      if (!FBORenderTrees.current.trees.isEmpty()) { // pzopt
+         SpriteRenderer.instance.drawGeneric(FBORenderTrees.current); // pzopt
+         FBORenderTrees.current = FBORenderTrees.alloc(); // pzopt
+         FBORenderTrees.current.init(); // pzopt
+      } // pzopt
+   } // pzopt
+
+   /** pzopt: devDrawListCheck, the pending tree batch before the stock pass runs. */
+   public FBORenderTrees pzoptTreesSnapshot() { // pzopt
+      return FBORenderTrees.current; // pzopt
+   } // pzopt
+
+   public int pzoptTreesCount() { // pzopt: devDrawListCheck
+      return FBORenderTrees.current.trees.size(); // pzopt
+   } // pzopt
+
+   /** pzopt: devDrawListCheck, the pending tree batch as it was before the rolled-back stock pass. */
+   public void pzoptTreesRestore(FBORenderTrees trees, int count) { // pzopt
+      FBORenderTrees.current = trees; // pzopt
+      while (trees.trees.size() > count) { // pzopt
+         trees.trees.remove(trees.trees.size() - 1); // pzopt
+      } // pzopt
+   } // pzopt
 
    private void renderOneChunk_Translucent(IsoChunk c, int playerIndex, int zza, Shader floorRenderShader, Shader wallRenderShader, long currentTimeMillis) {
       if (c != null && c.IsOnScreen(true)) {
@@ -6729,7 +6884,8 @@ public final class FBORenderCell {
          List<IsoGridSquare> squaresCutawayOutlines = renderLevels.getCachedSquares_CutawayWindowFrames(level);
          List<IsoGridSquare> squaresItems = renderLevels.getCachedSquares_Items(level);
          if (squaresObjects.size() + squaresItems.size() + squaresCutawayOutlines.size() != 0) {
-            PZArrayList<IsoGridSquare> sorted = this.tempSquares;
+            FBORenderCell.PzoptCellScratch pzoptCs = this.pzoptCellScratch(); // pzopt: tileRecordParallel, a recording thread sorts in its own list
+            PZArrayList<IsoGridSquare> sorted = pzoptCs == null ? this.tempSquares : pzoptCs.tempSquares; // pzopt
             boolean pzoptOrder = pzopt.TranslucentOrder.enabled(); // pzopt: translucentOrderCache
             if (!pzoptOrder || !pzopt.TranslucentOrder.reuse(c, playerIndex, level, squaresItems, squaresCutawayOutlines, squaresObjects, sorted)) { // pzopt: the kept order when the three lists are unchanged
             sorted.clear();
@@ -6767,7 +6923,7 @@ public final class FBORenderCell {
                i.close();
             }
 
-            this.timSort.doSort(sorted.getElements(), (java.util.Comparator<IsoGridSquare>) (o1, o2) -> { // pzopt: decompiler fix
+            (pzoptCs == null ? this.timSort : pzoptCs.timSort).doSort(sorted.getElements(), (java.util.Comparator<IsoGridSquare>) (o1, o2) -> { // pzopt: decompiler fix; tileRecordParallel, the thread's own sorter
                int worldRight = IsoWorld.instance.getMetaGrid().getMaxX() * 256;
                int i1 = o1.x + o1.y * worldRight;
                int i2 = o2.x + o2.y * worldRight;
@@ -6784,17 +6940,19 @@ public final class FBORenderCell {
                   this.renderTranslucent(square);
                   if (DebugOptions.instance.fboRenderChunk.itemsInChunkTexture.getValue() && !square.getWorldObjects().isEmpty()) {
                      if (square.chunk == c) {
+                        if (!pzopt.DrawRecorder.recording || !pzopt.TileRecord.deferItems(square, square)) // pzopt: tileRecordParallel, items are drawn by the game thread
                         this.renderWorldInventoryObjects(square, square, false);
                      } else {
                         IsoGridSquare renderSquare = c.getGridSquare(0, 0, square.z);
+                        if (!pzopt.DrawRecorder.recording || !pzopt.TileRecord.deferItems(square, renderSquare)) // pzopt
                         this.renderWorldInventoryObjects(square, renderSquare, false);
                      }
                   }
 
                   this.renderTranslucentSE(square);
-                  this.renderWindowFrameOutline = true;
+                  this.pzoptSetWindowFrameOutline(true); // pzopt: tileRecordParallel, a recording thread keeps the flag in its recorder
                   this.renderCutawayOutline(square, false);
-                  this.renderWindowFrameOutline = false;
+                  this.pzoptSetWindowFrameOutline(false); // pzopt
                }
             }
          }
@@ -7592,7 +7750,7 @@ public final class FBORenderCell {
    }
 
    public void renderSeamFix2_Floor(IsoObject object, float x, float y, float z, ColorInfo stCol, Consumer<TextureDraw> texdModifier) {
-      if (!this.renderTranslucentOnly) {
+      if (!pzoptTranslucentOnly()) { // pzopt: tileRecordParallel, a recording thread sees the translucent pass's render mode
          if (PerformanceSettings.fboRenderChunk && DebugOptions.instance.fboRenderChunk.seamFix2.getValue()) {
             IsoGridSquare square = object.getSquare();
             IsoSprite sprite = object.getSprite();
@@ -7788,7 +7946,7 @@ public final class FBORenderCell {
             if (sprite.tileSheetIndex < 80 || sprite.tileSheetIndex > 82 || sprite.tilesetName == null || !sprite.tilesetName.equals("carpentry_02")) {
                if (sprite.tileSheetIndex < 48 || sprite.tileSheetIndex > 55 || sprite.tilesetName == null || !sprite.tilesetName.equals("walls_logs")) {
                   if (sprite.tilesetName == null || !sprite.tilesetName.equals("walls_logs")) {
-                     if (sprite.getProperties().has(IsoFlagType.WallNW) && texdModifier == WallShaperW.instance && PZMath.coordmodulo(square.y, 8) == 7) {
+                     if (sprite.getProperties().has(IsoFlagType.WallNW) && texdModifier == pzopt.RenderScratch.wsW() && PZMath.coordmodulo(square.y, 8) == 7) { // pzopt: tileRecordParallel, the thread's own modifier (pzopt.RenderScratch)
                         IsoGridSquare s = square.getAdjacentSquare(IsoDirections.S);
                         if (s != null
                            && ((s.getWallType() & 4) != 0 || s.getWindowFrame(GridSquareEdgeFacingDirection.EAST_WEST) != null || s.has(IsoFlagType.DoorWallW))
@@ -7813,7 +7971,7 @@ public final class FBORenderCell {
                         }
                      }
 
-                     if (sprite.getProperties().has(IsoFlagType.WallNW) && texdModifier == WallShaperN.instance && PZMath.coordmodulo(square.x, 8) == 7) {
+                     if (sprite.getProperties().has(IsoFlagType.WallNW) && texdModifier == pzopt.RenderScratch.wsN() && PZMath.coordmodulo(square.x, 8) == 7) { // pzopt: tileRecordParallel, the thread's own modifier (pzopt.RenderScratch)
                         IsoGridSquare e = square.getAdjacentSquare(IsoDirections.E);
                         if (e != null
                            && (

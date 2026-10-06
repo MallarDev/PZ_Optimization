@@ -34,9 +34,10 @@ public final class GtAb {
    public static final int MODEL_ADDS = 1048576; // zombieModelAddBudgetUs
    public static final int BAKE_GUARD = 2097152; // bakeTimeGuardPct
    public static final int POSTUPDATE = 4194304; // postupdateParallel (Louisville 120 plan B)
+   public static final int TILE_RECORD = 8388608; // tileRecordParallel (Louisville 120 plan A)
 
    private static final String[] NAMES = {"renderPrepParallel", "pplPackParallel", "schedulerClassifyParallel", "animalLosFast",
-      "weatherParticlesParallel", "entityUpdateParallel", "bakePrepParallel", "pplTorchNearChunk", "zombieStatsFold", "losLightPrefetch", "visPolyAsync", "aoContextParallel", "translucentOrderCache", "torchSource", "profilerIdleFast", "zombieSimLod", "animalLosSnapshot", "lootDefer", "zombieSpawnSpread", "slackWork", "zombieModelAddBudget", "bakeTimeGuard", "postupdateParallel"};
+      "weatherParticlesParallel", "entityUpdateParallel", "bakePrepParallel", "pplTorchNearChunk", "zombieStatsFold", "losLightPrefetch", "visPolyAsync", "aoContextParallel", "translucentOrderCache", "torchSource", "profilerIdleFast", "zombieSimLod", "animalLosSnapshot", "lootDefer", "zombieSpawnSpread", "slackWork", "zombieModelAddBudget", "bakeTimeGuard", "postupdateParallel", "tileRecordParallel"};
 
    private static final int MASK = parse(Config.DEV_GT_ALTERNATE_KEYS);
    private static long t0;
@@ -119,7 +120,7 @@ public final class GtAb {
          if (out == null) {
             java.io.File f = new java.io.File(zombie.ZomboidFileSystem.instance.getCacheDir(), "pzopt-gtab.out");
             out = new java.io.BufferedWriter(new java.io.FileWriter(f));
-            out.write("# epoch_ms on(1)/off(0) game_thread_cpu_ns process_cpu_ns wall_ns zombie_updates, then ns per section: startFrame schedUpdate animalLos playerLos pplBeforeComposite renderMovingObjects performRenderTiles postupdate visPolyRenderMain aoFlush chunkMapUpdate popmanUpdate lightingUpdate logic finishAnimation renderInternal sceneCull atlases cellRender pu_loop pu_move pu_flush pu_zombies pu_moved pu_collided vzmUpdate chunkPos nativeUnload bake_t0 bake_t1 bake_t2 bake_t3 bake_offered  (per frame, devGtAlternate " + Config.DEV_GT_ALTERNATE + " ms, keys "
+            out.write("# epoch_ms on(1)/off(0) game_thread_cpu_ns process_cpu_ns wall_ns zombie_updates, then ns per section: startFrame schedUpdate animalLos playerLos pplBeforeComposite renderMovingObjects performRenderTiles postupdate visPolyRenderMain aoFlush chunkMapUpdate popmanUpdate lightingUpdate logic finishAnimation renderInternal sceneCull atlases cellRender pu_loop pu_move pu_flush pu_zombies pu_moved pu_collided vzmUpdate chunkPos nativeUnload bake_t0 bake_t1 bake_t2 bake_t3 bake_offered tl_pass tl_record tl_splice  (per frame, devGtAlternate " + Config.DEV_GT_ALTERNATE + " ms, keys "
                + Config.DEV_GT_ALTERNATE_KEYS + ")\n");
          }
          out.write(LOG.toString());
@@ -143,7 +144,8 @@ public final class GtAb {
    // Louisville 120 item 3: the popman native's chunk unload call; bakes granted this frame by tier (counts: must / level-change
    // burst, arrival quota, overdue, normal) and offered
    public static final int S_NATIVE_UNLOAD = 27, C_BAKE_T0 = 28, C_BAKE_T1 = 29, C_BAKE_T2 = 30, C_BAKE_T3 = 31, C_BAKE_OFFERED = 32;
-   private static final int SECTIONS = 33;
+   public static final int S_TL_PASS = 33, S_TL_RECORD = 34, S_TL_SPLICE = 35; // tileRecordParallel: the translucent passes (either path), recording, splicing
+   private static final int SECTIONS = 36;
    private static final long[] SECTION_NS = new long[SECTIONS];
    public static final boolean TIMING = Config.DEV_GT_ALTERNATE > 0 && MASK != 0;
 

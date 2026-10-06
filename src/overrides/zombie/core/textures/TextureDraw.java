@@ -58,6 +58,42 @@ public final class TextureDraw {
    public int pzoptLampN; // pzopt: sunShadowLampMeshes, DrawModel: the caster's lamp views to draw (ShadowAtlas.renderLamps)
    public float[] pzoptLampDraw; // pzopt: per view tile, centre x, y, z, half size, lamp x, y, z
    public static float nextChunkDepth;
+
+   /** pzopt: tileRecordParallel, the depth of the next draw on this thread (a recording thread keeps its own). */
+   public static void pzoptSetNextZ(float z) { // pzopt
+      pzopt.DrawRecorder r; // pzopt
+      if (pzopt.DrawRecorder.recording && (r = pzopt.DrawRecorder.currentRecorder()) != null) { // pzopt
+         r.depthSetZ(z); // pzopt
+      } else { // pzopt
+         nextZ = z; // pzopt
+      } // pzopt
+   } // pzopt
+
+   public static void pzoptSetNextChunkDepth(float d) { // pzopt
+      pzopt.DrawRecorder r; // pzopt
+      if (pzopt.DrawRecorder.recording && (r = pzopt.DrawRecorder.currentRecorder()) != null) { // pzopt
+         r.depthSetChunkDepth(d); // pzopt
+      } else { // pzopt
+         nextChunkDepth = d; // pzopt
+      } // pzopt
+   } // pzopt
+
+   public static float pzoptNextChunkDepth() { // pzopt
+      pzopt.DrawRecorder r; // pzopt
+      return pzopt.DrawRecorder.recording && (r = pzopt.DrawRecorder.currentRecorder()) != null ? r.nextChunkDepth : nextChunkDepth; // pzopt
+   } // pzopt
+
+   private static void pzoptTakeDepth(TextureDraw texd) { // pzopt
+      pzopt.DrawRecorder r; // pzopt
+      if (pzopt.DrawRecorder.recording && (r = pzopt.DrawRecorder.currentRecorder()) != null) { // pzopt
+         r.depthTake(texd); // pzopt
+         return; // pzopt
+      } // pzopt
+      texd.z = nextZ; // pzopt: stock
+      texd.chunkDepth = nextChunkDepth; // pzopt
+      nextZ = 0.0F; // pzopt
+      nextChunkDepth = 0.0F; // pzopt
+   } // pzopt
    public TextureDraw.Type type = TextureDraw.Type.glDraw;
    public boolean flipped;
    public int a;
@@ -1044,10 +1080,7 @@ public final class TextureDraw {
       }
 
       Create(texd, tex, x0, y0, x1, y1, x2, y2, x3, y3, col0, col0, col0, col0, u0, v0, u1, v1, u2, v2, u3, v3, texdModifier);
-      texd.z = nextZ;
-      texd.chunkDepth = nextChunkDepth;
-      nextZ = 0.0F;
-      nextChunkDepth = 0.0F;
+      pzoptTakeDepth(texd); // pzopt: tileRecordParallel, a recording thread's depth comes from its own scratch
       return texd;
    }
 
@@ -1228,10 +1261,7 @@ public final class TextureDraw {
       if (pzopt.Mirrors.capturingNow) { // pzopt: mirrors, a window / mirror tile drawing: its quad and texture
          pzopt.Mirrors.captured(texd); // pzopt
       } // pzopt
-      texd.z = nextZ;
-      texd.chunkDepth = nextChunkDepth;
-      nextZ = 0.0F;
-      nextChunkDepth = 0.0F;
+      pzoptTakeDepth(texd); // pzopt: tileRecordParallel, a recording thread's depth comes from its own scratch
       return texd;
    }
 
@@ -1248,6 +1278,108 @@ public final class TextureDraw {
          return i == 3 ? this.col3 : this.col0;
       }
    }
+
+   /**
+    * pzopt: tileRecordParallel, this entry becomes a copy of {@code o} (every field: an entry type reads only its own,
+    * the rest stay as stale as they would). The splice copies a recorded entry into the frame's own slot instead of
+    * swapping the objects: swapped, the slots of both lists ended up scattered over the heap and recording ran into
+    * a cache miss per entry (2026-10-06, A1 profile).
+    */
+   public void pzoptCopyFrom(TextureDraw o) { // pzopt
+      TextureDraw.Type t = o.type; // pzopt
+      if (t != TextureDraw.Type.glDraw && t != TextureDraw.Type.DrawModel && t != TextureDraw.Type.DrawQueued) { // pzopt: a state entry: the fields the state commands read
+         this.type = t; // pzopt
+         this.a = o.a; // pzopt
+         this.b = o.b; // pzopt
+         this.c = o.c; // pzopt
+         this.d = o.d; // pzopt
+         this.f1 = o.f1; // pzopt
+         this.x0 = o.x0; // pzopt
+         this.u0 = o.u0; // pzopt
+         this.u1 = o.u1; // pzopt
+         this.u2 = o.u2; // pzopt
+         this.u3 = o.u3; // pzopt
+         this.col0 = o.col0; // pzopt
+         this.col1 = o.col1; // pzopt
+         this.col2 = o.col2; // pzopt
+         this.col3 = o.col3; // pzopt
+         this.flipped = o.flipped; // pzopt
+         this.drawer = o.drawer; // pzopt
+         this.future = o.future; // pzopt
+         this.probe = o.probe; // pzopt
+         this.tex = o.tex; // pzopt
+         this.tex1 = o.tex1; // pzopt
+         return; // pzopt
+      } // pzopt
+      this.pzoptOutline = o.pzoptOutline; // pzopt
+      this.pzoptShadowTile = o.pzoptShadowTile; // pzopt
+      this.pzoptShadowX = o.pzoptShadowX; // pzopt
+      this.pzoptShadowY = o.pzoptShadowY; // pzopt
+      this.pzoptShadowZ = o.pzoptShadowZ; // pzopt
+      this.pzoptShadowHalf = o.pzoptShadowHalf; // pzopt
+      this.pzoptMirrorPlanes = o.pzoptMirrorPlanes; // pzopt
+      this.pzoptLampN = o.pzoptLampN; // pzopt
+      this.pzoptLampDraw = o.pzoptLampDraw; // pzopt
+      this.type = o.type; // pzopt
+      this.flipped = o.flipped; // pzopt
+      this.a = o.a; // pzopt
+      this.b = o.b; // pzopt
+      this.f1 = o.f1; // pzopt
+      this.vars = o.vars; // pzopt
+      this.c = o.c; // pzopt
+      this.d = o.d; // pzopt
+      this.col0 = o.col0; // pzopt
+      this.col1 = o.col1; // pzopt
+      this.col2 = o.col2; // pzopt
+      this.col3 = o.col3; // pzopt
+      this.x0 = o.x0; // pzopt
+      this.x1 = o.x1; // pzopt
+      this.x2 = o.x2; // pzopt
+      this.x3 = o.x3; // pzopt
+      this.y0 = o.y0; // pzopt
+      this.y1 = o.y1; // pzopt
+      this.y2 = o.y2; // pzopt
+      this.y3 = o.y3; // pzopt
+      this.u0 = o.u0; // pzopt
+      this.u1 = o.u1; // pzopt
+      this.u2 = o.u2; // pzopt
+      this.u3 = o.u3; // pzopt
+      this.v0 = o.v0; // pzopt
+      this.v1 = o.v1; // pzopt
+      this.v2 = o.v2; // pzopt
+      this.v3 = o.v3; // pzopt
+      this.z = o.z; // pzopt
+      this.chunkDepth = o.chunkDepth; // pzopt
+      this.tex = o.tex; // pzopt
+      this.tex1 = o.tex1; // pzopt
+      this.tex2 = o.tex2; // pzopt
+      this.useAttribArray = o.useAttribArray; // pzopt
+      this.tex1U0 = o.tex1U0; // pzopt
+      this.tex1U1 = o.tex1U1; // pzopt
+      this.tex1U2 = o.tex1U2; // pzopt
+      this.tex1U3 = o.tex1U3; // pzopt
+      this.tex1V0 = o.tex1V0; // pzopt
+      this.tex1V1 = o.tex1V1; // pzopt
+      this.tex1V2 = o.tex1V2; // pzopt
+      this.tex1V3 = o.tex1V3; // pzopt
+      this.tex1Col0 = o.tex1Col0; // pzopt
+      this.tex1Col1 = o.tex1Col1; // pzopt
+      this.tex1Col2 = o.tex1Col2; // pzopt
+      this.tex1Col3 = o.tex1Col3; // pzopt
+      this.tex2U0 = o.tex2U0; // pzopt
+      this.tex2U1 = o.tex2U1; // pzopt
+      this.tex2U2 = o.tex2U2; // pzopt
+      this.tex2U3 = o.tex2U3; // pzopt
+      this.tex2V0 = o.tex2V0; // pzopt
+      this.tex2V1 = o.tex2V1; // pzopt
+      this.tex2V2 = o.tex2V2; // pzopt
+      this.tex2V3 = o.tex2V3; // pzopt
+      this.singleCol = o.singleCol; // pzopt
+      this.imDrawData = o.imDrawData; // pzopt
+      this.probe = o.probe; // pzopt
+      this.drawer = o.drawer; // pzopt
+      this.future = o.future; // pzopt
+   } // pzopt
 
    public void reset() {
       this.type = TextureDraw.Type.glDraw;

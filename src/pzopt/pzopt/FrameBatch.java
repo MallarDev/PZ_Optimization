@@ -33,6 +33,7 @@ public final class FrameBatch {
    public static final class Worker extends Thread {
       public boolean noInterpolate; // animatorParallel: this thread's keyframe sampling behaves as interpolateAnims=false
       public AnimCapture capture; // animatorParallel: the character whose anim events this thread is capturing, or null
+      public Object drawRecorder; // tileRecordParallel: the DrawRecorder of the tile draw unit this thread is recording, or null
 
       Worker(Runnable r, String name) {
          super(r, name);

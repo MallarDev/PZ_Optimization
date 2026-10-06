@@ -29,6 +29,62 @@ public final class ShaderUniformSetter extends GenericDrawer {
       return this.next; // pzopt
    } // pzopt
 
+   /** pzopt: tileRecordParallel's draw-list check, whether two chains set the same uniforms to the same values. */
+   public boolean pzoptSameChain(ShaderUniformSetter o) { // pzopt
+      ShaderUniformSetter a = this; // pzopt
+      ShaderUniformSetter b = o; // pzopt
+      while (a != null && b != null) { // pzopt
+         if (a.type != b.type || a.location != b.location || !pzoptSameValues(a, b)) { // pzopt
+            return false; // pzopt
+         } // pzopt
+         a = a.next; // pzopt
+         b = b.next; // pzopt
+      } // pzopt
+      return a == b; // pzopt
+   } // pzopt
+
+   /** pzopt: the fields this entry's type sets (a pooled setter keeps stale values in the others; NIL sets none). */
+   private static boolean pzoptSameValues(ShaderUniformSetter a, ShaderUniformSetter b) { // pzopt
+      int nf = 0; // pzopt
+      int ni = 0; // pzopt
+      switch (a.type) { // pzopt
+         case Uniform1f: nf = 1; break; // pzopt
+         case Uniform2f: nf = 2; break; // pzopt
+         case Uniform3f: nf = 3; break; // pzopt
+         case Uniform4f: nf = 4; break; // pzopt
+         case Uniform1i: ni = 1; break; // pzopt
+         case Uniform2i: ni = 2; break; // pzopt
+         case Uniform3i: ni = 3; break; // pzopt
+         case Uniform4i: ni = 4; break; // pzopt
+         default: break; // pzopt
+      } // pzopt
+      float[] fa = {a.f1, a.f2, a.f3, a.f4}; // pzopt
+      float[] fb = {b.f1, b.f2, b.f3, b.f4}; // pzopt
+      int[] ia = {a.i1, a.i2, a.i3, a.i4}; // pzopt
+      int[] ib = {b.i1, b.i2, b.i3, b.i4}; // pzopt
+      for (int k = 0; k < nf; k++) { // pzopt
+         if (Float.floatToIntBits(fa[k]) != Float.floatToIntBits(fb[k])) { // pzopt
+            return false; // pzopt
+         } // pzopt
+      } // pzopt
+      for (int k = 0; k < ni; k++) { // pzopt
+         if (ia[k] != ib[k]) { // pzopt
+            return false; // pzopt
+         } // pzopt
+      } // pzopt
+      return true; // pzopt
+   } // pzopt
+
+   /** pzopt: tileRecordParallel's draw-list check, the chain as text. */
+   public String pzoptDescribe() { // pzopt
+      StringBuilder sb = new StringBuilder(); // pzopt
+      for (ShaderUniformSetter a = this; a != null; a = a.next) { // pzopt
+         sb.append(a.type).append('@').append(a.location).append('=').append(a.f1).append(',').append(a.f2).append(',').append(a.f3).append(',').append(a.f4) // pzopt
+            .append('/').append(a.i1).append(',').append(a.i2).append(' '); // pzopt
+      } // pzopt
+      return sb.toString(); // pzopt
+   } // pzopt
+
    public ShaderUniformSetter setNext(ShaderUniformSetter next) {
       this.next = next;
       return next;
@@ -179,6 +235,18 @@ public final class ShaderUniformSetter extends GenericDrawer {
    }
 
    public static ShaderUniformSetter alloc() {
+      if (pzopt.DrawRecorder.recording) { // pzopt: tileRecordParallel, a recording thread takes from its recorder's own pool (refilled by the game thread before each pass)
+         pzopt.DrawRecorder r = pzopt.DrawRecorder.currentRecorder(); // pzopt
+         if (r != null) { // pzopt
+            ShaderUniformSetter e = (ShaderUniformSetter)r.uniformPool; // pzopt
+            if (e == null) { // pzopt
+               return new ShaderUniformSetter(); // pzopt
+            } // pzopt
+            r.uniformPool = e.next; // pzopt
+            r.uniformPoolSize--; // pzopt
+            return e; // pzopt
+         } // pzopt
+      } // pzopt
       if (pool == null) {
          return new ShaderUniformSetter();
       }
@@ -187,6 +255,21 @@ public final class ShaderUniformSetter extends GenericDrawer {
       pool = e.next;
       return e;
    }
+
+   /** pzopt: tileRecordParallel, game thread before a recording pass: tops {@code r}'s own pool up to {@code n} from the shared one. */
+   public static void pzoptRefill(pzopt.DrawRecorder r, int n) { // pzopt
+      while (r.uniformPoolSize < n) { // pzopt
+         ShaderUniformSetter e = pool; // pzopt
+         if (e == null) { // pzopt
+            e = new ShaderUniformSetter(); // pzopt
+         } else { // pzopt
+            pool = e.next; // pzopt
+         } // pzopt
+         e.next = (ShaderUniformSetter)r.uniformPool; // pzopt
+         r.uniformPool = e; // pzopt
+         r.uniformPoolSize++; // pzopt
+      } // pzopt
+   } // pzopt
 
    public static void release(ShaderUniformSetter e) {
       e.next = pool;

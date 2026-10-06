@@ -149,6 +149,9 @@ public class WeatherFxMask {
    }
 
    public static boolean isRenderingMask() {
+      if (renderingMask && pzopt.DrawRecorder.recording && pzopt.DrawRecorder.currentRecorder() != null) { // pzopt: tileRecordParallel, a thread recording a translucent unit is not in the mask pass
+         return false; // pzopt
+      } // pzopt
       return renderingMask;
    }
 

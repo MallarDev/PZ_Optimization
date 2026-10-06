@@ -6255,3 +6255,77 @@ carrying a mirror the reflection made every flip a visible pop (the upstairs bat
 - Dev (`devMirrorsLog`): `renderOneLevel_AnimatedAttachments` / `renderAnimatedAttachments` / `pzoptCaptureAttachedMirror`
   report why a wall's mirror overlay was or was not captured (`Mirrors.devAttached`; the console line `mirrors: dev
   attached ... A -> B (frame N screen X,Y, epoch_ms=T)` on every change).
+## Louisville 120 plan A: the translucent tile pass recorded on the workers (2026-10-06; branch `lou120-tilerecord`, docs/findings-louisville-120-tile-record-2026-10-06.md)
+
+Keys: `tileRecordParallel` (default off), `tileRecordAsync` (on), `tileRecordWalls` (on); dev `devTileRecordSerial`,
+`devTileRecordDeferAll`, `devDrawListCheck`. The common rule of every edit below: on a thread that records a tile draw
+unit (`pzopt.DrawRecorder.recording` and the thread bound to a recorder) the code uses that thread's own copy of a
+piece of state stock keeps in a static or a shared singleton; on any other thread (the game thread outside a recording,
+the render thread) it uses the stock static, so with the key off nothing changes.
+
+### zombie.core.sprite.SpriteRendererStates (new override)
+- `getPopulatingActiveState` hands a recording thread its recorder's own render state, so every SpriteRenderer call of
+  the unit appends to the unit's list.
+
+### zombie.core.opengl.IOpenGLState (new override)
+- Each state gets a slot number at construction. `set` on a recording thread goes to the recorder's own cache
+  (`pzopt.DrawRecorder.glSet`); the first set of a state in a segment is recorded as a conditional set, issued at splice
+  time against the game thread's cache (stock's dedupe). New public bridges for the recorder and the check rig: a fresh
+  value, issue an entry without touching the cache, whether stock would issue, adopt a value, snapshot / restore.
+
+### zombie.IndieGL (new override)
+- The six `temp*` value scratch objects and the shader stack come from the recorder on a recording thread; the shader
+  stack entry pool is taken under a lock there.
+
+### zombie.iso.IsoObject (new override)
+- Every method using the `stCol` / `stCol2` scratch reads the thread's copy (a local of the same name at the method top).
+- `prepareToRender` leaves `lastRendered` / `lastRenderedRendered` / `lowLightingQualityHack` alone on a recording thread
+  (nothing reads them).
+- The depth / seam / cutaway modifiers and the wall shapers come from `pzopt.RenderScratch` (per thread, so the identity
+  tests along the way hold); the render-mode flags (`renderTranslucentOnly`, `renderAnimatedAttachments`, the highlight /
+  outline / caching modes, `renderWindowFrameOutline`) are read through FBORenderCell's per-thread getters.
+- New: `pzoptSpritesWarm` (main / overlay / attached / light-on sprites drawn once on a non-recording thread, no flipped
+  or self-fading shared instance) and `pzoptHasChildrenOrSplats`.
+- Decompiler fixes: `getFasciaAttachedSquare` (a variable name Vineflower reused), `Thump` (the jar reads a static
+  constant through the instance: its null check), `renderClockHands` (the jar re-boxes a Float).
+
+### zombie.iso.sprite.IsoSprite (new override)
+- `info`, the `l_renderCurrentAnim` vectors, the chained modifier (`AND_THEN`) and `seamFix2` (null on a recording
+  thread) are per thread; the depth / seam modifiers come from `pzopt.RenderScratch`; the next-draw depth goes through
+  TextureDraw's per-thread setters.
+- `prepareToRenderSprite`: on a recording thread the alpha `IsoSpriteInstance.renderprep` would leave is computed without
+  writing the instance (a tile's instance is its sprite's shared def: two threads swapped alphas).
+- `render`: a sprite drawn on a non-recording thread is marked warm (`pzoptWarm`); `pzoptRoofKnown` reports whether its
+  lazy roof init ran.
+
+### zombie.iso.IsoGridSquare (new override)
+- The wall scratch stock keeps in statics (`colu` .. `colr2`, `circleStencil`, `wallCutawayN/W`, `lightInfoTemp`,
+  `defColorInfo`, the interpolation colours) moved into a context object: the game thread's (wrapping the original
+  objects) or a recording thread's own; `pzoptSetCircleStencil` for FBORenderCell. Modifiers / shapers from
+  `pzopt.RenderScratch`, `lowestCutawayObjectN/W` and `renderWindowFrameOutline` through FBORenderCell's per-thread
+  getters, the next-draw depth through TextureDraw's setters, the four cutaway mask textures resolved once on the game
+  thread.
+
+### zombie.core.textures.TextureDraw, edits
+- `nextZ` / `nextChunkDepth`: per-thread setters / getter; `Create` takes the depth through `pzoptTakeDepth` (a
+  recording thread's recorder records where a segment takes the depth it inherited, so the splice carries stock's
+  leftover from a skipped draw exactly). `pzoptCopyFrom`: the splice copies a recorded entry into the frame's slot.
+
+### zombie.core.opengl.ShaderUniformSetter, edits
+- `alloc` on a recording thread takes from its recorder's pool (topped up from the shared one on the game thread before
+  each pass); `pzoptSameChain` / `pzoptDescribe` for the check rig.
+
+### zombie.iso.fboRenderChunk.FBORenderCell, edits
+- `renderTranslucentObjects`: the chunk loop through `pzopt.TileRecord.translucentPass` when active (stock pass timer for
+  the A/B otherwise); `performRenderTiles` starts the asynchronous recording of every level after the chunk composite and
+  ends it after the level loop.
+- `renderTranslucent(IsoObject)` defers an object a recording thread may not draw; the tree flush before a non-tree
+  object and a square's items become splice events; `renderWindowFrameOutline`, `lowestCutawayObjectN/W`, the sort
+  scratch (`tempSquares`, `timSort`) and the colour copy in `renderAnimatedAttachments` are per thread; reads of the
+  render-mode flags go through per-thread getters; the dev census skips recording threads.
+
+### zombie.iso.weather.fx.WeatherFxMask, LightingJNI, pzopt
+- `isRenderingMask` is false on a recording thread. `JNILighting.update` takes the square's lock while units record (the
+  game thread may refresh a square a worker refreshes). `LightingDefer.applyOne` runs one unit's lazy-lighting effects at
+  its splice. `FrameBatch.Worker.drawRecorder`. New classes `pzopt.DrawRecorder`, `pzopt.TileRecord`,
+  `pzopt.RenderScratch`.

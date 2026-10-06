@@ -606,6 +606,12 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   the rooms show open. `pplCutEdge`: furniture flush against such a hidden square's edge (a bathtub) took its dark outdoor light
   in pixelLight; now the room's (`FBORenderCutaways.pzoptSquareHidden`). `aoRoofSkip`: no AO on roof tiles (their depth is a
   staircase: the risers' AO, spread by `aoEdgeShade`, drew dark bands across roofs); dev `devAoRoofView`.
+- Louisville 120 plan A (2026-10-06, `docs/findings-louisville-120-tile-record-2026-10-06.md`, `tileRecordParallel`, off by
+  default): the per-frame translucent tile pass recorded per chunk level on the frame workers (`pzopt.DrawRecorder` /
+  `TileRecord` / `RenderScratch`; new overrides SpriteRendererStates, IOpenGLState, IndieGL, IsoObject, IsoSprite,
+  IsoGridSquare), asynchronously while the game thread draws the rest, spliced in stock order; exact by `devDrawListCheck`
+  (0 / 253k entries). Pass 0.80 -> 0.33 ms a frame; the lock's miss frames are logic bursts, so whole-run misses moved
+  11.3 -> 11.0 %. Trap: a tile's IsoSpriteInstance is its sprite's shared def (renderprep writes it).
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

@@ -41,6 +41,15 @@ public class StaticAudit {
    static Map<String, ClassModel> classes = new HashMap<>();
    static Map<String, List<String>> subtypes = new HashMap<>(); // owner -> direct subtypes
    static Map<MethodRef, MethodModel> methods = new HashMap<>();
+   static List<String> excludes = new ArrayList<>(); // --exclude: classes neither walked nor dispatched to (types the caller keeps off the audited path)
+   static boolean putfields; // --putfield: also report instance-field writes (PUTFIELD), for passes that split objects across threads
+
+   static boolean excluded(String owner) {
+      for (String e : excludes) {
+         if (owner.startsWith(e)) return true;
+      }
+      return false;
+   }
 
    public static void main(String[] args) throws Exception {
       Path jar = Path.of(args[0]);
@@ -49,6 +58,8 @@ public class StaticAudit {
       List<String> leaves = new ArrayList<>();
       for (int i = 2; i < args.length; i++) {
          if (args[i].equals("--leaf")) { leaves.add(args[++i]); continue; }
+         if (args[i].equals("--exclude")) { excludes.add(args[++i]); continue; }
+         if (args[i].equals("--putfield")) { putfields = true; continue; }
          String a = args[i];
          int p = a.indexOf('('), d = a.lastIndexOf('.', p);
          entries.add(new MethodRef(a.substring(0, d), a.substring(d + 1, p), a.substring(p)));
@@ -87,6 +98,11 @@ public class StaticAudit {
          for (CodeElement ce : mm.code().get()) {
             if (ce instanceof FieldInstruction fi) {
                Opcode op = fi.opcode();
+               if (putfields && op == Opcode.PUTFIELD) {
+                  String key = "~" + fi.owner().asInternalName() + "." + fi.name().stringValue();
+                  statics.merge(key, "W", (a, b) -> a);
+                  staticWhere.putIfAbsent(key, m);
+               }
                if (op == Opcode.GETSTATIC || op == Opcode.PUTSTATIC) {
                   String key = fi.owner().asInternalName() + "." + fi.name().stringValue();
                   String mode = op == Opcode.GETSTATIC ? "R" : "W";
@@ -99,6 +115,7 @@ public class StaticAudit {
                boolean leaf = !owner.startsWith(pkg) || leaves.stream().anyMatch(owner::startsWith);
                if (leaf) { leafCalls.putIfAbsent(target.toString(), m); continue; }
                for (MethodRef t : targets(target, ii.opcode())) {
+                  if (excluded(t.owner())) continue;
                   if (!parent.containsKey(t)) { parent.put(t, m); queue.add(t); }
                }
             } else if (ce instanceof InvokeDynamicInstruction idi) {
@@ -116,7 +133,7 @@ public class StaticAudit {
       }
 
       System.out.println("## reachable methods: " + visited.size());
-      System.out.println("\n## static fields reached (owner.field  mode  shortest chain from an entry)");
+      System.out.println("\n## static fields reached (owner.field  mode  shortest chain from an entry; ~ = instance field write with --putfield)");
       for (var e : statics.entrySet()) {
          System.out.println(e.getKey() + "  " + e.getValue() + "  via " + chain(staticWhere.get(e.getKey()), parent));
       }

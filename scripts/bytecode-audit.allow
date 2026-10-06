@@ -32,3 +32,9 @@ zombie.core.opengl.RenderThread#init()  # the jar returns early inside synchroni
 # debug-only drawing (F-key debug overlays), not on any gameplay path
 zombie.characters.IsoGameCharacter#debugRenderLast()  # Vineflower repeats a branch's draw call; debug direction lines only
 zombie.characters.IsoGameCharacter#debugAim()  # Vineflower repeats a branch's draw call; debug aim arcs only
+
+# tileRecordParallel (2026-10-06): IsoGridSquare / IsoObject became overrides; read against javap -c of the jar
+zombie.iso.IsoGridSquare#isWall(zombie.iso.objects.GridSquareEdgeFacingDirection)  # switch arms: javac duplicates the `return false` tails the jar shares, same results per case
+zombie.iso.IsoGridSquare#DoCutawayShader(zombie.iso.IsoObject, zombie.iso.IsoDirections, int, int, int, int, int, boolean, boolean, boolean, boolean, zombie.iso.sprite.shapers.WallShaper)  # the jar's chained static assignment colu = coll = colu2 = coll2 = -1 (dup) written as four stores of -1
+zombie.iso.IsoGridSquare#DoCutawayShaderSprite(zombie.iso.sprite.IsoSprite, zombie.iso.IsoDirections, int, int, int, int, int)  # early returns jump to one shared clear-and-return epilogue instead of inlining it; same calls on every path
+zombie.iso.IsoGridSquare#CalcVisibility(int, zombie.characters.IsoGameCharacter, zombie.characters.VisibilityData)  # `tempo2.x op= ...` compound assignments: the static scratch vector re-read instead of dup'd

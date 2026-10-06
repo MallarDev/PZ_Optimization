@@ -56,6 +56,19 @@ public final class LightingDefer {
       SINK.remove();
    }
 
+   /** Game thread: task i's effects (tileRecordParallel splices unit by unit, each unit's effects first). */
+   static void applyOne(int i) {
+      ArrayList<Runnable> l = lists[i];
+      if (l == null || l.isEmpty()) {
+         return;
+      }
+      deferred += l.size();
+      for (int k = 0; k < l.size(); k++) {
+         l.get(k).run();
+      }
+      l.clear();
+   }
+
    /** Game thread, at the join: tasks 0..n-1's effects in order. */
    static void apply(int n) {
       for (int i = 0; i < n; i++) {
