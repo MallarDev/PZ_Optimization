@@ -400,8 +400,11 @@ of each machine's conf entry.
 - `steam` needs the Steam launch options `<repo>/harness/steam-launch.sh %command%`; env vars
   cannot reach a game started by the running client, so run.sh writes
   `~/Zomboid/pzopt-launch.env` per run and the wrapper sources it.
-- `direct` runs `projectzomboid.sh` with `-Dzomboid.steam=0`; `auto` (default) picks direct
+- `direct` runs `projectzomboid.sh` with `-Dzomboid.steam=0`; `auto` (run.sh's default) picks direct
   when Steam is not running or logged out (a logged-out client silently ignores -applaunch).
+  **Every run goes direct unless it needs Steam** (maintainer): `queue.sh submit run` appends `--launcher direct` when
+  the args name no launcher (2026-10-07; not on the Mac, whose `run-mac.sh` is always direct; flip / dell force it via
+  `run_args`); `--launcher steam` asks for Steam. A direct `run.sh` call or a `submit cmd` wrapper passes it itself.
   Direct numbers match Steam numbers. run.sh sets `LC_NUMERIC=C` (de_DE locale breaks
   MangoHud's fps_metrics) and has a 120 s start-up watchdog.
 - Steam's newer **performance monitor** caps optimized runs at ~160 fps by pinning the GL

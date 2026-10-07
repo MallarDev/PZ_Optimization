@@ -400,6 +400,12 @@ submit() {
       fi
       for ((i = 0; i < ${#argv[@]}; i++)); do [[ "${argv[i]}" == --label ]] && label="${argv[i+1]:-}"; done
       [[ -n "$label" ]] || die "run.sh needs --label"
+      # runs go without Steam unless the session asks for it (maintainer, 2026-10-07): run.sh's own default is auto, which
+      # picks Steam whenever the client is logged on (2026-10-06: five keybind runs loaded no overrides that way).
+      # A run that needs Steam passes --launcher steam (or auto). run-mac.sh has no --launcher (always direct).
+      if [[ "$(mcfg "$machine" os linux)" != mac ]] && ! printf '%s\n' "${argv[@]}" | grep -qx -- --launcher; then
+        argv+=(--launcher direct); echo "no --launcher given: the run goes without Steam (--launcher direct)"
+      fi
       [[ -x "$REPO/harness/run.sh" ]] || die "no harness/run.sh in $REPO" ;;
     mp)
       label="${argv[0]:-}"; [[ -n "$label" ]] || die "mp needs <label> [stock] after --"

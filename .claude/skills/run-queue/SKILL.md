@@ -56,6 +56,11 @@ goes in, and `submit` prints Jev's suggestion beside it (`bench: Jev suggests 'l
 fit 0.15`): read it, and cancel + resubmit when the catalog run is what you meant. When a one-off rig becomes a
 standard, add it to `benches.json` with honest `resources`.
 
+**No Steam by default** (maintainer, 2026-10-07): a `run` whose arguments carry no `--launcher` gets
+`--launcher direct` appended by `submit` (it prints `no --launcher given: the run goes without Steam`). Only a run
+that really needs Steam (Proton, a Steam overlay / input check) passes `--launcher steam`. `cmd` jobs are not
+touched: a wrapper that calls run.sh must pass `--launcher direct` itself.
+
 Keep your progress current between submits with `harness/queue.sh session --progress "..."` (Jev reads the
 session's latest). `submit` prints Jev's current place and ETA for the job; `harness/queue.sh next [machine]`
 prints the whole plan. When a job starts, the desktop shows a notification (label, session, estimate, intent).

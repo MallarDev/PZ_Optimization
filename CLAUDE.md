@@ -46,6 +46,12 @@ saturated" is itself a finding. Chunk-latency wins are done; do not spend more o
   connection, keeps a session on the machine it first used, notifies sessions (`watch`, `events`) when a
   machine drops or a job ends, and writes each job's `result.txt` with Jev's verdict; `--wait` blocks on it.
   No pgrep dance, no peer messages, no hand-rolled ssh wrappers for a run.
+- **Runs go without Steam** (maintainer, 2026-09-24, repeated 2026-10-07): every run launches with
+  `--launcher direct` unless it needs Steam (a Proton run, a Steam-overlay / Steam-input check). Since 2026-10-07
+  `queue.sh submit run` adds `--launcher direct` when the args carry no `--launcher`; pass `--launcher steam` to ask for
+  Steam. run.sh's own default is still `auto` (Steam whenever the client is logged on), so a direct `run.sh` call or a
+  `submit cmd` wrapper must pass `--launcher direct` itself. A Steam launch loaded no overrides on 2026-10-06 (0 `[pzopt]`
+  console lines): check `grep -c '\[pzopt\]' console.txt` > 0.
 - **Run etiquette.** The maintainer is usually at the machine. Say a run is about to start before
   launching, one run at a time, never long batches. Never edit `harness/run.sh` while a run is in
   progress (bash reads it incrementally; a mid-edit launch died and its EXIT trap corrupted
