@@ -472,8 +472,8 @@ public final class GodRays {
       for (int k = 0; k < objects.size(); k++) {
          IsoObject o = objects.get(k);
          String n = o != null && o.getSprite() != null ? o.getSprite().getName() : null;
-         if (n != null && n.startsWith("roofs_") && !n.startsWith("roofs_accents")) {
-            return true;
+         if (n != null && n.startsWith("roofs_") && !n.startsWith("roofs_accents") || o != null && ChunkAo.ownSheetRoof(o.getSprite())) {
+            return true; // a tent's roof over the square too
          }
       }
       return false;
@@ -554,8 +554,7 @@ public final class GodRays {
       zombie.util.list.PZArrayList<IsoObject> objects = sq.getObjects();
       for (int k = 0; k < objects.size(); k++) {
          IsoObject o = objects.get(k);
-         IsoSprite sp = o == null ? null : o.getSprite();
-         if (sp != null && (sp.getProperties() != null && sp.getProperties().get("RoofGroup") != null || sp.getName() != null && sp.getName().startsWith("roofs_"))) {
+         if (o != null && ChunkAo.roofSprite(o.getSprite())) { // the tents' roof tiles too (WestRoof-typed, no RoofGroup)
             return true;
          }
       }

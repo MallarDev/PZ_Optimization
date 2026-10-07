@@ -6080,6 +6080,31 @@ Rig: `--source-save Sandbox/2026-09-26_03-37-09 --flag zombies=off --flag route=
 Left: the porch gutter's top reads darker than stock with the player's settings (pixelLight, aoEdgeShade and the HDR /
 grading tone each add to it; defaults match stock).
 
+## Egg-crate tent roofs with AO + sun shadows (`aoRoofSkip` follow-up, 2026-10-07; `pzopt.ChunkAo`)
+
+Discord 2026-10-06 (tegustopesca): the Louisville checkpoint's military tents (~12460-12500 x 4210-4250) had a quilted,
+egg-crate roof with Ambient Occlusion + Sun Shadows on; vanilla, AO off, AO alone and sun shadows alone are flat. Two causes:
+- **`aoRoofSkip` never ran with sun shadows on.** The kernel has two programs (with / without the sun code); the sun one's
+  uniform locations are looked up one by one and stopped at `plantPar`, so `uAo[23]` (`roofLv`) stayed 0 and the roof squares
+  went to location 0: every roof kept its staircase AO while the sun was up (the 2026-10-05 fix was checked with AO alone).
+  Found by dumping the tent chunk's compute: 55k texels on marked roof squares, the shader saw none.
+- **The tents' roof tiles are not roofs to the test.** `location_military_tent_01` (also `location_trailer_01/02`,
+  `industry_bunker_01`, `location_community_church_small_01`) types its roof tiles WestRoofB / M / T without a RoofGroup or a
+  `roofs_` name. `roofSprite` takes those tile types too, minus movables (`walls_decoration_01` wall objects carry WestRoofT).
+Rig: `--mode bench --launcher direct --vmarg -Dpzopt.userOptionsFile=<empty> --flag start=12488,4230 --flag zombies=off
+--flag route=S:1 --flag speed=0.1 --shot-at 4 --flag time_of_day=15 --prop ambientOcclusion=true --prop sunShadows=true
+--prop cloudShadows=false`, base `--prop aoRoofSkip=false`, reference `--prop ambientOcclusion=false`;
+`harness/tiledepth/region-judge.py` over three roof boxes + grass / wall controls: Jev fixed_by_change 0.99 (roofs 25-98 % of
+pixels 25+ darker than the reference before, 0.5-1.2 % after; controls moved ~4 levels). Ordinary roofs now lose their AO with
+the sun up as intended. Steam-launched runs that day showed the egg-crate even with `enabled=false` (not explained): compare
+against a direct launch or a vanilla install.
+God rays (`pzopt.GodRays`) had the same blind spot: its occupancy volume's `B_ROOF` (a sun ray inside a roof's slope stops)
+and the roof rule's `covers` knew only RoofGroup / `roofs_`, so the morning sun passed through the tents' roofs into the haze.
+Both now take `ChunkAo.roofSprite` / `ownSheetRoof`. Occupancy at the checkpoint: 20 -> 1,484 roof cells, none removed;
+09:00 with `--prop godRays=true` (runs `gi9-before` = the AO fix alone, `gi9-after`): the haze on a tent's sun-away side
+7.9 levels darker, controls 0.4-1.6; Jev fixed 0.85 (`tents_now_block_sun` 0.93). 15:00: 0.1 % of the frame moved.
+Video: `harness/stitch-tent-roofs.sh` -> `docs/media/tent-roofs-ao-before-vs-fix.mp4` (walk, roof close-up, god rays).
+
 ## Louisville 120 fps pass (2026-10-05; branch `lou120`, docs/findings-louisville-120-2026-10-05.md)
 
 Defaults: `profilerIdleFast`, `statsNoBox`, `stateMachineNoIter`, `worldgenPatternCache` on (same results as stock);

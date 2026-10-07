@@ -1412,17 +1412,41 @@ public final class ChunkAo {
       }
    }
 
-   /** Does a roof tile (a sprite with a RoofGroup, or from the roofs_ sheets) stand on this square? */
+   /** Does a roof tile stand on this square? */
    private static boolean roof(IsoGridSquare sq) {
       zombie.util.list.PZArrayList<IsoObject> objects = sq.getObjects();
       for (int k = 0; k < objects.size(); k++) {
          IsoObject o = objects.get(k);
-         IsoSprite sp = o == null ? null : o.getSprite();
-         if (sp != null && (sp.getProperties() != null && sp.getProperties().get("RoofGroup") != null || sp.getName() != null && sp.getName().startsWith("roofs_"))) {
+         if (o != null && roofSprite(o.getSprite())) {
             return true;
          }
       }
       return false;
+   }
+
+   /**
+    * A roof tile: a sprite with a RoofGroup, from the roofs_ sheets, or typed WestRoofB / M / T by its tile definition and
+    * not a movable. The military tents (Louisville checkpoint), trailers, the bunker and the small church carry their roofs
+    * in their own sheets without a RoofGroup (Discord 2026-10-06); the wall-hung movables of walls_decoration_01 are typed
+    * WestRoofT too.
+    */
+   static boolean roofSprite(IsoSprite sp) {
+      if (sp == null) {
+         return false;
+      }
+      zombie.core.properties.PropertyContainer p = sp.getProperties();
+      if (p != null && p.get("RoofGroup") != null || sp.getName() != null && sp.getName().startsWith("roofs_")) {
+         return true;
+      }
+      zombie.iso.SpriteDetails.IsoObjectType t = sp.getTileType();
+      return (t == zombie.iso.SpriteDetails.IsoObjectType.WestRoofB || t == zombie.iso.SpriteDetails.IsoObjectType.WestRoofM
+         || t == zombie.iso.SpriteDetails.IsoObjectType.WestRoofT) && (p == null || !p.has("IsMoveAble"));
+   }
+
+   /** A roof tile of its own sheet: typed WestRoofB / M / T without a RoofGroup or a roofs_ name (the military tents). */
+   static boolean ownSheetRoof(IsoSprite sp) {
+      return roofSprite(sp) && (sp.getProperties() == null || sp.getProperties().get("RoofGroup") == null)
+         && (sp.getName() == null || !sp.getName().startsWith("roofs_"));
    }
 
    private static boolean isVegetation(IsoSprite sprite) {
@@ -2416,6 +2440,7 @@ public final class ChunkAo {
          this.uAo[20] = GL20.glGetUniformLocation(this.aoProgram, "treeC");
          this.uAo[21] = GL20.glGetUniformLocation(this.aoProgram, "treeD");
          this.uAo[22] = GL20.glGetUniformLocation(this.aoProgram, "plantPar");
+         this.uAo[23] = GL20.glGetUniformLocation(this.aoProgram, "roofLv"); // aoRoofSkip: missing here, so with sun shadows on the roof squares went to location 0 and every roof kept its AO bands
          GL20.glUseProgram(this.aoProgram);
          GL20.glUniform1i(GL20.glGetUniformLocation(this.aoProgram, "farH"), FAR_UNIT);
          GL20.glUniform1i(GL20.glGetUniformLocation(this.aoProgram, "treeSil"), TREE_UNIT);
