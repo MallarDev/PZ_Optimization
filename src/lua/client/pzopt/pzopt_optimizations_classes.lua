@@ -705,6 +705,7 @@ PzoptOptionClasses = {
     swayMvFold = { "pzopt.Dlss" },
     swayMvImage = { "pzopt.Sway" },
     swayMvNoBlend = { "pzopt.Sway" },
+    swayOccluderCheck = { "pzopt.Sway" },
     swayPrefetch = { "pzopt.Sway" },
     swayPush = { "pzopt.Sway" },
     swayTwinAll = { "pzopt.Sway" },

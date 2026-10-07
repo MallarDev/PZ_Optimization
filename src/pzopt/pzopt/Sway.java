@@ -1972,7 +1972,7 @@ public final class Sway {
 
    /** The compile-time shape of a sway composite program (the variant is compiled per shape: nothing dead in it). */
    static String shapeKey(boolean inPlace) {
-      return (mvShape() ? (mvImage() ? "mi" : "mv") : "") + "t" + Config.FOLIAGE_SWAY_TAPS + "v" + (Config.DEV_SWAY_VIEW > 0 ? 1 : 0) + "c" + (Config.SWAY_DEPTH_CHECK ? 1 : 0) + "m" + (Config.SWAY_MASK ? 1 : 0)
+      return (mvShape() ? (mvImage() ? "mi" : "mv") : "") + "t" + Config.FOLIAGE_SWAY_TAPS + "v" + (Config.DEV_SWAY_VIEW > 0 ? 1 : 0) + "c" + (Config.SWAY_DEPTH_CHECK ? 1 : 0) + "m" + (Config.SWAY_MASK ? 1 : 0) + "o" + (Config.SWAY_OCCLUDER_CHECK ? 1 : 0)
          + "s" + (Config.DEV_SWAY_SKIP & (4 | 8 | 32 | 64)) + "i" + Config.SWAY_ITERATIONS + "g" + Config.SWAY_GUST + (Config.SWAY_PUSH ? "p" : "") + (Config.SWAY_LIGHT_UNDISPLACED ? "l" : "") + (Config.SWAY_TWIN_ALL ? "a" : "") + (Config.SWAY_PREFETCH ? "f" : "") + (Config.SWAY_AUX_EAGER ? "e" : "") + (bindless(inPlace) ? "b" : "") + (inPlace ? "p" : "");
    }
 
@@ -2168,6 +2168,22 @@ public final class Sway {
          L.accept("      pzSwT = a1.x > 0.0 ? texCoord - pzSwUv(pzSwD(a1, g, wp)) : t1;");
          if (prefetch) L.accept("      pzSwMoved = true;");
          if (mv) L.accept("      vec3 am = a1.x > 0.0 ? a1 : a0;");
+      }
+      if (Config.SWAY_OCCLUDER_CHECK) {
+         // the moved texel is nearer than this plant texel and not a plant itself (flag bit and its attribute's depth bits):
+         // a wall corner, a door frame, a window in front of the plant. The plant behind it is not in the texture there, and
+         // borrowing that texel drew the edge of the rigid object over the plant, swaying with it; the pixel keeps its texel.
+         L.accept("      float ds = floor(" + lod + "(DEPTH, pzSwT, 0.0).r * 65535.0 + 0.5);");
+         L.accept("      if (ds < d16 - 1.5) {");
+         L.accept("         bool pl = ds - 2.0 * floor(ds * 0.5) > 0.5;");
+         L.accept("         if (pl) { vec2 rs = " + lod + "(pzSwAux, pzSwT, 0.0).rg; float gs = floor(rs.g * 255.0 + 0.5); pl = rs.r >= 0.5 / 255.0 && abs((ds - 16.0 * floor(ds / 16.0)) - (gs - 16.0 * floor(gs / 16.0))) < 0.5; }");
+         L.accept("         if (!pl) {");
+         L.accept("            pzSwT = texCoord;");
+         if (prefetch) L.accept("            pzSwMoved = false;");
+         if (view) L.accept("            pzSwTint = vec4(1.0, 0.0, 1.0, 0.8);");
+         L.accept("            return;");
+         L.accept("         }");
+         L.accept("      }");
       }
       if (mv && (Config.DEV_SWAY_SKIP & 32) == 0) { // (dev 32: the output written as zero, no motion math: export cost alone)
          // where this texel was a frame ago, relative to where it is now, in render px (y up): DLSS's motion
