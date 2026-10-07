@@ -54,7 +54,7 @@ machine you play on.
    - [Requirements](#requirements)
    - [Method A: Steam Workshop](#method-a-steam-workshop)
    - [Method B: installer script from the GitHub release](#method-b-installer-script-from-the-github-release)
-   - [Method C: unpack the zip by hand](#method-c-unpack-the-zip-by-hand)
+   - [Method C: copy the files by hand](#method-c-copy-the-files-by-hand)
    - [Method D: build from source (Linux)](#method-d-build-from-source-linux)
    - [Check that it loaded](#check-that-it-loaded)
    - [Uninstall](#uninstall)
@@ -468,7 +468,7 @@ adopted: [docs/findings-town-drive-2026-09-24.md](docs/findings-town-drive-2026-
 ## Install
 
 Four ways to get the same files into the game folder. A and B are the ones to use; C is
-for offline or hand installs; D is for changing the code. The game reads the files at start,
+copying them by hand, no command; D is for changing the code. The game reads the files at start,
 so **close the game first** whichever method you pick.
 
 ### Requirements
@@ -495,12 +495,19 @@ Subscribe to [PZ_Optimization on the Workshop](https://steamcommunity.com/shared
 and let Steam download it. The Workshop cannot write into the game folder, so the item
 carries the files and the installer, and one command finishes the install.
 
-**Easiest:** enable the mod once in the game's Mods list. The main menu then shows the install
-command for your computer, with the item's real folder in it and a **Copy** button: paste it into
-PowerShell or a terminal, then quit the game (the installer waits for that). Start the game again
-and disable the mod: it only carries that window.
+![The script install: subscribe, enable the mod, copy the command, paste it, quit, play (animated)](docs/media/install-script.gif)
 
-**By hand** (Windows, PowerShell; adjust the drive if your Steam library is elsewhere):
+**Easiest**, about two minutes:
+
+1. Subscribe, let Steam download it.
+2. In the game's main menu, **MODS**: tick **PZ_Optimization**, Accept. The main menu now shows the install command
+   for your computer, with the item's real folder in it.
+3. Press **Copy the command**.
+4. Paste it into PowerShell (Windows) or a terminal (Linux, macOS), Enter. It waits while the game runs.
+5. Quit the game (QUIT); the installer then copies the files.
+6. Start the game: Options has a **PZ Optimization** tab. Disable the mod again: it only carries that window.
+
+**The command by hand** (Windows, PowerShell; adjust the drive if your Steam library is elsewhere):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File "C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3805285544\mods\PZ_Optimization\42\install.ps1"
@@ -555,17 +562,34 @@ any `MISSING` / `MODIFIED` file, the contents of `pzopt.properties` if present),
 `-Uninstall` / `--uninstall`, `-Dir` / `--dir <game folder>`, `-Zip` / `--zip <file>` to
 install a zip you already have, `-From` / `--from <folder>` to install an unpacked tree.
 
-### Method C: unpack the zip by hand
+### Method C: copy the files by hand
 
-Download `pzopt-4a0e9546ec-classes.zip` (about 850 KB) from the
+No command at all. The files are the same in the Workshop download and in the release zip.
+
+![The manual install: subscribe, find the mod's files, copy them, paste them into the game folder, play (animated)](docs/media/install-manual.gif)
+
+**From the Workshop download** (subscribed, nothing to download):
+
+1. Find the mod's files. In Steam, right-click Project Zomboid, **Manage > Browse local files**: that opens the game
+   folder (`...\steamapps\common\ProjectZomboid`). Go up to **steamapps**, then
+   `workshop\content\108600\3805285544\mods\PZ_Optimization\42\pzopt-classes`.
+2. Copy everything in `pzopt-classes` (Ctrl+A, Ctrl+C).
+3. Open the game folder again (Browse local files) and paste it there, beside `projectzomboid.jar` (Ctrl+V). Skip any
+   file that already exists.
+4. Start the game: Options has a **PZ Optimization** tab.
+
+**From the release zip:** download `pzopt-4a0e9546ec-classes.zip` (about 64 MB) from the
 [release page](https://github.com/xD3I/PZ_Optimization/releases/latest) and unpack it into
 the folder that holds `projectzomboid.jar`, without overwriting anything (`Expand-Archive`
-without `-Force`, or `unzip -n`). On macOS that folder is inside the app bundle: in
+without `-Force`, or `unzip -n`).
+
+On macOS the game folder is inside the app bundle: in
 `~/Library/Application Support/Steam/steamapps/common/ProjectZomboid`, right-click
-`Project Zomboid.app`, Show Package Contents, `Contents/Java`. The zip carries `pzopt-files.txt`, the list of everything
-it adds. The revision in the file name must match your game (42.21 is `4a0e9546ec`); a
-zip for another revision disables itself at start-up. To remove it, delete the files listed
-in `pzopt-files.txt` and the empty folders they leave, or run either installer's uninstall.
+`Project Zomboid.app`, Show Package Contents, `Contents/Java`. Both carry `pzopt-files.txt`, the list of everything
+they add, and `Uninstall-PZ-Optimization.cmd` / `uninstall-pz-optimization.bash`. The revision in the zip's name must
+match your game (42.21 is `4a0e9546ec`); a build for another revision disables itself at start-up. To remove it, run
+the uninstaller beside `projectzomboid.jar`, or delete the files listed in `pzopt-files.txt` and the empty folders they
+leave, or run either installer's uninstall.
 
 ### Method D: build from source (Linux)
 
