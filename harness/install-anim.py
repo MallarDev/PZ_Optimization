@@ -881,6 +881,62 @@ def helper_frames(menu, a):
     print(f'helper frames: {len(HELPER_BEATS)} per OS, {total / 1e6:.2f} MB in all under {root}')
 
 
+# --- the Mods list posters of the Workshop item (scripts/workshop.sh lists them in mod.info) ------------------------------
+
+POSTER_BEATS = [   # (Script step, lt s, big word, detail): poster-step1..5, Windows pictures, OS-neutral words
+    ('ENABLE', 2.4, 'ENABLE', 'this mod here, then Accept'),
+    ('COPY', 2.7, 'COPY', 'the command the main menu shows'),
+    ('PASTE', 2.6, 'PASTE', 'into PowerShell or a terminal, Enter'),
+    ('DONE', 1.6, 'QUIT', 'the game: the installer copies the files'),
+    ('PLAY', 1.0, 'PLAY', 'Options > PZ Optimization'),
+]
+
+
+def posters(menu, a):
+    """src/workshop/42/poster-install.png (512 x 512, drawn ~200 px beside the description: the steps as a list over a
+    darkened headline frame) and poster-step1..5.png (960 x 600, the thumbnails; hover = large). Replaces
+    harness/install-walkthrough.py --posters."""
+    out_dir = os.path.join(REPO, 'src/workshop/42')
+    set_canvas(960, 600, 64, 34, 0.875, 26)
+    set_os('win')
+    base = EA.chrome('light', '2 Minute Install', SH, SIZE, STRIP, LABEL_PX, round(26 * K))
+    steps = {st[1]: st[3] for st in Script(menu).steps()}
+    for i, (step, lt, big, det) in enumerate(POSTER_BEATS):
+        sc_, box, cur = steps[step](lt)
+        img = sc_.copy() if box is None else view(sc_, box)
+        if cur:
+            x0, y0, w = box
+            draw_cursor(img, (cur[0] - x0) * SW / w, (cur[1] - y0) * SW / w, cur[2])
+        img = img.convert('RGBA')
+        img.alpha_composite(step_overlay(i + 1, len(POSTER_BEATS), big, [det]))
+        out = base.copy()
+        out.paste(img.convert('RGB'), (STRIP, 0))
+        f = a.still if (a.still and a.beat == i + 1) else os.path.join(out_dir, f'poster-step{i + 1}.png')
+        if a.still and a.beat != i + 1:
+            continue
+        out.save(f, optimize=True)
+        print('poster', f)
+    # poster 0: the list
+    set_canvas(512, 512, 64, 34, 0.75, 16)
+    sq = EA.chrome('light', '2 Minute Install', SH, SIZE, STRIP, LABEL_PX, 20)
+    bg = play_frames(1.2)[30].convert('RGB')
+    bg = Image.blend(bg, Image.new('RGB', bg.size, (0, 0, 0)), 0.62)
+    d = ImageDraw.Draw(bg)
+    f_big, f_cap = mfont(46), mfont(17)
+    d.text((26, 40), 'HOW TO INSTALL', font=f_cap, fill=CAPTION, anchor='ls')
+    y = 118
+    for i, (_, _, big, _) in enumerate(POSTER_BEATS):
+        num = f'{i + 1}.'
+        d.text((26, y), num, font=f_big, fill=CAPTION, anchor='ls')
+        d.text((26 + f_big.getlength(num + ' '), y), big, font=f_big, fill=WHITE, anchor='ls')
+        y += 84
+    sq.paste(bg, (STRIP, 0))
+    f = a.still if (a.still and a.beat == 0) else os.path.join(out_dir, 'poster-install.png')
+    if not a.still or a.beat == 0:
+        sq.save(f, optimize=True)
+        print('poster', f)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--menu', required=True, help='the main menu screenshot (pzopt-menu.png of a compat_check=1 run)')
@@ -891,6 +947,7 @@ def main():
     ap.add_argument('--crf', default='35')
     ap.add_argument('--out')
     ap.add_argument('--helper-frames', action='store_true', help="write the Workshop item's in-game walkthrough frames")
+    ap.add_argument('--posters', action='store_true', help="write the Workshop item's Mods list posters")
     ap.add_argument('--os', default='win', help='with --helper-frames --still: the OS of the frame')
     ap.add_argument('--beat', type=int, default=0, help='with --helper-frames --still: the frame index')
     ap.add_argument('names', nargs='*')
@@ -898,6 +955,9 @@ def main():
     menu = Image.open(a.menu).convert('RGB')
     if a.helper_frames:
         helper_frames(menu, a)
+        return
+    if a.posters:
+        posters(menu, a)
         return
     for name in a.names:
         render(name, menu, a)

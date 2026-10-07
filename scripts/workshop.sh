@@ -91,8 +91,8 @@ cp -r src/workshop/42/. "$MOD/"
   echo "modversion=${commit:-$rev}"
   echo "versionMin=${version:-42.20.0}"
   echo "author=xD3I"
-  # the Mods screen draws poster 0 next to the description and the rest as thumbnails (hover = large): the three
-  # steps first, then the five walkthrough pictures (harness/install-walkthrough.py --posters, src/workshop/42/),
+  # the Mods screen draws poster 0 next to the description and the rest as thumbnails (hover = large): the five
+  # steps first, then the five walkthrough pictures (harness/install-anim.py --posters, src/workshop/42/),
   # then the showcase square
   for p in poster-install.png poster-step1.png poster-step2.png poster-step3.png poster-step4.png poster-step5.png; do
     [[ -f "$MOD/$p" ]] && echo "poster=$p"
