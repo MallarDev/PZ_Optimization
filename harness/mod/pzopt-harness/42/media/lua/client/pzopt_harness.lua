@@ -408,6 +408,50 @@ local function ioLog(s)
     print("[pzopt-harness] options io: " .. s)
 end
 
+-- options_profile=<button text, _ for a space> (2026-10-07, the low-end presets): 1 s after the tab opens, press that profile's button on
+-- the home page, log every pzopt control that is not at its default ("profile: key=value") and the stock Display options a
+-- profile sets, write Screenshots/pzopt-profile.png, 1.5 s later apply them as the Apply button does, log the stock values again ("profile applied: ..."), then quit (via the
+-- screenshot step). Give the run a scratch -Dpzopt.userOptionsFile: Apply saves the choice.
+local function stockState()
+    local core, perf = getCore(), getPerformance()
+    local function v(f) local ok, r = pcall(f); return ok and tostring(r) or "?" end
+    return "vsync=" .. v(function() return core:getOptionVSync() end)
+        .. " framerate=" .. v(function() return perf:getFramerate() end)
+        .. " uncapped=" .. v(function() return perf:isFramerateUncapped() end)
+        .. " lightFPS=" .. v(function() return perf:getLightingFPS() end)
+        .. " uiRenderFPS=" .. v(function() return core:getOptionUIRenderFPS() end)
+        .. " textureCompression=" .. v(function() return core:getOptionTextureCompression() end)
+end
+
+local function profileStep(mo, name)
+    name = string.gsub(name, "_", " ") -- the flag cannot carry spaces through the queue's remote command line
+    local b = findButton(mo, name, 0)
+    if not b then print("[pzopt-harness] profile: button '" .. name .. "' NOT FOUND"); return end
+    b.onclick(b.target, b)
+    local n = 0
+    for _, field in ipairs({ "pzoptOptions", "pzoptEnhancementOptions" }) do
+        for _, o in ipairs(mo[field] or {}) do
+            local cur = o.pzoptCurrent and o:pzoptCurrent()
+            local okd, def = pcall(function() return getPerformance():getPzoptOptionDefault(o.pzoptKey) end)
+            if not okd then def = nil end
+            if cur ~= nil and def ~= nil and tostring(cur) ~= tostring(def) then
+                print("[pzopt-harness] profile: " .. tostring(o.pzoptKey) .. "=" .. tostring(cur))
+                n = n + 1
+            end
+        end
+    end
+    local fr = mo.gameOptions:get("framerate")
+    local frText = fr and fr.control and fr.control.options and fr.control.options[fr.control.selected]
+    print("[pzopt-harness] profile: '" .. name .. "' pressed, " .. n .. " pzopt control(s) off their default; framerate combo '"
+        .. tostring(type(frText) == "table" and (frText.text or frText[1]) or frText) .. "'; before apply " .. stockState())
+    getCore():TakeFullScreenshot("pzopt-profile.png")
+end
+
+local function profileApply(mo)
+    local ok, err = pcall(function() mo:apply(false) end)
+    print("[pzopt-harness] profile applied" .. (ok and "" or (" (apply error " .. tostring(err) .. ")")) .. ": " .. stockState())
+end
+
 -- one step per call, 1.5 s apart; true when done
 local function ioStep(mo, io, now)
     if now < (io.at or 0) then return false end
@@ -524,6 +568,12 @@ local function optionsTick()
         local box = findSearchBox(ms.mainOptions, 0)
         if box then box:setText(c.search) end
         print("[pzopt-harness] options: search '" .. c.search .. "'" .. (box and " typed" or ": search box NOT FOUND"))
+    elseif c.profile and not c.profilePressed and now - c.openedMs >= 1000 then
+        c.profilePressed = true
+        profileStep(ms.mainOptions, c.profile)
+    elseif c.profile and not c.profileDone and now - c.openedMs >= 2500 then
+        c.profileDone = true
+        profileApply(ms.mainOptions)
     elseif c.io and not c.ioDone and now - c.openedMs >= 1000 then
         c.ioDone = ioStep(ms.mainOptions, c.io, now)
     elseif c.select and not c.shotMs and now - c.openedMs >= 1000 and now - c.openedMs < 3000 then
@@ -581,7 +631,8 @@ local function onMainMenuEnter()
                     return t
                 end)() or nil,
                 select = flags.options_select ~= "" and flags.options_select or nil,
-                io = (flags.options_io and flags.options_io ~= "") and {} or nil }
+                io = (flags.options_io and flags.options_io ~= "") and {} or nil,
+                profile = (flags.options_profile and flags.options_profile ~= "") and flags.options_profile or nil }
         end
         return
     end

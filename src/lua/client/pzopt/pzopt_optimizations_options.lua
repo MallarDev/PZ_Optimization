@@ -2814,11 +2814,27 @@ end
 -- core on four cores), trees baked into chunk textures only while walking, and on the Display page lighting
 -- updates 10/s and the UI redrawn 30/s. The stock Display-page combos go by GameOption name -> combo index
 -- (MainOptions.lua lists): lightingFPS {5, 10, 15, 20, 25, 30, 45, 60}, UIRenderFPS {120, 60, 30, 25, 20, 15, 10}.
-local LOW_END_VALUES = { workers = "1", loadWorkers = "2", treeBakeMaxChunksPerSec = "24" }
+-- The locked-60 pass (2026-10-07, same laptop, docs/findings-low-end-mode-2026-10-07.md) added a 9-chunk render distance:
+-- the native lighting thread, the chunk bakes and every chunk hand-off scale with the grid's area, and they were what
+-- broke 60 on four cores (a 9-chunk grid is what vanilla itself picks for a ~960x540 window and still covers a 1080p
+-- screen at the widest zoom).
+local LOW_END_VALUES = { workers = "1", loadWorkers = "2", treeBakeMaxChunksPerSec = "24", chunkGridWidth = "9" }
 -- Plus texture compression (2026-09-23, same laptop: with uncompressed textures the 4 GB card was full, 4034 MiB, the
 -- driver spilled into system RAM and the machine swapped 34k pages in a 40 s walk; compressed, 2372 MiB and 1.2k swap-ins,
 -- 51 -> 54 fps, frames over 50 ms 34 -> 22 a minute, worst frame 292 -> 120 ms). Tick boxes go by name -> true / false.
-local LOW_END_STOCK = { lightingFPS = 2, UIRenderFPS = 3, texcompress = true }
+-- And vsync with the frame limit at 60 (2026-10-07): a lock is one new frame every refresh of a 60 Hz panel; combos whose
+-- entries move (the frame limit has an "Uncapped" entry only on some builds, and pzopt adds caps) go by label in stockLabels.
+local LOW_END_STOCK = { lightingFPS = 2, UIRenderFPS = 3, texcompress = true, vsync = true }
+local LOW_END_LABELS = { framerate = "60" }
+-- The Visuals the 4-core laptop keeps at a locked 60 (2026-10-07, one walk and one 60 km/h drive per setting on top of the
+-- low-end set, then the set together): a profile with an enhancements table sets every Visuals control (the unlisted ones
+-- back to the build's default, off) and turns that page's master switch on.
+-- Each was within the run-to-run noise alone, and the five together stay there (repeated refreshes: town walk 2.1 % vs
+-- 1.3 % without, night 1.8 vs 1.5-1.8, storm 4.1 vs 3.9, 60 km/h drive 6.7 / 8.3 vs 6.3 / 6.8). Left out: water and puddle
+-- reflections (alone free, but with the others the drive's render thread went 27 -> 34 % and the repeats 6.5 -> 8.5 %),
+-- ambient occlusion (the drive's chunk bakes took the GPU 45 -> 79 %, repeats 14.4 %), sun shadows, per-pixel light and
+-- zombie outlines (walking 4-5.6 %), foliage sway, relief and wet blood (~+2 points on the drive each).
+local LOW_END_LOOK = { colorGrading = "true", godRays = "true", memoryTint = "true", mirrors = "true", spriteFilter = "sharp" }
 local function withValues(base, extra)
     local t = {}
     for k, v in pairs(base) do t[k] = v end
@@ -2828,17 +2844,32 @@ end
 local PROFILES = {
     {
         button = "Low-end hardware (4 cores or less)",
-        tip = "Turns the master switch on and picks the settings measured on a 4-core CPU with an old GPU "
-           .. "(Core i5-6300HQ / GTX 960M, 2026-09-21): no chunk worker pool (its threads took the game thread's core), "
-           .. "trees baked only while walking (while driving a chunk texture lives seconds, and baking its trees cost "
-           .. "more than drawing them per frame), and on the Display page lighting updates 10/s and the UI redrawn 30 "
-           .. "times a second (the lighting thread and the Lua UI were the next biggest users of the four cores). "
-           .. "Everything else goes back to the build's default. 120 km/h drive 44 -> 68 fps, walking 49 -> 81 "
-           .. "(p99 80 -> 40 ms / 69 -> 30 ms). It also turns on texture compression (Display page), which kept a 4 GB "
-           .. "graphics card from filling up and the machine from swapping (worst frame 292 -> 120 ms, 2026-09-23). The G1 "
-           .. "collector these numbers need is now the default (gcMode). See docs/archive/2026-09-24/results.md.",
+        tip = "A locked 60 fps on a 4-core CPU with an old GPU (Core i5-6300HQ / GTX 960M, 1920x1080, 2026-10-07): turns the "
+           .. "master switch on, a render distance of 9 chunks (what the game itself picks for a small window: the native "
+           .. "lighting thread, the chunk bakes and every arriving chunk's setup grow with it, and they were what broke 60 on "
+           .. "four cores), no chunk worker pool (its threads took the game thread's core), trees baked only while walking, and "
+           .. "on the Display page vsync on with the frame limit at 60, lighting updates 10/s, the UI redrawn 30 times a second "
+           .. "and texture compression (keeps a 4 GB card from spilling into system memory). Everything else goes back to the "
+           .. "build's default. Walking through town 1.3 % of the screen's refreshes repeat a frame (stock 29.9 %), a 60 km/h "
+           .. "drive 6.3-6.8 % (stock 36.8 %). Zombies, cars and sounds are simulated 36 tiles around you instead of 76. "
+           .. "See docs/findings-low-end-mode-2026-10-07.md.",
         values = LOW_END_VALUES,
         stock = LOW_END_STOCK,
+        stockLabels = LOW_END_LABELS,
+    },
+    {
+        button = "Low-end hardware + best look at 60",
+        tip = "The Low-end hardware set above plus the Visuals that cost nothing on that laptop, measured one by one walking "
+           .. "and driving at the locked 60, then together: sharp sprite filtering, colour grading, god rays, remembered places "
+           .. "tinted, and mirrors and windows that reflect (town walk: 2.1 % of the screen's refreshes repeat a frame, 1.3 % "
+           .. "without them). Every other Visuals setting goes back to off: ambient occlusion doubled the missed frames while "
+           .. "driving (it is baked into every arriving chunk), water reflections cost the render thread while driving, sun "
+           .. "shadows, per-pixel light and zombie outlines cost the lock while walking. Mirrors apply on the next launch. "
+           .. "See docs/findings-low-end-mode-2026-10-07.md.",
+        values = LOW_END_VALUES,
+        enhancements = LOW_END_LOOK,
+        stock = LOW_END_STOCK,
+        stockLabels = LOW_END_LABELS,
     },
     {
         button = "Low-end hardware + FSR 1.0 upscaling",
@@ -2850,6 +2881,7 @@ local PROFILES = {
            .. "collector these numbers need is now the default (gcMode).",
         values = withValues(LOW_END_VALUES, { upscaler = "fsr1", upscalerQuality = "quality" }),
         stock = LOW_END_STOCK,
+        stockLabels = LOW_END_LABELS,
     },
 }
 
@@ -2872,7 +2904,7 @@ local function applyProfile(self, profile)
     -- (a profile that picks an upscaler also turns that tab's master switch on)
     ensurePageBuilt(self, ENHANCEMENTS_TAB)
     local enhancements = self.pzoptEnhancementMaster
-    if profile.values.upscaler and enhancements and enhancements.control.enable then
+    if (profile.values.upscaler or profile.enhancements) and enhancements and enhancements.control.enable then
         enhancements.control:setSelected(1, true)
         enhancements:invokeOnChangeEvent()
     end
@@ -2880,6 +2912,27 @@ local function applyProfile(self, profile)
         if option.pzoptProfile then
             option:pzoptSet(profile.values[option.pzoptKey])
             option:invokeOnChangeEvent()
+        elseif profile.enhancements then
+            -- a profile with a Visuals set: its keys as listed, every other Visuals control back to the default
+            option:pzoptSet(profile.enhancements[option.pzoptKey])
+            option:invokeOnChangeEvent()
+        end
+    end
+    for name, label in pairs(profile.stockLabels or {}) do
+        local option = self.gameOptions:get(name)
+        local box = option and option.control
+        local found = false
+        for i, text in ipairs(box and box.options or {}) do
+            local t = type(text) == "table" and (text.text or text[1]) or text
+            if tostring(t) == label then
+                box.selected = i
+                option:invokeOnChangeEvent()
+                found = true
+                break
+            end
+        end
+        if not found then
+            print("[pzopt] options tab: profile could not pick " .. label .. " in stock option " .. name)
         end
     end
     for name, index in pairs(profile.stock or {}) do
