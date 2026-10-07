@@ -6,6 +6,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL41;
 import zombie.GameTime;
 import zombie.core.SpriteRenderer;
 import zombie.core.textures.TextureDraw;
@@ -554,7 +555,7 @@ public final class CloudShadow {
    private static final java.util.HashMap<Integer, Integer> APPLIED = new java.util.HashMap<>();
    /** per program: the last per-draw term value set (-3: unknown) */
    private static final java.util.HashMap<Integer, float[]> LAST_TERM = new java.util.HashMap<>();
-   static final String[] UNIFORMS = {"pzCloudU", "pzCloudV", "pzCloudP", "pzCloudD", "pzCloudE", "pzCloudField", "pzCloudTerm"};
+   static final String[] UNIFORMS = {"pzCloudU", "pzCloudV", "pzCloudP", "pzCloudD", "pzCloudE", "pzCloudField", "pzCloudTerm", "pzStepFade", "pzStepOld"};
    private static long draws, drawsWithTerm, drawsBare, culled;
    private static final java.util.HashMap<Integer, long[]> LAST_HANDLE = new java.util.HashMap<>();
    private static long dummyHandle;
@@ -571,6 +572,68 @@ public final class CloudShadow {
          }
       }
    }
+
+   /** per program: the step fade's last uniform values (amount, the old term's handle) */
+   private static final java.util.HashMap<Integer, double[]> LAST_FADE = new java.util.HashMap<>();
+   private static final long[] FADE = new long[2];
+
+   /** Render thread: a step fade's old term leaves residency; programs that hold it get the field's handle and no fade. */
+   static void stepOldReleased(long h) {
+      for (java.util.Map.Entry<Integer, double[]> en : LAST_FADE.entrySet()) {
+         if ((long)en.getValue()[1] == h) {
+            int[] l = LOCATIONS.get(en.getKey());
+            if (l != null && l[7] >= 0) {
+               GL41.glProgramUniform4f(en.getKey(), l[7], 0F, 0F, 0F, 0F); // the branch that samples it is off
+            }
+            en.getValue()[0] = 0.0;
+            en.getValue()[1] = 0.0;
+         }
+      }
+   }
+
+   /** sunStepSync: the composite can ease a sun step in (bindless kept terms in the patched composite). */
+   static boolean stepFadeSupported() {
+      return patched && bindless && !failed;
+   }
+
+   /**
+    * Per composite draw, before the cloud: while a sun step eases in (ChunkAo.stepFade), this texture's old term and the
+    * share of the change still to come; the kept (new) term's handle goes on pzCloudTerm too.
+    */
+   private static void stepFade(int prog, int[] l, TextureDraw texd) {
+      if (l[7] < 0 || l[8] < 0) {
+         return;
+      }
+      double[] lf = LAST_FADE.get(prog);
+      if (lf == null) {
+         LAST_FADE.put(prog, lf = new double[] {-1.0, 0.0});
+      }
+      int depthTex = texd.tex1 != null ? texd.tex1.getID() : -1;
+      float a = depthTex > 0 ? ChunkAo.stepFade(depthTex, FADE) : 0F;
+      if (a > 0F) {
+         long[] lh = LAST_HANDLE.get(prog);
+         if (lh == null) {
+            LAST_HANDLE.put(prog, lh = new long[1]);
+         }
+         if (lh[0] != FADE[1]) {
+            lh[0] = FADE[1];
+            org.lwjgl.opengl.ARBBindlessTexture.glUniformHandleui64ARB(l[6], FADE[1]);
+         }
+         if ((long)lf[1] != FADE[0]) {
+            lf[1] = FADE[0];
+            org.lwjgl.opengl.ARBBindlessTexture.glUniformHandleui64ARB(l[8], FADE[0]);
+         }
+         fadeDraws++;
+      } else {
+         a = 0F;
+      }
+      if (lf[0] != a) {
+         lf[0] = a;
+         GL20.glUniform4f(l[7], a, 0F, 0F, 0F);
+      }
+   }
+
+   private static long fadeDraws;
 
    private static boolean dummy() {
       if (dummyHandle == 0L && fieldTex != 0) {
@@ -628,6 +691,9 @@ public final class CloudShadow {
          }
          if (l[2] < 0) {
             return; // not a patched program
+         }
+         if (bindless) {
+            stepFade(prog, l, texd);
          }
          boolean on = f != null && f.strength > 0F && Config.DEV_CLOUD_VIEW != 2 ? ensureField() : f != null && Config.DEV_CLOUD_VIEW == 2;
          boolean share = Relief.wantsSunShare(); // relief's sun post-main reads the texture's direct-sun share too (clear sky: no cloud)
@@ -861,7 +927,7 @@ public final class CloudShadow {
    static String stats() {
       String s = String.format(java.util.Locale.ROOT, "clouds: %s cover %.2f wind %.0f kph strength %.2f, draws %d (term %d, bare %d), textures culled %d, programs patched %d%s%s",
          enabled() ? "on" : "off", cover, windKph, strength, draws, drawsWithTerm, drawsBare, culled, patchedPrograms,
-         bindless ? ", bindless handles " + ChunkAo.residentHandles : "", failed ? " FAILED" : "");
+         bindless ? ", bindless handles " + ChunkAo.residentHandles + ", step fade draws " + fadeDraws : "", failed ? " FAILED" : "");
       draws = drawsWithTerm = drawsBare = culled = 0L;
       return s;
    }
@@ -980,8 +1046,21 @@ public final class CloudShadow {
       "uniform vec4 pzCloudP;", // x on, y 1 - cover, z 1 / (cover edge), w erosion
       "uniform vec4 pzCloudD;", // x detail scale, yz detail offset, w opacity / (1 - e^-3)
       "uniform vec4 pzCloudE;", // x the texture's direct-sun share (-1: read the kept term), y dev view, zw one texel of the chunk texture's uv
+      "uniform vec4 pzStepFade;", // x: the share of a sun step's change still to come (ChunkAo.stepFade; 0 none)
+      "#ifdef PZC_BINDLESS",
+      "layout(bindless_sampler) uniform sampler2D pzStepOld;", // the kept term before the step (R: the factor on the colour)
+      "#endif",
       "void main() {",
       "   pzCloudInner();",
+      // sunStepSync + sunStepFadeMs: the colour holds the new step; old / new of the kept terms, eased towards 1 (a long
+      // shadow at dusk changed in one frame, a pop of the whole picture)
+      "#ifdef PZC_BINDLESS",
+      "   if (pzStepFade.x > 0.0 && PZC_OUT.a >= 0.004) {",
+      "      float tn = textureLod(pzCloudTerm, texCoord.st, 0.0).r;",
+      "      float to = textureLod(pzStepOld, texCoord.st, 0.0).r;",
+      "      PZC_OUT.rgb *= mix(1.0, clamp(to / max(tn, 0.02), 0.0, 4.0), pzStepFade.x);",
+      "   }",
+      "#endif",
       "#ifdef PZC_VIEW",
       "   if (pzCloudE.y > 1.5) { float q0 = pzCloudE.x >= 0.0 ? pzCloudE.x : PZC_TERM(texCoord.st).g; PZC_OUT.rgb = vec3(q0) * PZC_OUT.a; return; }",
       "#endif",

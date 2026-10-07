@@ -151,7 +151,7 @@ public final class ChunkAo {
       String s = "chunk ao: computed=" + computed + " (in bakes " + computedInBake + ") multiplied=" + multiplied + " skipped (no occlusion)=" + skippedEmpty + " neighbour refreshes=" + refreshes + " (skipped, bare border " + refreshesSkipped + ") bare textures=" + bareSkipped + " slow frames without computes=" + heavyFrames + " zoom-out re-bakes=" + mipRebakes + " pending=" + PENDING.size()
          + " pending peak=" + deferredPeak + " first AO: " + firstAos + " (in bakes " + FIRST_AO_MS[0] + ", over budget " + arrivalsOverBudget + ", >100 ms "
          + (FIRST_AO_MS[4] + FIRST_AO_MS[5] + FIRST_AO_MS[6] + FIRST_AO_MS[7]) + String.format(java.util.Locale.ROOT, ", max %.0f ms)", firstAoMsMax)
-         + " shown without AO=" + shownWithoutAo + (SunShadow.enabled() ? " sun requeued=" + sunRequeued + " far computes=" + farComputes + " column builds=" + columnBuilds + " roof columns=" + roofColumnsFound + " tree card computes=" + treeCardComputes + " tree requeues=" + treeRequeued + " | " + TreeSilhouette.stats() + " | " + SunShadow.stats() : "") + (CloudShadow.wanted() ? " | " + CloudShadow.stats() : "") + (failed ? " FAILED" : "");
+         + " shown without AO=" + shownWithoutAo + (SunShadow.enabled() ? " sun requeued=" + sunRequeued + " downwind=" + downwindQueued + " step applies=" + stepApplies + " (textures " + stepAppliedTextures + ", staged " + stagedTerms + ", applied " + appliedTerms + ", fades " + fades + ", stage allocs " + stageAllocs + ", fade allocs " + fadeAllocs + ", forced " + stepApplyForced + ", staged now " + STAGED.size() + ") far computes=" + farComputes + " column builds=" + columnBuilds + " roof columns=" + roofColumnsFound + " tree card computes=" + treeCardComputes + " tree requeues=" + treeRequeued + " | " + TreeSilhouette.stats() + " | " + SunShadow.stats() : "") + (CloudShadow.wanted() ? " | " + CloudShadow.stats() : "") + (failed ? " FAILED" : "");
       if (Config.DEV_AO_TIMING) {
          StringBuilder sb = new StringBuilder(s).append(" | geometry bakes by flag:");
          for (int b = 0; b < 15; b++) {
@@ -192,6 +192,7 @@ public final class ChunkAo {
       boolean pending;
       boolean bare; // skipped as bare: its colour holds no AO (no multiply; its next compute starts from none)
       boolean sunStale; // queued only because the sun moved: computes on sunComputeBudget, a trickle
+      boolean staged; // sunStepSync: its sun-step term is staged on the render thread, waiting for the step's apply
       int mipLevels; // mip levels 1.. that carry the AO (a bake's stock mipmap build after the in-bake multiply: all)
       long readyFrame; // a neighbour refresh waits a few frames: one refresh for a whole streaming wave
       long bornNs; // the first bake of this owner (latency counters)
@@ -205,6 +206,10 @@ public final class ChunkAo {
 
    private static final HashMap<Integer, Info> INFOS = new HashMap<>();
    private static final ArrayList<Info> PENDING = new ArrayList<>();
+   private static final ArrayList<Info> STAGED = new ArrayList<>(); // sunStepSync: staged sun-step terms not applied yet
+   private static long stagedSince = -1L; // the frame the oldest of them was staged
+   private static long stepApplies, stepAppliedTextures, stepApplyForced;
+   private static final float[] STAGED_SUN = new float[4]; // the sun the newest staged term was computed with (world xyz, strength)
    private static final java.util.HashSet<Integer> VISIBLE = new java.util.HashSet<>();
 
    private static long keyOf(IsoChunk c, int minLevel, FBORenderChunk rc) {
@@ -227,6 +232,7 @@ public final class ChunkAo {
             COLUMNS.remove(columnKey(c.wx, c.wy)); // its column heights for the far-field march
          }
          treesMaybeChanged(c);
+         downwindRefresh(c);
       }
       Info info = INFOS.get(rc.index);
       if (info == null) {
@@ -236,6 +242,9 @@ public final class ChunkAo {
          }
          info = new Info();
          INFOS.put(rc.index, info);
+      }
+      if (geometry || info.key != key) {
+         info.staged = false; // its next compute starts from this bake (the render thread drops the staged term too)
       }
       if (info.key != key) {
          info.key = key;
@@ -390,6 +399,7 @@ public final class ChunkAo {
       }
       lastMipLevels = needed;
       if (PENDING.isEmpty()) {
+         applyStaged(playerIndex, false);
          return;
       }
       VISIBLE.clear();
@@ -435,6 +445,20 @@ public final class ChunkAo {
             Job job = obtain();
             job.kind = Job.COMPUTE;
             job.fresh = info.bare; // a bare texture's colour holds no AO: the ratio starts from none
+            job.stage = Config.SUN_STEP_SYNC && info.sunStale && !info.bare;
+            if (job.stage) {
+               System.arraycopy(SunShadow.cWorld, 0, STAGED_SUN, 0, 3);
+               STAGED_SUN[3] = SunShadow.cDir[3];
+               if (!info.staged) {
+                  info.staged = true;
+                  STAGED.add(info);
+               }
+               if (stagedSince < 0L) {
+                  stagedSince = frames;
+               }
+            } else {
+               info.staged = false; // a compute of its own (a refresh, a first term) supersedes a staged one
+            }
             info.bare = false;
             job.index = rc.index;
             job.key = info.key;
@@ -459,6 +483,79 @@ public final class ChunkAo {
             SpriteRenderer.instance.drawGeneric(job);
          }
       }
+      applyStaged(playerIndex, true);
+   }
+
+   /**
+    * sunStepSync, game thread after the frame's computes: once no texture on screen waits for its sun-step compute (or the
+    * oldest staged term waited sunStepSyncMaxFrames), every staged term still owned by its texture is applied in one job, so
+    * the step shows on the whole screen in one frame. withVisible: VISIBLE holds this frame's composited textures.
+    */
+   private static void applyStaged(int playerIndex, boolean withVisible) {
+      boolean waiting = false;
+      if (withVisible) {
+         for (int i = 0; i < PENDING.size() && !waiting; i++) {
+            Info p = PENDING.get(i);
+            waiting = p.sunStale && p.playerIndex == playerIndex && p.rc != null && VISIBLE.contains(p.rc.index);
+         }
+      }
+      if (STAGED.isEmpty()) {
+         if (!waiting) {
+            SunShadow.syncShown(); // nothing on screen needs the step: the per-frame passes take it
+         }
+         return;
+      }
+      boolean forced = waiting && frames - stagedSince >= Math.max(1, Config.SUN_STEP_SYNC_MAX_FRAMES);
+      if (waiting && !forced) {
+         return;
+      }
+      Job job = null;
+      for (int i = 0; i < STAGED.size(); i++) {
+         Info info = STAGED.get(i);
+         if (info.playerIndex != playerIndex) {
+            continue;
+         }
+         STAGED.remove(i--);
+         if (!info.staged) {
+            continue;
+         }
+         info.staged = false;
+         if (!owned(info)) {
+            continue;
+         }
+         if (job == null) {
+            job = obtain();
+            job.kind = Job.APPLY_STAGED;
+         }
+         if (job.applyN == job.applyIdx.length) {
+            job.applyIdx = java.util.Arrays.copyOf(job.applyIdx, job.applyN * 2);
+            job.applyKey = java.util.Arrays.copyOf(job.applyKey, job.applyN * 2);
+         }
+         job.applyIdx[job.applyN] = info.rc.index;
+         job.applyKey[job.applyN] = info.key;
+         job.applyN++;
+      }
+      stagedSince = STAGED.isEmpty() ? -1L : frames;
+      if (job != null) {
+         stepApplies++;
+         stepAppliedTextures += job.applyN;
+         if (forced) {
+            stepApplyForced++;
+         }
+         SpriteRenderer.instance.drawGeneric(job);
+         SunShadow.stepApplied(STAGED_SUN, STAGED_SUN[3]); // the per-frame passes follow the step the textures now show
+      }
+   }
+
+   /** The texture is still its chunk's texture of that level pair and zoom (not recycled to another chunk). */
+   private static boolean owned(Info info) {
+      FBORenderChunk rc = info.rc;
+      if (rc == null || info.chunk == null) {
+         return false;
+      }
+      FBORenderLevels levels = info.chunk.getRenderLevels(info.playerIndex);
+      return rc.chunk == info.chunk && rc.isInit && rc.getMinLevel() == info.minLevel
+         && levels.getFBOForLevel(info.minLevel, info.zoom) == rc && keyOf(info.chunk, info.minLevel, rc) == info.key;
    }
 
    /** Latency counters: the texture's first AO was issued now (inside its bake, or deferred). */
@@ -506,23 +603,23 @@ public final class ChunkAo {
       job.isoInvSA = 1.0F / (s * 32.0F * Core.tileScale);
       job.isoS = s;
       job.isoTop = FBORenderChunk.PIXELS_PER_LEVEL * (rc.getTopLevel() - minLevel + 1) + FBORenderLevels.extraHeightForJumboTrees(minLevel, rc.getTopLevel());
-      job.sun = SunShadow.enabled() && SunShadow.dir[3] > 0F;
+      job.sun = SunShadow.enabled() && SunShadow.cDir[3] > 0F;
       boolean deferMasks = inTiles && Config.AO_CONTEXT_PARALLEL && Config.DEV_AO_DUMP_TREE <= 0 && GtAb.on(GtAb.AO_CONTEXT); // aoContextParallel
       if (!deferMasks) {
          job.vegetation = vegetationWanted() && vegetationMask(job.veg, c, minLevel, rc.getTopLevel());
          job.nTrees = job.sun && Config.SUN_SHADOW_TREES || Config.AO && Config.AO_TREE_CANOPY_PCT > 0 ? collectTrees(job, c, minLevel, rc.getTopLevel()) : 0;
          job.trees = job.nTrees > 0;
       }
-      System.arraycopy(SunShadow.world, 0, job.sunWorld, 0, 4);
+      System.arraycopy(SunShadow.cWorld, 0, job.sunWorld, 0, 4);
       job.treeDump = 0;
       if (Config.DEV_AO_DUMP_TREE > 0 && treeComputes < Config.DEV_AO_DUMP_TREE && (hasTree(c, minLevel) || job.nTrees > 0)) {
          job.treeDump = ++treeComputes;
          job.dumpWhere = c.wx + "," + c.wy + "," + minLevel + "," + rc.getTopLevel();
       }
       if (job.sun) {
-         System.arraycopy(SunShadow.dir, 0, job.sunDir, 0, 4);
-         System.arraycopy(SunShadow.perp, 0, job.sunPerp, 0, 4);
-         float wz = SunShadow.world[2], wh = (float)Math.sqrt(SunShadow.world[0] * SunShadow.world[0] + SunShadow.world[1] * SunShadow.world[1]);
+         System.arraycopy(SunShadow.cDir, 0, job.sunDir, 0, 4);
+         System.arraycopy(SunShadow.cPerp, 0, job.sunPerp, 0, 4);
+         float wz = SunShadow.cWorld[2], wh = (float)Math.sqrt(SunShadow.cWorld[0] * SunShadow.cWorld[0] + SunShadow.cWorld[1] * SunShadow.cWorld[1]);
          job.sunTanElev = wz / Math.max(1e-3F, wh);
          if (!deferMasks) {
             exteriorMask(job.ext, c, minLevel);
@@ -721,7 +818,7 @@ public final class ChunkAo {
       // field, the tree cards): a texture with such a caster within their reach is not bare (a bare texture takes no sun
       // term at all: a long shadow across open ground stopped on its chunk's edge, 2026-09-27)
       if (sun && cell != null && Config.SUN_SHADOW_BARE_FAR && (Config.SUN_SHADOW_FAR || Config.SUN_SHADOW_TREES)) {
-         int reach = Math.max(1, Math.max(Config.SUN_SHADOW_FAR ? (Math.min(FAR_MARGIN, Config.SUN_SHADOW_FAR_SQUARES) + 7) / 8 : 1,
+         int reach = Math.max(1, Math.max(Config.SUN_SHADOW_FAR ? (Math.min(64, Math.min(FAR_MARGIN, Config.SUN_SHADOW_FAR_SQUARES)) + 7) / 8 : 1, // (at most 8 chunks: the scan's cost; downwindRefresh reaches further)
             Config.SUN_SHADOW_TREES && Config.SUN_SHADOW_TREE_CARDS ? Math.min(6, Config.SUN_SHADOW_TREE_REACH) : 1));
          for (int dy = -reach; dy <= reach; dy++) {
             for (int dx = -reach; dx <= reach; dx++) {
@@ -766,6 +863,14 @@ public final class ChunkAo {
       return true;
    }
 
+   /**
+    * Render thread (CloudShadow, per composite draw), sunStepFadeMs: while the last applied sun step eases in, this chunk
+    * texture's old term handle (out[0]) and kept term handle (out[1]) and the share of the change still to come; else 0.
+    */
+   static float stepFade(int depthTex, long[] out) {
+      return GL.stepFade(depthTex, out);
+   }
+
    /** Render thread (CloudShadow, per composite draw): the kept term of a chunk texture by its depth texture, -1 bare open ground, -2 none. */
    static int cloudTerm(int colourTex) {
       return GL.cloudTerm(colourTex);
@@ -777,6 +882,7 @@ public final class ChunkAo {
    }
 
    static long residentHandles;
+   static long stagedTerms, appliedTerms, fades, stageAllocs, fadeAllocs; // render thread: sunStepSync terms staged / applied, step fades
    static final int FAR_UNIT = 9; // the kernel's sources use units 0..8
    static final int TREE_UNIT = 10; // sunShadowTreeCards: the trees' silhouettes (a 2D array texture)
    static long farComputes;
@@ -869,7 +975,7 @@ public final class ChunkAo {
 
    // ------------------------------------------------------------------------------------------------ far field (sunShadowFar)
 
-   static final int FAR_MARGIN = 32, FAR_SIDE = 8 + 2 * FAR_MARGIN; // 72 x 72 squares round the chunk
+   static final int FAR_MARGIN = 96, FAR_SIDE = 8 + 2 * FAR_MARGIN; // 200 x 200 squares round the chunk (72 before 2026-10-07)
    private static final HashMap<Long, byte[]> COLUMNS = new HashMap<>();
    private static final HashMap<Long, Long> COLUMN_MS = new HashMap<>();
    private static long columnBuilds;
@@ -903,7 +1009,7 @@ public final class ChunkAo {
       if (c == null) {
          return null;
       }
-      b = new byte[64];
+      b = new byte[128]; // [0, 64) column tops, [64, 128) bush tops (sunShadowFar: low soft casters past the near march)
       boolean[] held = new boolean[64], below = new boolean[64]; // the level's squares that stand as a column / the level under it
       for (int z = Math.max(0, c.minLevel); z <= Math.min(c.maxLevel, 60); z++) {
          boolean[] t = below;
@@ -923,19 +1029,31 @@ public final class ChunkAo {
                // neighbour's wall when that one is outdoors and this square inside. A corner post (WallSE: the piece on the
                // square diagonally outside a building's south-east corner) is no wall of the square
                boolean post = sq.has(IsoFlagType.WallSE);
-               boolean wall = !post && (edgeW(sq) && (in || !inside(cell, gx - 1, gy, z)) || edgeN(sq) && (in || !inside(cell, gx, gy - 1, z)));
-               if (!wall && in) {
-                  IsoGridSquare e = cell.getGridSquare(gx + 1, gy, z), s = cell.getGridSquare(gx, gy + 1, z);
-                  wall = e != null && !e.has(IsoFlagType.WallSE) && edgeW(e) && !inside(cell, gx + 1, gy, z)
-                     || s != null && !s.has(IsoFlagType.WallSE) && edgeN(s) && !inside(cell, gx, gy + 1, z);
+               // the wall's height from its sprite (CapsuleShadow.edgeTop: a building wall one level, a picket fence half, a
+               // chain-link or a railing 0): every wall edge a whole level shaded a van 9 squares behind a chain-link fence
+               // at dusk, and threw fences' shadows as walls'
+               float wt = 0F;
+               if (!post) {
+                  if (solidEdgeW(sq) && (in || !inside(cell, gx - 1, gy, z))) wt = Math.max(wt, CapsuleShadow.edgeTop(sq, false));
+                  if (solidEdgeN(sq) && (in || !inside(cell, gx, gy - 1, z))) wt = Math.max(wt, CapsuleShadow.edgeTop(sq, true));
                }
+               if (wt <= 0.05F && in) {
+                  IsoGridSquare e = cell.getGridSquare(gx + 1, gy, z), s = cell.getGridSquare(gx, gy + 1, z);
+                  if (e != null && !e.has(IsoFlagType.WallSE) && solidEdgeW(e) && !inside(cell, gx + 1, gy, z)) wt = Math.max(wt, CapsuleShadow.edgeTop(e, false));
+                  if (s != null && !s.has(IsoFlagType.WallSE) && solidEdgeN(s) && !inside(cell, gx, gy + 1, z)) wt = Math.max(wt, CapsuleShadow.edgeTop(s, true));
+               }
+               boolean wall = wt > 0.05F;
                // a roof or an upper floor is a column only over something standing (an indoor square, a solid object, a
                // column of the level under it): an eave or a balcony over open ground is a thin slab, and as a column from
                // the ground up it shaded the facade under it down to the storey seam (a band that stopped there: pxw-*)
                IsoGridSquare under = z > c.minLevel ? c.getGridSquare(x, y, z - 1) : null;
                boolean held0 = below[y * 8 + x] || indoor(under) || under != null && (under.has(IsoFlagType.solid) || under.has(IsoFlagType.solidtrans));
-               if (wall || sq.has(IsoFlagType.solid) || sq.has(IsoFlagType.solidtrans)) {
-                  top = (z + 1) * 4;
+               if (wall) {
+                  top = z * 4 + Math.max(1, Math.round(Math.min(1F, wt) * 4F));
+               } else if (sq.has(IsoFlagType.solid) || sq.has(IsoFlagType.solidtrans)) {
+                  // a solid object (a dumpster, a tank, a crate stack) stands about half a level tall: as a whole level it threw
+                  // an 18-square shadow at an 8 deg sun, and the characters' far shade put a van beside one in its shadow
+                  top = z * 4 + 2;
                } else if (held0 && roof(sq)) {
                   top = z * 4 + 2;
                } else if (held0 && z > 0 && sq.getFloor() != null) {
@@ -944,6 +1062,10 @@ public final class ChunkAo {
                held[y * 8 + x] = top > 0;
                if (top > (b[y * 8 + x] & 0xFF)) {
                   b[y * 8 + x] = (byte)Math.min(255, top);
+               }
+               int bush = bushTop(sq, z);
+               if (bush > (b[64 + y * 8 + x] & 0xFF)) {
+                  b[64 + y * 8 + x] = (byte)Math.min(255, bush);
                }
             }
          }
@@ -958,6 +1080,42 @@ public final class ChunkAo {
          columnBuilds++;
       }
       return b;
+   }
+
+   /** The column top on a square (quarter levels above level 0, the far field's map), 0 none or not loaded. Any thread. */
+   static int columnTop(int x, int y) {
+      zombie.iso.IsoCell cell = IsoWorld.instance.currentCell;
+      if (cell == null) {
+         return 0;
+      }
+      byte[] col = columns(cell, Math.floorDiv(x, 8), Math.floorDiv(y, 8));
+      return col == null ? 0 : col[Math.floorMod(y, 8) * 8 + Math.floorMod(x, 8)] & 0xFF;
+   }
+
+   /** A bush or hedge on the square: its top in quarter levels above level 0 (half a level), else 0. */
+   private static int bushTop(IsoGridSquare sq, int z) {
+      IsoObject[] objects = (IsoObject[])sq.getObjects().getElements();
+      int count = sq.getObjects().size();
+      for (int i = 0; i < count; i++) {
+         IsoObject o = objects[i];
+         if (!(o instanceof IsoTree) && o.getSprite() != null && o.getSprite().isBush) {
+            return z * 4 + 2;
+         }
+      }
+      return 0;
+   }
+
+   /**
+    * A wall edge for the far field's columns: not a see-through one (a chain-link or bar fence, WallWTrans / WallNTrans): as a
+    * full-height opaque column it threw a wall's shadow 18+ squares at dusk, and put a van beside one in its shade (the van
+    * then cast none, 2026-10-07). Their own shadows come from the near march.
+    */
+   static boolean solidEdgeW(IsoGridSquare sq) {
+      return edgeW(sq) && !(sq.has(IsoFlagType.WallWTrans) && !sq.has(IsoFlagType.WallW) && !sq.has(IsoFlagType.cutW));
+   }
+
+   static boolean solidEdgeN(IsoGridSquare sq) {
+      return edgeN(sq) && !(sq.has(IsoFlagType.WallNTrans) && !sq.has(IsoFlagType.WallN) && !sq.has(IsoFlagType.cutN));
    }
 
    static boolean edgeW(IsoGridSquare sq) {
@@ -1003,7 +1161,54 @@ public final class ChunkAo {
       Log.info(sb.toString());
    }
 
-   /** The column heights round the chunk, above the texture's lowest level, into the job; false when nothing stands up. */
+   private static long downwindQueued;
+
+   /**
+    * sunShadowFar, a chunk baked with its geometry (streamed in, or changed): at a low sun its walls, bushes and trees throw
+    * shadows several chunks away from the sun, onto textures computed without them (the chunk was not loaded, or stood
+    * otherwise). Those textures, in a band downwind as far as a FAR_TALLEST caster's shadow reaches, compute again as a sun
+    * step does (staged, applied together, eased in). Bare ones too: a new caster may end their bareness.
+    */
+   private static void downwindRefresh(IsoChunk c) {
+      if (!Config.SUN_SHADOW_FAR || !SunShadow.enabled() || SunShadow.cDir[3] <= 0F) {
+         return;
+      }
+      float sx = SunShadow.cWorld[0], sy = SunShadow.cWorld[1], sz = SunShadow.cWorld[2];
+      float sl = (float)Math.sqrt(sx * sx + sy * sy);
+      if (sl < 1e-3F) {
+         return;
+      }
+      float need = Math.min(Math.min(FAR_MARGIN, Config.SUN_SHADOW_FAR_SQUARES), FAR_TALLEST * sl / Math.max(1e-3F, sz));
+      if (need < 12F) {
+         return; // a high sun: the near march and the neighbours' refreshes cover it
+      }
+      float dx = -sx / sl, dy = -sy / sl; // away from the sun
+      float ox = c.wx * 8 + 4F, oy = c.wy * 8 + 4F;
+      for (Info info : INFOS.values()) {
+         if (info.chunk == null || info.chunk == c || info.pending || info.rc == null || !info.has) {
+            continue;
+         }
+         float rx = info.chunk.wx * 8 + 4F - ox, ry = info.chunk.wy * 8 + 4F - oy;
+         float along = rx * dx + ry * dy, across = Math.abs(rx * dy - ry * dx);
+         if (along < 4F || along > need + 8F || across > 10F) {
+            continue;
+         }
+         info.pending = true;
+         info.sunStale = true;
+         info.readyFrame = 0L;
+         PENDING.add(info);
+         downwindQueued++;
+      }
+   }
+
+   /** The tallest caster the far field expects (squares): what decides how far towards the sun the window is filled. */
+   private static final float FAR_TALLEST = 24F;
+
+   /**
+    * The column heights round the chunk, above the texture's lowest level, into the job; with sunShadowFarTrees the trees'
+    * crowns too (G: their tops, splatted over the crown's radius); false when nothing stands up. Only the part of the window
+    * towards the sun that a FAR_TALLEST caster's shadow could cross from is filled (a high sun: the chunks next door).
+    */
    private static boolean farGrid(Job job, IsoChunk c, int minLevel) {
       zombie.iso.IsoCell cell = IsoWorld.instance.currentCell;
       if (cell == null) {
@@ -1013,11 +1218,27 @@ public final class ChunkAo {
          farDump(cell);
       }
       java.util.Arrays.fill(job.farH, (byte)0);
+      java.util.Arrays.fill(job.farT, (byte)0);
+      java.util.Arrays.fill(job.farP, (byte)0);
+      job.farTrees = false;
       int x0 = c.wx * 8 - FAR_MARGIN, y0 = c.wy * 8 - FAR_MARGIN;
       int base = minLevel * 4;
       int max = 0;
-      for (int cy = Math.floorDiv(y0, 8); cy <= Math.floorDiv(y0 + FAR_SIDE - 1, 8); cy++) {
-         for (int cx = Math.floorDiv(x0, 8); cx <= Math.floorDiv(x0 + FAR_SIDE - 1, 8); cx++) {
+      // towards the sun on the ground, and how far a FAR_TALLEST caster's shadow reaches at this height
+      float swx = job.sunWorld[0], swy = job.sunWorld[1], swl = (float)Math.sqrt(swx * swx + swy * swy);
+      float need = Math.min(FAR_MARGIN, FAR_TALLEST / Math.max(0.02F, job.sunTanElev));
+      float ux = swl > 1e-3F ? swx / swl * need : 0F, uy = swl > 1e-3F ? swy / swl * need : 0F;
+      int lx0 = Math.max(0, (int)Math.floor(FAR_MARGIN + Math.min(0F, ux) - 4F)), lx1 = Math.min(FAR_SIDE - 1, (int)Math.ceil(FAR_MARGIN + 8 + Math.max(0F, ux) + 4F));
+      int ly0 = Math.max(0, (int)Math.floor(FAR_MARGIN + Math.min(0F, uy) - 4F)), ly1 = Math.min(FAR_SIDE - 1, (int)Math.ceil(FAR_MARGIN + 8 + Math.max(0F, uy) + 4F));
+      boolean trees = Config.SUN_SHADOW_FAR_TREES && Config.SUN_SHADOW_TREES && job.sun;
+      for (int cy = Math.floorDiv(y0 + ly0, 8); cy <= Math.floorDiv(y0 + ly1, 8); cy++) {
+         for (int cx = Math.floorDiv(x0 + lx0, 8); cx <= Math.floorDiv(x0 + lx1, 8); cx++) {
+            if (trees) {
+               IsoChunk tc = cell.getChunk(cx, cy);
+               if (tc != null) {
+                  max = Math.max(max, farTrees(job, tc, x0, y0, base, minLevel));
+               }
+            }
             byte[] col = columns(cell, cx, cy);
             if (col == null) {
                continue;
@@ -1037,12 +1258,93 @@ public final class ChunkAo {
                      job.farH[gy * FAR_SIDE + gx] = (byte)h;
                      max = Math.max(max, h);
                   }
+                  int hp = (col[64 + y * 8 + x] & 0xFF) - base;
+                  if (hp > 0) {
+                     job.farP[gy * FAR_SIDE + gx] = (byte)hp;
+                     max = Math.max(max, hp);
+                  }
                }
             }
          }
       }
+      if (anyBush(job.farP)) {
+         blurBushes(job);
+      }
       job.farMaxH = max * 0.25F * 2.4494897F;
       return max > 0;
+   }
+
+   private static boolean anyBush(byte[] p) {
+      for (byte b : p) {
+         if (b != 0) {
+            return true;
+         }
+      }
+      return false;
+   }
+
+   /**
+    * The bush map spread 3 x 3 (the tops kept where a bush stands, a third of its neighbours' around): a hedge is one square
+    * deep, and the far march's steps (a square or more) sampled it as a ladder of dark rungs along the shadow.
+    */
+   private static void blurBushes(Job job) {
+      byte[] p = job.farP, t = job.farScratch;
+      System.arraycopy(p, 0, t, 0, p.length);
+      for (int y = 1; y < FAR_SIDE - 1; y++) {
+         for (int x = 1; x < FAR_SIDE - 1; x++) {
+            int o = y * FAR_SIDE + x;
+            if ((t[o] & 0xFF) != 0) {
+               continue;
+            }
+            int m = 0;
+            for (int dy = -1; dy <= 1; dy++) {
+               for (int dx = -1; dx <= 1; dx++) {
+                  m = Math.max(m, t[o + dy * FAR_SIDE + dx] & 0xFF);
+               }
+            }
+            if (m > 0) {
+               p[o] = (byte)Math.max(1, m * 2 / 3);
+            }
+         }
+      }
+   }
+
+   /**
+    * sunShadowFarTrees: a chunk's trees on the texture's levels into the job's crown map (G of the far field): each tree's
+    * top (quarter levels above the texture's lowest level) over the squares within its crown's radius. Returns the tallest.
+    */
+   private static int farTrees(Job job, IsoChunk tc, int x0, int y0, int base, int minLevel) {
+      float[] t = (float[])chunkTreeEntry(tc)[1];
+      int max = 0;
+      for (int k = 0; k + 3 < t.length; k += 4) {
+         int z = (int)t[k + 2];
+         if (z < minLevel || z > minLevel + 1) {
+            continue;
+         }
+         float lv = t[k + 3];
+         int top = Math.min(255, Math.round((z + lv) * 4F) - base);
+         if (top <= 0) {
+            continue;
+         }
+         float rc = lv >= 4.5F ? 3.3F : lv >= 3.5F ? 2.4F : lv >= 2F ? 1.5F : 0.6F;
+         float fx = t[k] + 0.5F - x0, fy = t[k + 1] + 0.5F - y0;
+         int r = (int)Math.ceil(rc);
+         for (int gy = Math.max(0, (int)fy - r); gy <= Math.min(FAR_SIDE - 1, (int)fy + r); gy++) {
+            for (int gx = Math.max(0, (int)fx - r); gx <= Math.min(FAR_SIDE - 1, (int)fx + r); gx++) {
+               float ddx = gx + 0.5F - fx, ddy = gy + 0.5F - fy;
+               if (ddx * ddx + ddy * ddy > rc * rc) {
+                  continue;
+               }
+               int o = gy * FAR_SIDE + gx;
+               if (top > (job.farT[o] & 0xFF)) {
+                  job.farT[o] = (byte)top;
+               }
+            }
+         }
+         max = Math.max(max, top);
+         job.farTrees = true;
+      }
+      return max;
    }
 
    /** The neighbour slots whose texture of this level pair and zoom exists and is baked. */
@@ -1160,7 +1462,8 @@ public final class ChunkAo {
       // widened by the crown) crosses the chunk; nearer ones as before (the crown proxies: the tree's own shade, the sky)
       boolean cards = job.sun && Config.SUN_SHADOW_TREES && Config.SUN_SHADOW_TREE_CARDS;
       job.cards = false;
-      float sx = SunShadow.world[0], sy = SunShadow.world[1], sz = SunShadow.world[2];
+      boolean farTreesOn = Config.SUN_SHADOW_FAR && Config.SUN_SHADOW_FAR_TREES;
+      float sx = SunShadow.cWorld[0], sy = SunShadow.cWorld[1], sz = SunShadow.cWorld[2];
       float sl = (float)Math.sqrt(sx * sx + sy * sy);
       float run = sl / Math.max(0.035F, sz); // squares of shadow along the ground per square of height
       float dxs = sl > 1e-3F ? -sx / sl : 0F, dys = sl > 1e-3F ? -sy / sl : 0F; // away from the sun on the ground
@@ -1187,7 +1490,7 @@ public final class ChunkAo {
                   float lv = t[k + 3];
                   float hs = lv * 2.4494897F;
                   float rc = lv >= 4.5F ? 3.3F : lv >= 3.5F ? 2.4F : lv >= 2F ? 1.5F : 0.6F;
-                  float len = Math.min(48F, hs * run);
+                  float len = Math.min(farTreesOn ? Math.max(4, Config.SUN_SHADOW_TREE_CARD_FAR) + 1F : 48F, hs * run); // (the far field's crowns past the cards' reach)
                   boolean hits = segmentNearBox(fx, fy, fx + dxs * len, fy + dys * len, rc + 0.5F, bx0, by0, bx1, by1);
                   if (!hits && !near) {
                      continue;
@@ -1491,6 +1794,8 @@ public final class ChunkAo {
          j = new Job();
       }
       j.generation = generation;
+      j.stage = false;
+      j.applyN = 0;
       return j;
    }
 
@@ -1500,7 +1805,12 @@ public final class ChunkAo {
       static final int COMPUTE = 1;
       static final int COMPUTE_IN_BAKE = 2; // inside the bake: the colour was just drawn, so compute and multiply, no ratio
       static final int MARK_BARE = 3; // the texture was found bare (no compute): the composite's cloud shadows take it as open ground or not
+      static final int APPLY_STAGED = 4; // sunStepSync: the staged sun-step terms of the listed textures onto their colour, all in this job
       int kind;
+      boolean stage; // sunStepSync, a sun-step compute: its term is kept aside (staged), not applied
+      int applyN; // APPLY_STAGED: the textures (index, key) the game thread found still owned
+      int[] applyIdx = new int[64];
+      long[] applyKey = new long[64];
       boolean bareOutdoors; // MARK_BARE: every square of its levels is outdoors
       int generation; // ChunkAo.generation when it was queued: a job of older settings is skipped
       boolean fresh;
@@ -1542,6 +1852,10 @@ public final class ChunkAo {
       final int[] wall = new int[32]; // wall edges (wallMask): W walls on levels 0, 1, then N walls on levels 0, 1; 16 x 16 bits each
       boolean far; // sunShadowFar: farH holds the column heights around the chunk
       final byte[] farH = new byte[FAR_SIDE * FAR_SIDE]; // column tops above the texture's lowest level, quarter levels, FAR_MARGIN squares before the chunk
+      final byte[] farT = new byte[FAR_SIDE * FAR_SIDE]; // sunShadowFarTrees: crown tops the same way (0: no crown)
+      final byte[] farP = new byte[FAR_SIDE * FAR_SIDE]; // bush tops the same way
+      final byte[] farScratch = new byte[FAR_SIDE * FAR_SIDE];
+      boolean farTrees; // farT has a crown
       float farMaxH; // the tallest column, squares
       float sunTanElev; // tan of the sun's elevation (the march length)
       float isoHalfW; // texels from the texture's left edge to the chunk corner's screen x
@@ -1573,6 +1887,8 @@ public final class ChunkAo {
                GL.multiply(this);
             } else if (this.kind == MARK_BARE) {
                GL.markBare(this);
+            } else if (this.kind == APPLY_STAGED) {
+               GL.applyStaged(this);
             } else { // COMPUTE, COMPUTE_IN_BAKE
                GL.compute(this);
             }
@@ -1617,6 +1933,18 @@ public final class ChunkAo {
       int colorTex; // the chunk texture's depth it was computed for (the composite's draw carries it: looked up by that)
       long handle; // cloudShadows with bindless textures: the kept term's resident handle (0: none yet)
       boolean q; // G holds the direct-sun share (the compute had the sun term)
+      // sunStepSync: a sun-step term computed but not applied yet (stageTex, aw x ah RG8 from the pool) and what its apply needs
+      int stageTex;
+      int stageFbo;
+      boolean staged;
+      long stageKey;
+      int sFbo, sW, sH, sColorTex, sDepthTex, sMipLevels;
+      boolean sMipmaps, sSun;
+      // sunStepFadeMs: the kept term before the last applied step (aw x ah RG8, its bindless handle resident while it fades)
+      int fadeTex;
+      int fadeFbo;
+      long fadeHandle;
+      long fadeT0; // when its fade began (render thread nanoTime)
    }
 
    private static final class Gl {
@@ -1627,7 +1955,7 @@ public final class ChunkAo {
       private final HashMap<Integer, Integer> bareByColour = new HashMap<>();
       private int aoProgram;
       private int aoOnlyProgram; // AO_PASS: no sun code (its registers)
-      private final int[] uAoOnly = new int[24];
+      private final int[] uAoOnly = new int[25];
       private int blurProgram;
       private int mulProgram;
       private static final float EDGE_TOLERANCE_SQUARES = 0.12F; // aoEdgeAware: a depth step of this many squares halves a tap's weight (roughly)
@@ -1645,7 +1973,7 @@ public final class ChunkAo {
       private int rawW;
       private int rawH;
       private final int[] viewport = new int[4];
-      private final int[] uAo = new int[24];
+      private final int[] uAo = new int[25];
       private final int[] uBlur = new int[4];
       private final int[] uMul = new int[4];
       private final int[] uRatio = new int[6];
@@ -1667,6 +1995,8 @@ public final class ChunkAo {
             this.entries.put(index, e);
          }
          if (e.aw != aw || e.ah != ah) {
+            this.dropStage(e);
+            this.releaseFade(e);
             if (e.tex != 0) {
                release(e);
                GL30.glDeleteFramebuffers(e.fbo);
@@ -1812,16 +2142,29 @@ public final class ChunkAo {
             boolean tall = job.farMaxH > 2.0F * 2.4494897F + 0.25F;
             boolean far = job.far && (farEnd > len + 0.5F || tall) && u[19] >= 0;
             if (u[19] >= 0) {
-               GL20.glUniform4f(u[19], far ? 1.0F : 0.0F, len, farEnd, Math.max(1, Math.min(FAR_MARGIN, Config.SUN_SHADOW_FAR_SQUARES)));
+               // w < 0: the near march stops short of the shadows it would see (a low sun): its last stretch fades and the far
+               // field takes over the walls, columns and bushes there (the near march ended them on a dotted line)
+               boolean capped = far && len < 2.0F * 2.4494897F / Math.max(0.05F, job.sunTanElev) - 0.5F;
+               float reachF = Math.max(1, Math.min(FAR_MARGIN, Config.SUN_SHADOW_FAR_SQUARES));
+               GL20.glUniform4f(u[19], far ? 1.0F : 0.0F, len, farEnd, capped ? -reachF : reachF);
             }
             if (far) {
                this.uploadFar(job);
                farComputes++;
             }
+            if (u[24] >= 0) {
+               // sunShadowFarTrees: the cards cast up to sunShadowTreeCardFar along the ground, the far field's crowns past it
+               boolean ft = far && job.farTrees;
+               float cf = Math.max(4, Config.SUN_SHADOW_TREE_CARD_FAR);
+               GL20.glUniform4f(u[24], ft ? 1.0F : 0.0F, cf - 4.0F, cf, Math.max(0, Config.SUN_SHADOW_TREE_FAR_DENSITY_PCT) / 100.0F);
+            }
             GL20.glUniform4f(u[17], job.sunWorld[0], job.sunWorld[1], job.sunWorld[2], 0.0F);
             // sunShadowTrees: foliage optical depth per square of crown on the sun's path, the crown's half depth around its card
          } else {
             GL20.glUniform4f(u[10], 0.0F, 0.0F, 0.0F, 0.0F);
+            if (u[24] >= 0) {
+               GL20.glUniform4f(u[24], 0.0F, 0.0F, 0.0F, 0.0F);
+            }
          }
          // the trees (sunShadowTrees / aoTreeCanopyPct): crown proxies; sunTree x the crowns' optical depth for the sun per square
          // of crown crossed (0: no sun on trees), y for the sky above, z the proxies in use; sunWorld the sun in world squares
@@ -1870,6 +2213,11 @@ public final class ChunkAo {
          float ppuAo = job.ppu * sc; // AO texels per square
          Entry e = this.entry(job.index, aw, ah);
          boolean hadOld = e.valid && e.key == job.key && !job.fresh;
+         boolean stage = job.stage && hadOld && !inBake; // (a first term has nothing on screen to keep in step with)
+         if (!stage) {
+            this.dropStage(e);
+            this.releaseFade(e); // its kept term changes now: the fade's old / new would not hold
+         }
          this.stamp(0);
          this.begin();
          if (!this.ensureScratch(aw, ah)) {
@@ -1941,6 +2289,30 @@ public final class ChunkAo {
             this.dumpTerm(direct ? e.fbo : this.newFbo, aw, ah, dumpDir);
          }
          this.stamp(1);
+         if (stage) {
+            // 4''. sunStepSync: keep the new term aside; applyStaged puts it on the colour with the rest of the step
+            if (!this.stageInto(e, aw, ah)) {
+               this.dropStage(e);
+            } else {
+               e.staged = true;
+               e.stageKey = job.key;
+               e.sFbo = job.fbo;
+               e.sW = job.w;
+               e.sH = job.h;
+               e.sColorTex = job.colorTex;
+               e.sDepthTex = job.n > 0 ? job.srcTex[0] : 0;
+               e.sMipmaps = job.mipmaps;
+               e.sMipLevels = job.mipLevels;
+               e.sSun = job.sun;
+               stagedTerms++;
+            }
+            this.stamp(2);
+            this.stamp(3);
+            this.collect(true);
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, previousFbo);
+            restore(this.viewport);
+            return;
+         }
          if (inBake) {
             // 4'. the bake just drew the colour: multiply the new AO in, the stock mipmap build follows at the bake's end
             e.key = job.key;
@@ -2199,7 +2571,9 @@ public final class ChunkAo {
       }
 
       private void clear() {
+         this.releaseFades();
          for (Entry e : this.entries.values()) {
+            this.dropStage(e);
             if (e.tex != 0) {
                release(e);
                GL30.glDeleteFramebuffers(e.fbo);
@@ -2223,6 +2597,298 @@ public final class ChunkAo {
             this.byColour.put(depth, e);
             this.bareByColour.remove(depth);
          }
+      }
+
+      private final java.util.ArrayList<int[]> stagePool = new java.util.ArrayList<>(); // free {tex, fbo, w, h}
+      private final Job applyScratch = new Job();
+
+      /**
+       * An RG8 texture (linear, clamped) and its framebuffer for the staged / fading terms, without a GL query (a glGet or a
+       * framebuffer status check per allocation stalled NVIDIA's threaded driver: ~300 us of GPU idle a staged term while
+       * the pool was short). Leaves texture unit 0 and the framebuffer unbound; the callers bind what they draw with.
+       */
+      private static int quietTexture(int w, int h) {
+         int tex = GL11.glGenTextures();
+         GL13.glActiveTexture(GL13.GL_TEXTURE0);
+         GL11.glBindTexture(GL11.GL_TEXTURE_2D, tex);
+         GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RG8, w, h, 0, GL30.GL_RG, GL11.GL_UNSIGNED_BYTE, (ByteBuffer)null);
+         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, 33071);
+         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, 33071);
+         GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+         return tex;
+      }
+
+      private static int quietFbo(int tex) {
+         int fbo = GL30.glGenFramebuffers();
+         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo);
+         GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, tex, 0);
+         GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
+         return fbo;
+      }
+
+      /** The scratch's new term (aw x ah of it) into the entry's staging texture. */
+      private boolean stageInto(Entry e, int aw, int ah) {
+         if (e.stageTex == 0) {
+            for (int i = this.stagePool.size() - 1; i >= 0; i--) {
+               int[] t = this.stagePool.get(i);
+               if (t[2] == aw && t[3] == ah) {
+                  this.stagePool.remove(i);
+                  e.stageTex = t[0];
+                  e.stageFbo = t[1];
+                  break;
+               }
+            }
+            if (e.stageTex == 0) {
+               stageAllocs++;
+               e.stageTex = quietTexture(aw, ah);
+               e.stageFbo = quietFbo(e.stageTex);
+            }
+         }
+         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, e.stageFbo);
+         GL11.glViewport(0, 0, aw, ah);
+         GL20.glUseProgram(this.copyProgram);
+         GL20.glUniform1i(this.uCopy[0], 0);
+         GL13.glActiveTexture(GL13.GL_TEXTURE0);
+         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.newTex);
+         GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
+         return true;
+      }
+
+      /** The entry's staged term is not wanted any more: its texture back to the pool. */
+      private void dropStage(Entry e) {
+         e.staged = false;
+         if (e.stageTex == 0) {
+            return;
+         }
+         if (this.stagePool.size() < 160) {
+            this.stagePool.add(new int[] {e.stageTex, e.stageFbo, e.aw, e.ah});
+         } else {
+            GL30.glDeleteFramebuffers(e.stageFbo);
+            GL11.glDeleteTextures(e.stageTex);
+         }
+         e.stageTex = 0;
+         e.stageFbo = 0;
+      }
+
+      /**
+       * sunStepSync: every listed texture's staged term onto its colour (new / old, as a compute would have), then kept;
+       * the whole step shows in this frame. Entries whose texture moved on since (another key, a compute of their own)
+       * are skipped.
+       */
+      void applyStaged(Job job) {
+         if (failed || this.ratioProgram == 0) {
+            return;
+         }
+         int previousFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+         GL11.glGetIntegerv(GL11.GL_VIEWPORT, this.viewport);
+         long now = System.nanoTime();
+         this.releaseFinishedFades(now);
+         boolean fade = Config.SUN_STEP_FADE_MS > 0 && CloudShadow.stepFadeSupported();
+         this.begin();
+         float sc = scale();
+         Job j = this.applyScratch;
+         int applied = 0;
+         for (int k = 0; k < job.applyN; k++) {
+            Entry e = this.entries.get(job.applyIdx[k]);
+            if (e == null || !e.staged || e.stageTex == 0 || !e.valid || e.stageKey != job.applyKey[k] || e.key != job.applyKey[k] || e.sFbo <= 0) {
+               continue;
+            }
+            int aw = e.aw, ah = e.ah;
+            j.n = e.sDepthTex > 0 ? 1 : 0;
+            j.srcTex[0] = e.sDepthTex;
+            j.w = e.sW;
+            j.h = e.sH;
+            j.sun = e.sSun;
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, e.sFbo);
+            GL11.glViewport(0, 0, e.sW, e.sH);
+            GL20.glUseProgram(this.ratioProgram);
+            GL20.glUniform1i(this.uRatio[0], 0);
+            GL20.glUniform1i(this.uRatio[1], 1);
+            GL20.glUniform4f(this.uRatio[2], sc / aw, sc / ah, 1.0F, 1.0F);
+            GL20.glUniform4f(this.uRatio[3], 1.0F, 1.0F, Config.DEV_AO_VIEW, 0.0F);
+            this.edgeUniforms(this.uRatio[4], this.uRatio[5], j, sc);
+            GL13.glActiveTexture(GL13.GL_TEXTURE1);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, e.tex);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, e.stageTex);
+            GL11.glEnable(GL11.GL_BLEND);
+            if (Config.DEV_AO_VIEW > 0) {
+               GL11.glBlendFunc(GL11.GL_DST_ALPHA, GL11.GL_ZERO);
+            } else {
+               GL11.glBlendFunc(GL11.GL_DST_COLOR, GL11.GL_SRC_COLOR);
+            }
+            GL11.glColorMask(true, true, true, false);
+            GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
+            if (e.sMipmaps && e.sMipLevels > 0 && e.sColorTex > 0 && !Config.DEV_AO_NO_MIPS) {
+               if (this.mipFbo == 0) {
+                  this.mipFbo = GL30.glGenFramebuffers();
+               }
+               GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.mipFbo);
+               GL20.glDrawBuffers(GL30.GL_COLOR_ATTACHMENT0);
+               int levels = Math.min(e.sMipLevels + 1, 32 - Integer.numberOfLeadingZeros(Math.max(e.sW, e.sH)));
+               for (int m = 1; m < levels; m++) {
+                  GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, e.sColorTex, m);
+                  GL11.glViewport(0, 0, Math.max(1, e.sW >> m), Math.max(1, e.sH >> m));
+                  GL20.glUniform4f(this.uRatio[2], sc / aw * (1 << m), sc / ah * (1 << m), 1.0F, 1.0F);
+                  GL20.glUniform4f(this.uRatio[5], 0.0F, sc, 0.0F, 0.0F);
+                  GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
+               }
+               GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, 0, 0);
+            }
+            GL11.glDisable(GL11.GL_BLEND);
+            GL11.glColorMask(true, true, true, true);
+            if (fade) {
+               this.keepForFade(e, aw, ah, now);
+            }
+            // the staged term becomes the kept one
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, e.fbo);
+            GL11.glViewport(0, 0, aw, ah);
+            GL20.glUseProgram(this.copyProgram);
+            GL20.glUniform1i(this.uCopy[0], 0);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, e.stageTex);
+            GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
+            e.checked = false;
+            e.queryPending = false;
+            e.empty = false;
+            this.keep(e, j);
+            this.keptMips(e, j);
+            this.dropStage(e);
+            applied++;
+         }
+         appliedTerms += applied;
+         if (fade && applied > 0) {
+            fades++;
+         }
+         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, previousFbo);
+         restore(this.viewport);
+      }
+
+      private final java.util.ArrayList<Entry> fading = new java.util.ArrayList<>();
+      private final java.util.ArrayList<long[]> fadePool = new java.util.ArrayList<>(); // free {tex, fbo, w, h, handle}
+      /** The share of an entry's step change still to come at this time (1 at its apply, 0 done). */
+      private static float remaining(Entry e, long now) {
+         float t = (now - e.fadeT0) / (1.0e6F * Math.max(1, Config.SUN_STEP_FADE_MS));
+         if (t >= 1F) {
+            return 0F;
+         }
+         t = Math.max(0F, t);
+         return 1F - t * t * (3F - 2F * t); // ease in and out
+      }
+
+      /**
+       * The entry's kept term (level 0) into a fade texture, resident for the composite while the step eases in. A step that
+       * comes while the last one still eases starts from what shows: the old term is the mix the composite draws now
+       * (old x remaining + kept x (1 - remaining)), so nothing jumps.
+       */
+      private void keepForFade(Entry e, int aw, int ah, long now) {
+         float rest = e.fadeTex != 0 ? remaining(e, now) : 0F;
+         if (e.fadeTex == 0) {
+            for (int i = this.fadePool.size() - 1; i >= 0; i--) {
+               long[] t = this.fadePool.get(i);
+               if (t[2] == aw && t[3] == ah) {
+                  this.fadePool.remove(i);
+                  e.fadeTex = (int)t[0];
+                  e.fadeFbo = (int)t[1];
+                  e.fadeHandle = t[4];
+                  break;
+               }
+            }
+            if (e.fadeTex == 0) {
+               fadeAllocs++;
+               e.fadeTex = quietTexture(aw, ah);
+               e.fadeFbo = quietFbo(e.fadeTex);
+               e.fadeHandle = org.lwjgl.opengl.ARBBindlessTexture.glGetTextureHandleARB(e.fadeTex);
+            }
+         }
+         if (e.fadeHandle == 0L) {
+            this.releaseFade(e);
+            return;
+         }
+         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, e.fadeFbo);
+         GL11.glViewport(0, 0, aw, ah);
+         GL20.glUseProgram(this.copyProgram);
+         GL20.glUniform1i(this.uCopy[0], 0);
+         GL13.glActiveTexture(GL13.GL_TEXTURE0);
+         GL11.glBindTexture(GL11.GL_TEXTURE_2D, e.tex);
+         if (rest > 0F) {
+            GL11.glEnable(GL11.GL_BLEND);
+            GL14.glBlendColor(0F, 0F, 0F, rest);
+            GL11.glBlendFunc(GL14.GL_ONE_MINUS_CONSTANT_ALPHA, GL14.GL_CONSTANT_ALPHA); // kept x (1 - rest) + old x rest
+            GL11.glColorMask(true, true, false, false);
+         }
+         GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
+         if (rest > 0F) {
+            GL11.glDisable(GL11.GL_BLEND);
+            GL11.glColorMask(true, true, true, true);
+         }
+         e.fadeT0 = now;
+         if (!org.lwjgl.opengl.ARBBindlessTexture.glIsTextureHandleResidentARB(e.fadeHandle)) {
+            org.lwjgl.opengl.ARBBindlessTexture.glMakeTextureHandleResidentARB(e.fadeHandle);
+         }
+         if (!this.fading.contains(e)) {
+            this.fading.add(e);
+         }
+      }
+
+      private void releaseFade(Entry e) {
+         if (e.fadeTex == 0) {
+            return;
+         }
+         this.fading.remove(e);
+         if (e.fadeHandle != 0L) {
+            CloudShadow.stepOldReleased(e.fadeHandle);
+            if (org.lwjgl.opengl.ARBBindlessTexture.glIsTextureHandleResidentARB(e.fadeHandle)) {
+               org.lwjgl.opengl.ARBBindlessTexture.glMakeTextureHandleNonResidentARB(e.fadeHandle);
+            }
+         }
+         if (e.fadeHandle != 0L && this.fadePool.size() < 160) {
+            this.fadePool.add(new long[] {e.fadeTex, e.fadeFbo, e.aw, e.ah, e.fadeHandle});
+         } else {
+            GL30.glDeleteFramebuffers(e.fadeFbo);
+            GL11.glDeleteTextures(e.fadeTex);
+         }
+         e.fadeTex = 0;
+         e.fadeFbo = 0;
+         e.fadeHandle = 0L;
+      }
+
+      private void releaseFades() {
+         while (!this.fading.isEmpty()) {
+            this.releaseFade(this.fading.get(this.fading.size() - 1));
+         }
+      }
+
+      private void releaseFinishedFades(long now) {
+         for (int i = this.fading.size() - 1; i >= 0; i--) {
+            Entry e = this.fading.get(i);
+            if (remaining(e, now) <= 0F) {
+               this.releaseFade(e);
+            }
+         }
+      }
+
+      /** ChunkAo.stepFade on the render thread. */
+      float stepFade(int depthTex, long[] out) {
+         if (this.fading.isEmpty()) {
+            return 0F;
+         }
+         Entry e = this.byColour.get(depthTex);
+         if (e == null || e.fadeTex == 0 || !e.valid || e.colorTex != depthTex) {
+            return 0F;
+         }
+         float rest = remaining(e, System.nanoTime());
+         if (rest <= 0F) {
+            return 0F;
+         }
+         long h = this.cloudHandle(depthTex);
+         if (h <= 0L) {
+            return 0F;
+         }
+         out[0] = e.fadeHandle;
+         out[1] = h;
+         return rest;
       }
 
       private void markBare(Job job) {
@@ -2308,7 +2974,7 @@ public final class ChunkAo {
       }
 
       private int farTex;
-      private final ByteBuffer farBuf = BufferUtils.createByteBuffer(FAR_SIDE * FAR_SIDE);
+      private final ByteBuffer farBuf = BufferUtils.createByteBuffer(FAR_SIDE * FAR_SIDE * 3);
 
       /** The job's column heights into the far-field texture on FAR_UNIT (R8, FAR_SIDE squares a side, bilinear). */
       private int farPrev = -1; // the texture FAR_UNIT held before a far-field compute (pixelLight's torch mask lives there)
@@ -2319,7 +2985,7 @@ public final class ChunkAo {
          if (this.farTex == 0) {
             this.farTex = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.farTex);
-            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_R8, FAR_SIDE, FAR_SIDE, 0, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, (ByteBuffer)null);
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGB8, FAR_SIDE, FAR_SIDE, 0, GL11.GL_RGB, GL11.GL_UNSIGNED_BYTE, (ByteBuffer)null);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, 33071);
@@ -2328,9 +2994,12 @@ public final class ChunkAo {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.farTex);
          }
          this.farBuf.clear();
-         this.farBuf.put(job.farH).flip();
+         for (int i = 0; i < FAR_SIDE * FAR_SIDE; i++) {
+            this.farBuf.put(job.farH[i]).put(job.farT[i]).put(job.farP[i]); // R columns, G crowns, B bushes
+         }
+         this.farBuf.flip();
          GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 1);
-         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, FAR_SIDE, FAR_SIDE, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, this.farBuf);
+         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, FAR_SIDE, FAR_SIDE, GL11.GL_RGB, GL11.GL_UNSIGNED_BYTE, this.farBuf);
          GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
          GL13.glActiveTexture(GL13.GL_TEXTURE0);
       }
@@ -2377,7 +3046,7 @@ public final class ChunkAo {
 
       /** A kernel variant's uniform locations, in uAo's order (and its sources on units 0..8). */
       private static void locate(int program, int[] u) {
-         String[] names = {"rect", "off", "geo", "params", "nSrc", "strength", "veg", "iso0", "iso1", "mode", "sunDir", "sunPerp", "sunPar", "ext", "sunTree", "treeA", "treeB", "sunWorld", "wallm", "farPar", "treeC", "treeD", "plantPar", "roofLv"};
+         String[] names = {"rect", "off", "geo", "params", "nSrc", "strength", "veg", "iso0", "iso1", "mode", "sunDir", "sunPerp", "sunPar", "ext", "sunTree", "treeA", "treeB", "sunWorld", "wallm", "farPar", "treeC", "treeD", "plantPar", "roofLv", "farTree"};
          for (int i = 0; i < names.length; i++) {
             u[i] = GL20.glGetUniformLocation(program, names[i]);
          }
@@ -2514,7 +3183,8 @@ public final class ChunkAo {
       "uniform uint roofLv[16];", // aoRoofSkip: roof squares of the texture's lower / upper level (16 x 16 bits each)
       "uniform uint wallm[32];",
       "uniform sampler2D farH;", // FAR_UNIT: column tops round the chunk above the texture's lowest level (x 255 quarter levels), 20 squares before its corner
-      "uniform vec4 farPar;", // x on, y the first t (where the near march stops, squares), z the last t, w the reach (the fade's end) // wall edges: W walls (face east) on levels 0-1, then N walls (face south); 16 x 16 bits from 4 squares before the chunk
+      "uniform vec4 farTree;", // sunShadowFarTrees: x on, y..z where the cards hand over to the far crowns (squares along the ground), w a crown's optical depth per square
+      "uniform vec4 farPar;", // x on, y the first t (where the near march stops, squares), z the last t, |w| the reach (the fade's end), w < 0 the near march is capped (its tail hands over) // wall edges: W walls (face east) on levels 0-1, then N walls (face south); 16 x 16 bits from 4 squares before the chunk
       "uniform vec4 treeA[32];", // crown proxies (collectTrees): centre x, y (squares from the chunk's corner), crown centre height, horizontal radius
       "uniform vec4 treeB[32];", // vertical radius, top, foot height, the card's x + y (heights in squares above the texture's lowest level)
       "uniform vec4 treeC[32];", // sunShadowTreeCards: the tree's foot x, y (squares from the chunk's corner), its height, the silhouette's layer (-1: the crown proxy)
@@ -2622,6 +3292,8 @@ public final class ChunkAo {
       "      if (!cards || layer < 0.0 || i == own) { path += crownChord(i, P, sunWorld.xyz); continue; }",
       "      float dist = dot(treeC[i].xy - P.xy, nd);", // along the ground towards the sun, to the card
       "      if (dist <= 0.02) continue;",
+      "      float wc = farTree.x > 0.5 ? 1.0 - smoothstep(farTree.y, farTree.z, dist) : 1.0;", // past the cards' reach the far crowns cast
+      "      if (wc <= 0.0) continue;",
       "      float s = dot(P.xy + nd * dist - treeC[i].xy, ax);",
       "      float h = P.z + dist * tanE - treeC[i].z;",
       "      vec4 D = treeD[i];",
@@ -2629,7 +3301,7 @@ public final class ChunkAo {
       "      float v = D.y + h * D.z;",
       "      if (u <= 0.0 || u >= 1.0 || v <= 0.0 || v >= 1.0) continue;",
       "      float pen = 2.0 * (dist / wl) * sunPerp.w * D.x * " + TreeSilhouette.SIZE + ".0;", // the penumbra's width in layer texels
-      "      vis *= 1.0 - sunTree.w * textureLod(treeSil, vec3(u, v, layer), log2(max(pen, 1.0))).r;",
+      "      vis *= 1.0 - wc * sunTree.w * textureLod(treeSil, vec3(u, v, layer), log2(max(pen, 1.0))).r;",
       "      if (vis < 0.01) break;",
       "   }",
       "   return vis * exp(-sunTree.x * path);",
@@ -2830,7 +3502,11 @@ public final class ChunkAo {
       "   for (int j = 0; j < 32; j++) {",
       "      if (float(j) >= steps) break;",
       "      float f = (float(j) + jitter) / steps;",
-      "      float rpx = max((float(j) + 1.0) * geo.x * 0.75, pow(f, 1.6) * lenPx);",
+      "      float tf = pow(f, 1.6);",
+      // a capped march (farPar.w < 0): its last 40 % drops samples more and more (dithered per texel, the 4x4 box smooths
+      // it) while the far field takes over the same stretch
+      "      if (farPar.x > 0.5 && farPar.w < 0.0 && tf > 0.6 && fract(sin(dot(c, vec2(12.9898, 78.233)) + float(j) * 1.618) * 43758.5453) > 1.0 - smoothstep(0.6, 1.0, tf)) continue;",
+      "      float rpx = max((float(j) + 1.0) * geo.x * 0.75, tf * lenPx);",
       "      vec2 sp = c + tdir * rpx;",
       "      float sd = depthAt(sp);",
       "      if (sd >= 0.99999) continue;",
@@ -2874,8 +3550,12 @@ public final class ChunkAo {
       // inside the near range (t < farPar.y) only what stands above the texture's two levels (4.9 squares) counts: the near
       // march sees the rest in the depth, and the upper storeys of a tall building are in the level pair above
       "         float t = 0.0;",
-      "         for (int i = 0; i < 48; i++) {",
-      "            t += 0.5 * (1.0 + float(i) / 12.0) * (i == 0 ? jitter + 0.5 : 1.0);",
+      // sunShadowFarTrees: crowns (G) past the cards' reach (farTree.y..z fading in) as a soft medium: their optical depth
+      // along the ray (farTree.w per square), a crown from 0.3 of the tree's top up
+      "         float tau = 0.0;",
+      "         for (int i = 0; i < 64; i++) {",
+      "            float dt = 0.5 * (1.0 + float(i) / 12.0) * (i == 0 ? jitter + 0.5 : 1.0);",
+      "            t += dt;",
       "            if (t > farPar.z && t > farPar.y) break;",
       "            vec2 q = P.xy + dw * t;",
       // three taps across the ray (the columns have hard sides: one tap drew their squares as a sawtooth along the shadow's
@@ -2883,22 +3563,29 @@ public final class ChunkAo {
       "            vec2 side = vec2(-dw.y, dw.x) * max(0.5, t * sunPerp.w);",
       "            float ray = P.z + t * tanE;",
       "            float pen = 0.3 + t * sunPerp.w;",
-      "            float fade = 1.0 - smoothstep(0.75 * farPar.w, farPar.w, t);",
+      "            float fade = 1.0 - smoothstep(0.75 * abs(farPar.w), abs(farPar.w), t);",
+      "            float tail = farPar.w < 0.0 ? (t < farPar.y ? smoothstep(0.6 * farPar.y, farPar.y, t) : 1.0) : 0.0;", // the near march's faded stretch and past it
       "            float o = 0.0;",
+      "            float oc = 0.0;",
+      "            float ob = 0.0;",
       "            for (int k = -1; k <= 1; k++) {",
       "               vec2 qk = q + side * float(k);",
       "               if (nw.x + nw.y > 0.5 && dot(qk, nw) - line < 0.5) continue;",
-      "               float h = texture(farH, (qk + " + FAR_MARGIN + ".0) / " + FAR_SIDE + ".0).r * 255.0 * 0.25 * 2.4494897;",
-      "               o += smoothstep(-pen, pen, h - ray) * (k == 0 ? 0.5 : 0.25);",
+      "               vec3 hv = texture(farH, (qk + " + FAR_MARGIN + ".0) / " + FAR_SIDE + ".0).rgb * (255.0 * 0.25 * 2.4494897);",
+      "               o += smoothstep(-pen, pen, hv.x - ray) * (k == 0 ? 0.5 : 0.25);",
+      "               if (hv.y > 0.0) oc += smoothstep(-pen, pen, hv.y - ray) * smoothstep(-pen, pen, ray - 0.3 * hv.y) * (k == 0 ? 0.5 : 0.25);",
+      "               if (hv.z > 0.0) ob += smoothstep(-pen, pen, hv.z - ray) * (k == 0 ? 0.5 : 0.25);",
       "            }",
-      "            if (t < farPar.y) o *= smoothstep(4.9 - pen, 4.9 + pen, ray);",
+      "            if (farTree.x > 0.5 && t > farPar.y) tau += farTree.w * dt * oc * fade * smoothstep(farTree.y, farTree.z, t);",
+      "            if (t < farPar.y) o *= max(smoothstep(4.9 - pen, 4.9 + pen, ray), tail);",
+      "            tau += 2.5 * dt * ob * fade * tail;", // bushes: a dense low medium, only where the near march no longer sees them
       "            occ = max(occ, fade * o);",
-      "            if (occ > 0.99) break;",
+      "            if (occ > 0.99 || tau > 5.0) break;",
       "         }",
-      "         farVis = 1.0 - occ;",
+      "         farVis = (1.0 - occ) * exp(-tau);",
       "      }",
       "   }",
-      "   if (mode.y > 7.5) return farVis;", // dev view 8: the far field alone
+      "   if (mode.y > 7.5 && mode.y < 8.5) return farVis;", // dev view 8: the far field alone
       "   return facing * (1.0 - float(popc(mask)) / 32.0) * crowns * farVis;",
       "}",
       "void main() {",
@@ -3033,6 +3720,10 @@ public final class ChunkAo {
       // dev views 5 / 6 / 7: the reconstructed height (levels / 2), x - round(x) + 0.5, y - round(y) + 0.5
       // dev view 8: the far field (sunShadowFar) alone
       "      else if (mode.y > 4.5 && mode.y < 7.5) { sun = mode.y < 5.5 ? clamp(P.z / 2.4494897 * 0.5, 0.0, 1.0) : mode.y < 6.5 ? clamp(P.x - floor(P.x + 0.5) + 0.5, 0.0, 1.0) : clamp(P.y - floor(P.y + 0.5) + 0.5, 0.0, 1.0); }",
+      // dev views 9 / 10: the texel's place in its chunk, x / 8 and y / 8 (harness/shadow-seams.py finds the chunk seams with
+      // them); 11: the sun's visibility alone, whatever the strength (1 lit, 0 in full shadow; indoors and walls 1)
+      "      else if (mode.y > 8.5 && mode.y < 10.5) { sun = clamp((mode.y < 9.5 ? P.x : P.y) / 8.0, 0.0, 1.0); }",
+      "      else if (mode.y > 10.5 && mode.y < 11.5) { sun = kind == 1 && cw == 0 ? sunVisibility(c, d, Ns, planeS, P, bayer, jitter, ppu, kz, ys, ownTree) : 1.0; }",
       "      else if (mode.y > 3.5 && mode.y < 4.5) { float br = kind == 0 ? 0.0 : kind == 2 ? 0.2 : cw != 0 ? 0.4 : (planeS && !plane) ? 0.6 : plane ? 0.8 : 1.0;",
       "         float fc = kind == 1 && planeS ? smoothstep(0.0, 0.25, dot(Ns, sunDir.xyz)) : 1.0; sun = kind == 1 ? br * (0.5 + 0.5 * fc) : br; }",
       // a clamped wall texel: the attached term only (its depth cannot march for cast shadows)

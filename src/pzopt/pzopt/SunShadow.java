@@ -28,10 +28,22 @@ public final class SunShadow {
    static final float[] perp = new float[4];
    /** The direction to the sun in world space (x east, y south, z up, one unit of height = one square), w = tan of the penumbra angle; strength in dir[3]. */
    static final float[] world = new float[4];
+   // dir / perp / world above are the sun the picture shows (the per-frame passes: characters' and vehicles' shadows,
+   // relief, canopy, the bare ground's share); cDir / cPerp / cWorld are the step the chunk kernel computes with. Without
+   // sunStepSync they are the same; with it the shown sun moves when a step is applied to the chunk textures, eased over
+   // sunStepFadeMs like them (the van's shadow switched at once while the ground waited for its step: a blink, 2026-10-07)
+   static final float[] cDir = new float[4];
+   static final float[] cPerp = new float[4];
+   static final float[] cWorld = new float[4];
+   private static final float[] SHOWN_FROM = new float[4], SHOWN_TO = new float[4]; // world xyz + strength
+   private static long shownT0; // 0: no ease in progress
+   private static boolean shownSet;
    private static long state = Long.MIN_VALUE;
    private static float hourNow = 12F;
    private static long changes;
    private static long lastStrengthStep;
+   private static long lastStrengthDir;
+   private static int devFarShadeLogged;
    private static long sweepT0;
    private static long toggleT0;
    private static long detailT0;
@@ -49,7 +61,8 @@ public final class SunShadow {
 
    /** The key light's step (direction or body) counter: a sun shadow drawn under another step is stale. */
    static long stepSerial() {
-      return stepSerial * 2L + stepBody + (long)(dir[3] * 1000F) * 131L;
+      return stepSerial * 2L + stepBody + (long)(dir[3] * 1000F) * 131L
+         + (long)(world[0] * 1e4F) * 7919L + (long)(world[1] * 1e4F) * 104729L + (long)(world[2] * 1e4F) * 1299709L;
    }
 
    static boolean enabled() {
@@ -102,6 +115,9 @@ public final class SunShadow {
          if (state != Long.MIN_VALUE) {
             state = Long.MIN_VALUE;
             dir[3] = 0F;
+            cDir[3] = 0F;
+            shownSet = false;
+            shownT0 = 0L;
          }
          return false;
       }
@@ -169,7 +185,13 @@ public final class SunShadow {
       if (Config.SUN_STEP_MODE_ANGLE != 0 || !"arc".equals(Config.SKY_PATH)) {
          // a new step once the light has turned sunStepDeg10 from the last step's direction (or changed body): the steps
          // come at the same angular spacing whatever the path (azimuth steps near a high noon sun would come far faster)
-         double cosStep = Math.cos(Math.toRadians(Math.max(1, Config.SUN_STEP_DEG10) / 10.0));
+         // sunStepLowPct: near the horizon a shadow's length goes with 1 / tan(elevation), so a 1.5 deg step at 5 deg made
+         // every long shadow 30 % shorter at once; the step shrinks to that share of the elevation (0.4 deg at 5 deg)
+         double stepDeg = Math.max(1, Config.SUN_STEP_DEG10) / 10.0;
+         if (Config.SUN_STEP_LOW_PCT > 0) {
+            stepDeg = Math.min(stepDeg, Math.max(0.2, Math.toDegrees(Math.max(0.0, elev)) * Config.SUN_STEP_LOW_PCT / 100.0));
+         }
+         double cosStep = Math.cos(Math.toRadians(stepDeg));
          double dot = wx * stepDir[0] + wy * stepDir[1] + wz * stepDir[2];
          if (body != stepBody || dot < cosStep || stepSerial == 0L) {
             stepDir[0] = wx;
@@ -181,11 +203,38 @@ public final class SunShadow {
          wx = stepDir[0];
          wy = stepDir[1];
          wz = stepDir[2];
+         if (Config.SUN_SHADOW_REACH_FADE && Config.SUN_SHADOW_FAR && body == 0) {
+            // a 3-level caster's shadow (7.35 squares tall) longer than the far field reaches would end on its fade: the
+            // strength fades out over 85 -> 115 % of the reach instead (the stepped height, as the dusk fade below)
+            double wl = Math.sqrt(wx * wx + wy * wy);
+            double len = 7.35 * wl / Math.max(1e-4, wz);
+            double reach = Math.min(ChunkAo.FAR_MARGIN, Config.SUN_SHADOW_FAR_SQUARES);
+            s *= 1F - smooth(0.85F * (float)reach, 1.15F * (float)reach, (float)len);
+         }
+         if (Config.SUN_STEP_LOW_PCT > 0 && body == 0) {
+            // the sun's fade near the horizon follows the step's height, not the live one: a direction step (longer
+            // shadows, darker) and a fade step (fainter shadows, brighter) came as separate changes a few seconds apart
+            float riseLive = (float)Math.max(0.0, Math.min(1.0, (elev - minElev) / Math.toRadians(8.0)));
+            if (riseLive > 0F) {
+               double wl = Math.sqrt(wx * wx + wy * wy + wz * wz);
+               double stepEl = Math.asin(Math.max(-1.0, Math.min(1.0, wz / Math.max(1e-9, wl))));
+               float riseStep = (float)Math.max(0.0, Math.min(1.0, (stepEl - minElev) / Math.toRadians(8.0)));
+               s = s / riseLive * riseStep;
+            }
+         }
       }
       liveStrength = s;
       long sStep = Math.round(Math.min(1F, s) * STRENGTH_STEPS);
-      if (sStep != 0L && lastStrengthStep > 0L && Math.abs(sStep - lastStrengthStep) < 2L) {
+      // (in the fade band near the horizon the sun drives the strength: no hold there, the first change came as a double step)
+      boolean fading = body == 0 && elev < minElev + Math.toRadians(8.0);
+      if (sStep != 0L && lastStrengthStep > 0L && Math.abs(sStep - lastStrengthStep) < 2L
+            && !(Config.SUN_STRENGTH_FINE && (fading || Long.signum(sStep - lastStrengthStep) == lastStrengthDir))) {
          sStep = lastStrengthStep; // hysteresis: clouds drifting across a step boundary would recompute every texture again and again
+      }
+      // sunStrengthFine: the hysteresis holds a turn back only; a strength going one way (the sun's fade at dusk and dawn)
+      // moves a step at a time instead of jumps of two (a tenth of a long shadow's darkness at once)
+      if (sStep != lastStrengthStep && lastStrengthStep > 0L && sStep != 0L) {
+         lastStrengthDir = Long.signum(sStep - lastStrengthStep);
       }
       lastStrengthStep = sStep;
       float penumbra = (float)Math.tan(Math.toRadians(3.0 * Math.max(1, Config.SUN_SHADOW_SOFTNESS_PCT) / 100.0));
@@ -201,6 +250,7 @@ public final class SunShadow {
       long next = sStep == 0L ? -1L : (aStep * 64L + sStep) * 1024L + Config.SUN_SHADOW_SOFTNESS_PCT;
       lightBody = body;
       if (next == state) {
+         updateShown();
          return false;
       }
       boolean was = state != Long.MIN_VALUE;
@@ -208,24 +258,97 @@ public final class SunShadow {
       double vx = wx * WX[0] + wy * WY[0] + wz * WZ[0];
       double vy = wx * WX[1] + wy * WY[1] + wz * WZ[1];
       double vz = wx * WX[2] + wy * WY[2] + wz * WZ[2];
-      dir[0] = (float)vx;
-      dir[1] = (float)vy;
-      dir[2] = (float)vz;
-      dir[3] = sStep / (float)STRENGTH_STEPS;
-      world[0] = (float)wx;
-      world[1] = (float)wy;
-      world[2] = (float)wz;
-      world[3] = penumbra;
-      double pl = Math.sqrt(vx * vx + vy * vy); // cross(L, V) with V = (0, 0, -1): (-Ly, Lx, 0)
-      perp[0] = pl < 1e-4 ? 1F : (float)(-vy / pl);
-      perp[1] = pl < 1e-4 ? 0F : (float)(vx / pl);
-      perp[2] = 0F;
-      perp[3] = penumbra;
+      put(wx, wy, wz, sStep / (float)STRENGTH_STEPS, penumbra, cDir, cWorld, cPerp);
+      updateShown();
       changes++;
       if (!was || changes <= 3 || changes % 20 == 0) {
          Log.info("sun shadows: " + stats());
       }
       return was;
+   }
+
+   /** A sun (world direction, normalised; strength; penumbra) into its view-space direction, world and across arrays. */
+   private static void put(double wx, double wy, double wz, float strength, float penumbra, float[] d, float[] w, float[] p) {
+      double vx = wx * WX[0] + wy * WY[0] + wz * WZ[0];
+      double vy = wx * WX[1] + wy * WY[1] + wz * WZ[1];
+      double vz = wx * WX[2] + wy * WY[2] + wz * WZ[2];
+      d[0] = (float)vx;
+      d[1] = (float)vy;
+      d[2] = (float)vz;
+      d[3] = strength;
+      w[0] = (float)wx;
+      w[1] = (float)wy;
+      w[2] = (float)wz;
+      w[3] = penumbra;
+      double pl = Math.sqrt(vx * vx + vy * vy); // cross(L, V) with V = (0, 0, -1): (-Ly, Lx, 0)
+      p[0] = pl < 1e-4 ? 1F : (float)(-vy / pl);
+      p[1] = pl < 1e-4 ? 0F : (float)(vx / pl);
+      p[2] = 0F;
+      p[3] = penumbra;
+   }
+
+   /** Is the shown sun synced to the chunk textures' applied steps (else it is the computed one)? */
+   private static boolean shownFollowsTextures() {
+      return Config.SUN_STEP_SYNC && ChunkAo.enabled();
+   }
+
+   /** Game thread, once a frame: the shown sun (the computed one, or the applied step's, eased). */
+   private static void updateShown() {
+      if (!shownFollowsTextures() || !shownSet) {
+         put(cWorld[0], cWorld[1], cWorld[2], cDir[3], cWorld[3], dir, world, perp);
+         SHOWN_TO[0] = cWorld[0];
+         SHOWN_TO[1] = cWorld[1];
+         SHOWN_TO[2] = cWorld[2];
+         SHOWN_TO[3] = cDir[3];
+         shownSet = cDir[3] > 0F || cWorld[2] != 0F;
+         shownT0 = 0L;
+         return;
+      }
+      if (shownT0 == 0L) {
+         return;
+      }
+      float t = (System.nanoTime() - shownT0) / (1.0e6F * Math.max(1, Config.SUN_STEP_FADE_MS));
+      float k = t >= 1F ? 1F : t * t * (3F - 2F * t);
+      if (t >= 1F) {
+         shownT0 = 0L;
+      }
+      double x = SHOWN_FROM[0] + (SHOWN_TO[0] - SHOWN_FROM[0]) * k, y = SHOWN_FROM[1] + (SHOWN_TO[1] - SHOWN_FROM[1]) * k,
+         z = SHOWN_FROM[2] + (SHOWN_TO[2] - SHOWN_FROM[2]) * k;
+      double l = Math.max(1e-9, Math.sqrt(x * x + y * y + z * z));
+      put(x / l, y / l, z / l, SHOWN_FROM[3] + (SHOWN_TO[3] - SHOWN_FROM[3]) * k, cWorld[3], dir, world, perp);
+   }
+
+   /**
+    * sunStepSync, game thread: the chunk textures now show the step computed with this sun (world xyz, strength): the shown
+    * sun eases to it (at once without the composite's fade).
+    */
+   static void stepApplied(float[] w, float strength) {
+      if (!shownFollowsTextures()) {
+         return;
+      }
+      if (SHOWN_TO[0] == w[0] && SHOWN_TO[1] == w[1] && SHOWN_TO[2] == w[2] && SHOWN_TO[3] == strength) {
+         return;
+      }
+      SHOWN_FROM[0] = world[0];
+      SHOWN_FROM[1] = world[1];
+      SHOWN_FROM[2] = world[2];
+      SHOWN_FROM[3] = dir[3];
+      SHOWN_TO[0] = w[0];
+      SHOWN_TO[1] = w[1];
+      SHOWN_TO[2] = w[2];
+      SHOWN_TO[3] = strength;
+      boolean ease = Config.SUN_STEP_FADE_MS > 0 && CloudShadow.stepFadeSupported() && dir[3] > 0F && strength > 0F;
+      shownT0 = ease ? System.nanoTime() : 0L;
+      if (!ease) {
+         put(w[0], w[1], w[2], strength, cWorld[3], dir, world, perp);
+      }
+   }
+
+   /** sunStepSync, game thread: no texture waits for a step (none on screen needs one): the shown sun takes the computed one. */
+   static void syncShown() {
+      if (shownFollowsTextures() && shownT0 == 0L) {
+         stepApplied(cWorld, cDir[3]);
+      }
    }
 
    // ------------------------------------------------------------------------------------------------ characters in the shade
@@ -258,7 +381,7 @@ public final class SunShadow {
    /** How much of the sun a point one square above (x, y, z) sees through the grid (walls, upper floors, solid objects, trees). */
    static float visibleAt(float x, float y, float z) {
       int hx = (int)Math.floor(x * 2F), hy = (int)Math.floor(y * 2F), iz = (int)Math.floor(z);
-      long key = ((long)(hx & 0xFFFFF) << 40 | (long)(hy & 0xFFFFF) << 20 | (iz + 64) & 0xFF) * 31L + state + (Config.SUN_SHARE_WALL_HEIGHT ? 0L : 0x5DEECE66DL);
+      long key = ((long)(hx & 0xFFFFF) << 40 | (long)(hy & 0xFFFFF) << 20 | (iz + 64) & 0xFF) * 31L + stepSerial() + (Config.SUN_SHARE_WALL_HEIGHT ? 0L : 0x5DEECE66DL);
       long h = key * 0x9E3779B97F4A7C15L;
       h ^= h >>> 31;
       int slot = (int)(h & (CACHE - 1));
@@ -356,6 +479,41 @@ public final class SunShadow {
          if (vis < 0.05F) {
             return 0F;
          }
+      }
+      // sunShadowFar: past the grid walk, the far field's column tops along the ray (a low sun's building shadow reaches
+      // 60 squares; the character in it was lit beyond 9)
+      if (Config.SUN_SHADOW_FAR && ChunkAo.enabled()) {
+         float reach = Math.min(Config.SUN_SHADOW_FAR_SQUARES, ChunkAo.FAR_MARGIN);
+         float tz = lz / h; // height gained per square along the ground
+         int lastSx = Integer.MIN_VALUE, lastSy = Integer.MIN_VALUE;
+         float occ = 0F; // soft, as the kernel's far field: a penumbra growing with the distance, the reach's last quarter fading
+         for (float d = 9F; d <= reach; d += 0.7F) {
+            float pz = pz0 + tz * d;
+            if (pz > 24F) {
+               break; // above anything the map holds
+            }
+            int sx = (int)Math.floor(x + lx / h * d), sy = (int)Math.floor(y + ly / h * d);
+            if (sx == lastSx && sy == lastSy) {
+               continue;
+            }
+            lastSx = sx;
+            lastSy = sy;
+            float top = ChunkAo.columnTop(sx, sy) * 0.25F * LEVEL;
+            float pen = 0.3F + d * 0.013F;
+            if (top > pz - pen) {
+               occ = Math.max(occ, smooth(-pen, pen, top - pz) * (1F - smooth(0.75F * reach, reach, d)));
+            }
+            if (occ > 0.99F) {
+               if (why != null) why.append(" far@").append(sx).append(',').append(sy);
+               if (Config.DEV_FAR_SHADE_LOG > devFarShadeLogged) {
+                  devFarShadeLogged++;
+                  Log.info(String.format(java.util.Locale.ROOT, "sun shadows: dev far shade at %.1f,%.1f,%d hit %d,%d top %.2f ray %.2f d %.1f sun %.3f,%.3f,%.3f",
+                     x, y, z, sx, sy, top, pz, d, lx, ly, lz));
+               }
+               break;
+            }
+         }
+         vis *= 1F - occ;
       }
       return vis;
    }

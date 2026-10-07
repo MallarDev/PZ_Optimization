@@ -873,6 +873,7 @@ PzoptOptionDates = {
     swayMvFold = "2026-09-28",
     swayMvImage = "2026-09-28",
     swayMvNoBlend = "2026-09-28",
+    swayOccluderCheck = "2026-10-07",
     swayPrefetch = "2026-09-28",
     swayPush = "2026-09-28",
     swayTwinAll = "2026-09-28",

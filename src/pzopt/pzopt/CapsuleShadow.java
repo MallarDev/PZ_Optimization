@@ -1196,7 +1196,8 @@ public final class CapsuleShadow {
       }
       wallCollects++;
       float dx = -lx / lxy, dy = -ly / lxy; // along the shadow
-      float len = Math.min(Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH), lz > 1e-3F ? 2.6F * lxy / lz : 1e3F) + 1F;
+      // (at most 24 squares: the scan walks the band's squares; the far ends of a dusk shadow are wide and faint)
+      float len = Math.min(Math.min(24, Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH)), lz > 1e-3F ? 2.6F * lxy / lz : 1e3F) + 1F;
       float px = sx + 0.5F, py = sy + 0.5F, ex = px + dx * len, ey = py + dy * len;
       int x0 = (int)Math.floor(Math.min(px, ex)) - band, x1 = (int)Math.floor(Math.max(px, ex)) + band;
       int y0 = (int)Math.floor(Math.min(py, ey)) - band, y1 = (int)Math.floor(Math.max(py, ey)) + band;
