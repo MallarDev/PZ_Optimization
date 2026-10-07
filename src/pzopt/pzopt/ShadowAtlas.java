@@ -66,6 +66,17 @@ public final class ShadowAtlas {
       return "shadow atlas: frames=" + frames + " casters drawn=" + rendered + (rendered > 0 ? String.format(java.util.Locale.ROOT, " (%.1f us render thread each, %.1f us of it the model's draw, %.1f parts a caster; a flush's setup %.1f clear %.1f restore %.1f us, %.2f draws a flush)", renderNs / 1e3 / rendered, drawNs / 1e3 / rendered, parts / (double)rendered, setupNs / 1e3 / Math.max(1, flushes), clearNs / 1e3 / Math.max(1, flushes), restoreNs / 1e3 / Math.max(1, flushes), rendered / (double)Math.max(1, flushes)) : "") + (lampViews > 0 ? " lamp views=" + lampViews : "") + (texturesPendingSkips > 0 ? " skipped for pending textures=" + texturesPendingSkips : "") + (failed ? " FAILED" : "");
    }
 
+   private static long cmpHandle;
+
+   /** Render thread (pzopt.EntityShadow, bindless): the depth atlas with the raw sampler by handle, resident; 0 before init. */
+   static long compareHandle() {
+      if (cmpHandle == 0L && depthTex != 0 && samplerRaw != 0 && !failed) {
+         cmpHandle = org.lwjgl.opengl.ARBBindlessTexture.glGetTextureSamplerHandleARB(depthTex, samplerRaw); // (raw depths: the shader compares)
+         org.lwjgl.opengl.ARBBindlessTexture.glMakeTextureHandleResidentARB(cmpHandle);
+      }
+      return cmpHandle;
+   }
+
    static boolean usable() {
       return !failed && Config.SUN_SHADOW_MESHES;
    }

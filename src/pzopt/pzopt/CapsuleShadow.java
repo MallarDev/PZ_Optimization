@@ -590,6 +590,31 @@ public final class CapsuleShadow {
       d[c + 3] = 0F;
    }
 
+   /**
+    * Game thread (pzopt.EntityShadow, at the start of the world render, before this frame's casters assign their tiles):
+    * the object's sun tile as the atlas holds it while this frame's models draw (drawn last frame): out = tile, half size,
+    * the content's centre from the object's position (x, y squares, z metric). False when it has none yet.
+    */
+   static boolean receiverTile(zombie.iso.IsoMovingObject o, float[] out) {
+      int tile;
+      if (o instanceof IsoGameCharacter ch) {
+         tile = ch.pzoptShadowTile;
+      } else {
+         float[] vs = VEHICLE_TILES.get(o);
+         tile = vs == null ? -1 : (int)vs[0];
+      }
+      if (tile < 0 || tile >= ShadowAtlas.MAX_TILES || TILE_OWNER[tile] != o || TILE_KIND[tile] != -1 || !TILE_HAS[tile] || stamp - TILE_SEEN[tile] > 1L) {
+         return false;
+      }
+      int q = tile * 4;
+      out[0] = tile;
+      out[1] = TILE_OFF[q + 3];
+      out[2] = TILE_OFF[q];
+      out[3] = TILE_OFF[q + 1];
+      out[4] = TILE_OFF[q + 2];
+      return true;
+   }
+
    /** A tile nobody joined a pass with for 30 frames (its character left the screen), for chr; -1 when all are in use. */
    private static int allocTile(zombie.iso.IsoMovingObject chr, int kind) {
       for (int k = 0; k < ShadowAtlas.MAX_TILES; k++) {

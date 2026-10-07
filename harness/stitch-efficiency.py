@@ -119,6 +119,19 @@ CFG['flip60'] = dict(CFG['flip'], out='workshop-media/flip-efficient-cores-vs-st
                      card_note='Options > PZ Optimization > CPU cores and power: "Which cores" = efficient, "AMD GPU clock level" = off. '
                                'Repeat runs: stock 11.4 W, efficient cores 10.4 W; holding a GPU clock level (auto / lowest) drew 13.8-13.9 W here. '
                                'Runs flip60-*, 2026-10-06.')
+CFG['clouds'] = dict(CFG['dell'], out='workshop-media/desktop-rosewood-golden-hour-visuals-vs-stock.mp4', a='wsc4-stock', b='wsc4-enh',
+                     b_cap='wsc4-enh-cap', a_cap='wsc4-stock-cap', stock_a=True,
+                     align_span=(16.8, 23.7),  # the town stretch of the card (efficiency-anim.py); earlier the cars are up to 0.6 s apart
+                     align_after=[(23.9, (24.4, 29.0))],  # stock's capture hitched 559 ms at 23.78 s: its car is out of step after it
+                     title='RTX 4090  ·  120 KM/H THROUGH ROSEWOOD AT GOLDEN HOUR (19:00), PARTLY CLOUDY',
+                     la='STOCK GAME', lb='PZ OPTIMIZATION  ·  EVERY VISUAL ENHANCEMENT',
+                     sub_a='the game\'s default options',
+                     sub_b='sun, cloud and building shadows on the car, car glass, per-pixel light, AO, god rays, grading, relief ...',
+                     footer='Desktop (Ryzen 7 9800X3D, RTX 4090, 5120x2160)  ·  the same save, car, path, hour and clouds on both sides  ·  '
+                            'the game\'s own frames, UI hidden; numbers from uncaptured runs of the same drive',
+                     card_title='GOLDEN HOUR THROUGH ROSEWOOD', card_fixed=True,
+                     card_note='Options > PZ Optimization > Visuals: every card on except remembered places and HDR (SDR capture). '
+                               'Runs wsc4-stock / wsc4-enh, 2026-10-07.')
 CFG = CFG[KIND]
 OUT = sys.argv[2] if len(sys.argv) > 2 else CFG['out']
 
@@ -210,9 +223,12 @@ def small(frames, j):
     return f[..., 0] * 0.299 + f[..., 1] * 0.587 + f[..., 2] * 0.114
 
 
-def align(ca, cb):
+def align(ca, cb, span=None):
     """Seconds to add to b's route clock so its frames show what a's show."""
     lo, hi = max(ca[1][0], cb[1][0]) + 1.6, min(ca[1][-1], cb[1][-1]) - 1.6
+    span = span or CFG.get('align_span')
+    if span:  # the drives drift apart: match the frames of the span the card shows (route seconds)
+        lo, hi = max(lo, span[0]), min(hi, span[1])
     probes = np.linspace(max(lo, 0.5), hi, 8)
     step = float(np.median(np.diff(cb[1])))
     best, best_err = 0.0, None
@@ -255,6 +271,20 @@ if NUMBERS_ONLY:
     sys.exit(0)
 ca, cb = capture(ca_dir), capture(cb_dir)
 shift = align(ca, cb)
+# align_after: [(route s, (span lo, hi)), ...]: from that second on the stock side (a) is re-timed to match b over that span
+# (a hitch on one side put the two cars out of step for good; b keeps its clock so the enhanced side never jumps)
+shifts = [(t, align(ca, cb, sp)) for t, sp in CFG.get('align_after', [])]
+for t_, s_ in shifts:
+    print(f'  a re-timed {shift - s_:+.3f} s from route +{t_:.2f} s')
+
+
+def shift_at(t):
+    s_ = shift
+    for t_, v in shifts:
+        if t >= t_:
+            s_ = v
+    return s_
+
 t0 = max(0.0, ca[1][0] + 0.1, cb[1][0] - shift + 0.1)
 t1 = min(ca[1][-1], cb[1][-1] - shift, na.end, nb.end) - 0.1
 PH = int(round(ca[3] * PW / ca[2]))
@@ -318,7 +348,8 @@ cache = {}
 for i in range(n):
     t = t0 + i / FPS
     fr = base_np.copy()
-    fr[HEAD:HEAD + PH, 0:PW] = pane(ca, t)
+    # after a re-alignment the stock side skips (its own hitch put it out of step); the enhanced side never jumps
+    fr[HEAD:HEAD + PH, 0:PW] = pane(ca, t + shift - shift_at(t))
     fr[HEAD:HEAD + PH, PW + 4:PW + 4 + PW] = pane(cb, t + shift)
     key = (na.live(t), nb.live(t))
     key = ((key[0][0], None if key[0][1] is None else round(key[0][1], 1)),

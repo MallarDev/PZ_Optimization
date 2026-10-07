@@ -6389,3 +6389,30 @@ finishes an in-game uninstall whose helper left its list, then starts the game a
 with `System.exit(0)`. Developer installs (`scripts/pzopt.sh` manifest) are left alone on a mismatch;
 `-Dpzopt.bootRepair=false` turns it off. Nothing of the game has run at that point; the classes the repair needs from
 the old install load before the first file changes. Unit test `BootRepairTest`.
+
+### Entity shadows (`pzopt.EntityShadow`, 2026-10-07): Model, ModelInstance, ShaderUnit, FBORenderCell, IsoZombie, GodRays
+
+The player, zombies, animals and cars take the static world's sun shadow part by part (`entityShadows`, with `sunShadows`;
+`docs/findings-entity-shadows-2026-10-07.md`).
+- `ShaderUnit.compile`: `EntityShadow.patchShader` innermost in the patch chain (basicEffect, animalEffect, vehicle*,
+  vehiclewheel*; not the car glass copies, wireframe or instanced units): the vertex unit writes the world position (the clip
+  position through one clip-to-world matrix a frame) and normal and the probe brick's cell; the fragment unit becomes `#version
+  430 compatibility` (420 with bindless, 330 + 420pack without GL 4.3) and multiplies the ambient by the shade factor. A
+  fragment unit is patched only beside a patched vertex unit of its program; both are test-compiled. `EntityShadow.devFinal`
+  (dev) records the final sources.
+- `Model.DrawSolid` / `DrawVehicle`: `EntityShadow.bind` after the stock uniforms (the draw's method, probe brick, moving
+  casters' capsules: one uniform array), `EntityShadow.unbind` after the mesh draw (a draw of the same program on another path
+  never inherits a character's shade).
+- `ModelInstance.updateLights`: the CPU sun factor in a character's ambient is skipped while the model draws shade per pixel.
+- `FBORenderCell.pzoptRenderInternal`: `EntityShadow.frameStart` (the frame's light, the probe bricks and their compute, first in
+  the frame); the moving objects' GPU section tagged per dev variant; the chunk-changed hook also when entity shadows want the
+  occupancy; `devStats` around `renderMovingObjects` (dev pipeline statistics).
+- `IsoZombie.renderAtlasTexture`: an atlas zombie's light colour times `EntityShadow.impostorFactor` (the CPU march).
+- `IsoMovingObject`: field `pzoptEsDrawn` (no initializer, the constructors stay stock): the gather frame the object was last
+  drawn as a model; `bind` queues each such object once a frame, the gather (on a worker from `frameStart`, joined by
+  `EntityShadow.beforeMoving` before the moving objects draw) builds bricks for those alone.
+- `CapsuleShadow.receiverTile` / `ShadowAtlas.compareHandle` (pzopt): an entity's sun tile as the atlas holds it while the
+  models draw (last frame's pose) and the atlas's bindless handle, for the self-shadow lookup.
+- `pzopt.GodRays`: the occupancy grid is kept in an occupancy-only frame when god rays are off and entity shadows want it; its
+  uploads happen first in `Gl.frame` whatever the frame does next (a frame without light used to drop them); `Gl.occZ0Now` /
+  `occMaxTop` publish the uploaded grid.

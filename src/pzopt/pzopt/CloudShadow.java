@@ -635,6 +635,39 @@ public final class CloudShadow {
 
    private static long fadeDraws;
 
+   /**
+    * Game thread (pzopt.EntityShadow, once a frame): transmittanceAt's world mapping for the model shaders, false when no
+    * cloud shades. out: 1 / period, parA, parB, detail scale | base uv offset (u, v), detail uv offset (u, v) | 1 - cover,
+    * 1 / (cover edge), erosion, opacity / (1 - e^-3). The offsets are wrapped to one period (float precision).
+    */
+   static boolean entityMapping(float[] out) {
+      if (field == null || strength <= 0F || !enabled()) {
+         return false;
+      }
+      double period = N * SQUARES_PER_TEXEL * Config.CLOUD_SCALE_PCT / 100.0;
+      out[0] = (float)(1.0 / period);
+      out[1] = (float)parA;
+      out[2] = (float)parB;
+      out[3] = DETAIL_SCALE;
+      double u = (parX + driftX) / period, v = (parY + driftY) / period;
+      double ud = (parX + detailX) * DETAIL_SCALE / period, vd = (parY + detailY) * DETAIL_SCALE / period;
+      out[4] = (float)(u - Math.floor(u));
+      out[5] = (float)(v - Math.floor(v));
+      out[6] = (float)(ud - Math.floor(ud));
+      out[7] = (float)(vd - Math.floor(vd));
+      float c = cover;
+      out[8] = 1F - c;
+      out[9] = 1F / Math.max(0.02F, c * EDGE);
+      out[10] = EROSION;
+      out[11] = Config.CLOUD_OPACITY_PCT / 100F / 0.95021293F;
+      return true;
+   }
+
+   /** Render thread (pzopt.EntityShadow, bindless): the cloud field by its resident handle, 0 before it exists. */
+   static long fieldHandle() {
+      return dummy() ? dummyHandle : 0L;
+   }
+
    private static boolean dummy() {
       if (dummyHandle == 0L && fieldTex != 0) {
          dummyHandle = org.lwjgl.opengl.ARBBindlessTexture.glGetTextureHandleARB(fieldTex);

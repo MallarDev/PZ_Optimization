@@ -146,7 +146,7 @@ PzoptSettingsLayout = {
         "resumeShot", "centerFirstLoad", "aotCache", "texCompress", "uiRetained", "mapStreetCache", "luaSkipEmpty", "corePlacement",
         "gpuPstate", "audioLimiter", "modProfile", "updateCheck",
         "upscaler", "upscalerQuality", "dynRes", "dynResFps", "spriteFilter", "hdrAuto", "hdr", "pixelLight", "torchSource",
-        "sunShadows", "sunShadowStrengthPct", "moonShadows", "cloudShadows", "ambientOcclusion", "godRays", "godRaysStrengthPct",
+        "sunShadows", "sunShadowStrengthPct", "entityShadows", "moonShadows", "cloudShadows", "ambientOcclusion", "godRays", "godRaysStrengthPct",
         "reflections", "reflectionPuddles", "mirrors", "mirrorsWindows", "carGlass", "carOccupant", "bloodWet", "darknessFloorPct",
         "memoryTint", "colorGrading", "foliageSway", "foliageSwayPct", "relief", "occludedZombieOutlines",
         "overlaySampling", "overlay", "overlayStats", "overlayGraph", "overlayCorner", "overlayFont", "overlayFpsColor", "consoleLog" },

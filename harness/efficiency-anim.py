@@ -66,7 +66,9 @@ VIDEOS = {  # name: (t0 s, strip label, stitch-efficiency.py kind, secondary lin
     'flip-storm-120fps-vs-stock': (6, 'Handheld Efficiency', 'flipstorm', 'jpf'),   # energy per frame under the fps
     'mac-opengl-2.1-vs-4.1-day': (4, 'MacOS Upgrade', 'macday', ('OpenGL 2.1', 'OpenGL 4.1')),
     'mac-opengl-2.1-vs-4.1-pond': (5, 'MacOS OpenGL 4.1', 'macpond', ('OpenGL 2.1', 'OpenGL 4.1')),
-    'dell-low-end-vs-stock': (2.0, 'Low End HW Mode', 'dell', None),   # 2.0-9.9 s: longest enhanced-capture freeze 107 ms, no black chunks
+    'dell-low-end-vs-stock': (2.0, 'Low End HW Mode', 'dell', None),
+    # Rosewood south drive at golden hour, partly cloudy, every visual enhancement but remembered places (runs wsc4-*, 2026-10-07): 16.7-24.6 s, the town stretch after the enhanced capture's 817 ms freeze at 15.8 s; stock's own 559 ms hitch at 23.8 s left in, b re-aligned after it
+    'desktop-rosewood-golden-hour-visuals-vs-stock': (16.7, 'Entities Shadows', 'clouds', ('STOCK', 'ENHANCED'), 'visual'),
 }
 TRIPLES = {  # three-pane comparisons (2026-10-06, the Workshop mods section): stock | another mod | ours, one view of the same
              # route from three desktop recordings (run.sh --record --prop overlay=false); numbers from uncaptured runs.

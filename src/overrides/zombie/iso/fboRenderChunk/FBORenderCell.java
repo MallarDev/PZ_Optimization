@@ -219,6 +219,7 @@ public final class FBORenderCell {
          }
       }
       int playerIndex = IsoCamera.frameState.playerIndex;
+      pzopt.EntityShadow.frameStart(playerIndex); // pzopt: entity shadows, the frame's light and probe bricks (its compute first in the frame: the pipeline has drained at the swap)
       if (pzopt.CharDraw.enabled()) {
          pzopt.CharDraw.walk(IsoWorld.instance.getCell().getObjectList(), this); // pzopt: charDrawPrep, the object walk on a worker from here
       }
@@ -1928,7 +1929,7 @@ public final class FBORenderCell {
       this.renderOpaqueObjectsEvent(playerIndex);
       SpriteRenderer.instance.beginProfile(movingObjectsProbe);
       if (!pzopt.ResumeShot.noMoving) { // pzopt: resumeShot's exit capture (below "full"): no vehicles or characters
-      pzopt.CarGlass.beforeMoving(playerIndex); /* pzopt: car glass, this frame's sky and the cars' snapshots before they draw */ long pzoptMoving = pzopt.GtAb.begin(); pzopt.GpuSections.begin(pzopt.CarGlass.section("moving")); /* pzopt: GPU section */ this.renderMovingObjects(); pzopt.GpuSections.end(pzopt.CarGlass.section("moving")); pzopt.GtAb.end(pzopt.GtAb.S_MOVING, pzoptMoving); // pzopt: devGtAlternate section timer
+      pzopt.CarGlass.beforeMoving(playerIndex); /* pzopt: car glass, this frame's sky and the cars' snapshots before they draw */ pzopt.EntityShadow.beforeMoving(playerIndex); /* pzopt: entity shadows, the worker's gather joined */ long pzoptMoving = pzopt.GtAb.begin(); pzopt.GpuSections.begin(pzopt.EntityShadow.section(pzopt.CarGlass.section("moving"))); /* pzopt: GPU section */ pzopt.EntityShadow.devStats(true); this.renderMovingObjects(); pzopt.EntityShadow.devStats(false); pzopt.GpuSections.end(pzopt.EntityShadow.section(pzopt.CarGlass.section("moving"))); pzopt.GtAb.end(pzopt.GtAb.S_MOVING, pzoptMoving); // pzopt: devGtAlternate section timer
       }
       pzopt.CapsuleShadow.afterMoving(playerIndex); // pzopt: sunShadowSilhouette, the casters' shadows from their drawn shapes (after they are drawn)
       pzopt.Mirrors.afterMoving(); // pzopt: mirrors, the characters / vehicles through the reflectors' planes into the model layer
@@ -2991,7 +2992,7 @@ public final class FBORenderCell {
                   this.pzoptBakeTrees(c, playerIndex, zoom);
                   pzopt.GpuSections.end("bake.trees"); // pzopt: GPU sub-section
                }
-               if (pzopt.Config.GOD_RAYS && renderLevels.isDirty(level, FBORenderChunk.DIRTY_OBJECT_ADD | FBORenderChunk.DIRTY_OBJECT_REMOVE | FBORenderChunk.DIRTY_OBJECT_MODIFY, zoom)) pzopt.GodRays.chunkChanged(c); // pzopt: god rays, a door / window / wall changed: the chunk's occupancy again
+               if ((pzopt.Config.GOD_RAYS || pzopt.EntityShadow.wantsOccupancy()) && renderLevels.isDirty(level, FBORenderChunk.DIRTY_OBJECT_ADD | FBORenderChunk.DIRTY_OBJECT_REMOVE | FBORenderChunk.DIRTY_OBJECT_MODIFY, zoom)) pzopt.GodRays.chunkChanged(c); // pzopt: god rays, a door / window / wall changed: the chunk's occupancy again
                if (pzopt.ChunkAo.enabled() && FBORenderChunkManager.instance.renderChunk != null && FBORenderChunkManager.instance.renderChunk.isTopLevel(level)) { // pzopt: ambient occlusion baked into the texture
                   pzopt.ChunkAo.bakeEnd(FBORenderChunkManager.instance.renderChunk, c, playerIndex, zoom, pzopt.ChunkAo.geometryDirty(renderLevels, level, zoom)); // pzopt
                } // pzopt

@@ -123,6 +123,7 @@ public final class Scene {
       windAngle = Float.parseFloat(HarnessFlags.get("wind_angle", "0.7").trim());
       cloud = Float.parseFloat(HarnessFlags.get("cloud", "-1").trim());
       fogTintDark = "dark".equalsIgnoreCase(HarnessFlags.get("fog_tint", "").trim());
+      hideUi = Boolean.parseBoolean(HarnessFlags.get("hide_ui", "false").trim());
       torch = HarnessFlags.get("torch", "").trim().toLowerCase(java.util.Locale.ROOT);
       torchToggleNs = (long)(Float.parseFloat(HarnessFlags.get("torch_toggle", "0").trim()) * 1e9);
       carLightsToggleNs = (long)(Float.parseFloat(HarnessFlags.get("headlights_toggle", "0").trim()) * 1e9);
@@ -490,7 +491,24 @@ public final class Scene {
    }
 
    /** Per-frame upkeep while the run is live: keep the overrides pinned and fire the scheduled lightning. */
+   // hide_ui=true (2026-10-07, the Workshop cards): the game's own hide-all-UI state held every tick (clock bar, car dashboard)
+   private static boolean hideUi;
+
    static void tick(IsoPlayer p, long nowNs) {
+      if (hideUi) {
+         // what the hide-UI key does (ISUIHandler.setVisibleAllUI): every visible element hidden (the clock, the car's
+         // dashboard: Lua UI the Java switch alone leaves on), then the switch; every tick (entering a car shows the dashboard)
+         java.util.ArrayList<zombie.ui.UIElementInterface> ui = zombie.ui.UIManager.getUI();
+         for (int i = 0; i < ui.size(); i++) {
+            zombie.ui.UIElementInterface e = ui.get(i);
+            if (e instanceof zombie.ui.UIElement el && Boolean.TRUE.equals(el.isVisible())) {
+               el.setVisible(false);
+            } else if (e instanceof zombie.ui.AtomUI a && Boolean.TRUE.equals(a.isVisible())) {
+               a.setVisible(false);
+            }
+         }
+         zombie.ui.UIManager.setVisibleAllUI(false);
+      }
       if (headlights && p.getVehicle() != null && p.getVehicle().hasHeadlights() && !p.getVehicle().getHeadlightsOn()) {
          p.getVehicle().setHeadlightsOn(true);
          Log.info("harness: headlights on (" + p.getVehicle().getScriptName() + "), battery " + p.getVehicle().getBatteryCharge()

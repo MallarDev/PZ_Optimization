@@ -1175,6 +1175,31 @@ public final class Config {
    public static final boolean DEV_SHADOW_GL_GET = bool("devShadowGlGet", false); // dev: the caster pass reads the bound framebuffer back every frame (a glGet) instead of the TextureFBO.lastID cache, and logs where they differ
    public static final int DEV_SIL_COST = integer("devSilCost", 0); // dev: the caster pass (sunShadowSilhouette) with every fragment discarded at once (1) or no fragments at all (2): its fixed cost; 8 = the torch / headlight quads tinted (blue outside the lamp's light, red by its share)
    public static final int DEV_SHADOW_ATLAS_DUMP = integer("devShadowAtlasDump", 0); // dev: the Nth frame of the characters' sun shadow atlas into Zomboid/pzopt-shadow-atlas.pgm
+   public static volatile boolean ENTITY_SHADOWS; // sunShadows: the player, zombies, animals and cars drawn as models take the static world's sun shadow per pixel (a zombie half behind a wall is half in the shade; pzopt.EntityShadow, the model shaders patched at launch); off: one value for a character's whole body (the CPU march at its chest) and none for cars (live)
+   public static volatile int ENTITY_SHADOW_FORM_PCT; // entityShadows: how much a body's facing changes the sun's share of its light (the side to the sun brighter, the far side darker, the mean kept), % (live)
+   public static volatile boolean ENTITY_SHADOW_CASTERS; // entityShadows=probe: moving casters shade the entities too (a car's shadow on a zombie, a zombie's on the player): their capsules against each brick they reach, every frame (live)
+   public static volatile boolean ENTITY_SHADOW_PER_VERTEX; // entityShadowMethod=probe: the probe tap and the facing once a vertex instead of a pixel (the shade interpolated across a triangle) (live)
+   public static volatile boolean ENTITY_SHADOW_SELF; // entityShadows, with sunShadowMeshes: a character's or vehicle's own body shades itself (an arm on the chest, a hat brim on the face, the cabin on the hood) and the limbs' shadows are exact: its tile of the sun depth atlas looked up per pixel (last frame's pose) (live)
+   public static volatile int ENTITY_SHADOW_SELF_MAX_ZOOM_PCT; // entityShadowSelf: only at this zoom or closer, % (the game's zoom 0.25 .. 2.5; further out a body is too small to show its own shadows) (live)
+   public static final boolean ENTITY_SHADOW_ASYNC = bool("entityShadowAsync", true); // entityShadows: the frame's entity gather (bricks, casters) on a worker while the game thread renders the world, joined before the moving objects draw
+   public static volatile boolean ENTITY_SHADOW_TORCHES; // entityShadows: characters lit by a torch or a car's headlights take the shadow of the people, animals and cars between them and the light (capsules in the model shaders; any hour, indoors too) (live)
+   public static volatile int ENTITY_SHADOW_AO_PCT; // entityShadows: the bodies and cars next to a character take this much of the ambient light they hide from it (capsule ambient occlusion; 0 off) (live)
+   public static volatile boolean ENTITY_SHADOW_CLOUDS; // entityShadows, with cloudShadows: the clouds' shadows at every vertex of a person and every pixel of a car (a car can straddle a cloud's soft edge) instead of one value an entity (bindless) (live)
+   public static volatile int ENTITY_SHADOW_DETAIL; // entityShadows: the moving casters' and the self-shadows only on this many entities nearest the camera (the rest keep the static shade and the facing) (live)
+   public static volatile boolean ENTITY_SHADOW_IMPOSTORS; // entityShadows: zombies drawn as atlas sprites (far ones, hordes) take the static world's sun shadow too, one value for the body (the CPU march at the chest) (live)
+   public static volatile boolean ENTITY_SHADOW_HYBRID; // entityShadowMethod=probe: people and animals look their brick up once a vertex, vehicles once a pixel (a car's large triangles would smear a shadow's edge across the body) (live)
+   public static volatile boolean ENTITY_SHADOW_UNIFORM; // entityShadowMethod=probe: an entity whose brick is all in the sun or all in the shade (the compute's block stats, read back a frame or two later without a sync) draws with its one value: no lookups in its vertices or pixels (live)
+   public static final boolean ENTITY_SHADOW_BINDLESS = bool("entityShadowBindless", true); // entityShadows=probe: the model programs read the probe atlases and the brick table through bindless handles (ARB_bindless_texture), no texture binds a draw; off or unsupported: bound to units 42-44 at every draw
+   public static volatile String ENTITY_SHADOW_METHOD; // entityShadows: probe = a brick of sun visibility probes per entity (traced on the GPU when it moved), one trilinear tap a pixel; pixel = every fragment walks the occupancy grid towards the sun (+384 us GPU in a 40-zombie crowd); cpu = the one value per body; off = as before (A/B) (live)
+   public static final int ENTITY_SHADOW_ROOF_PCT = integer("entityShadowRoofPct", 100); // entityShadows: how much of its level a roof square fills for the sun ray (the god rays take 50: a pitched roof's lower half; the church lot's eaves let the morning sun through to characters the ground shows in the roof's shadow)
+   public static final String DEV_ENTITY_SHADOW_CYCLE = string("devEntityShadowCycle", ""); // dev: with devEntityShadowAlternate, one entityShadowMethod per period (e.g. cpu,pixel); GPU section "moving" tagged .es<method>
+   public static final int DEV_ENTITY_SHADOW_ALTERNATE = integer("devEntityShadowAlternate", 0); // dev: ms per devEntityShadowCycle entry
+   public static volatile int DEV_ENTITY_SHADOW_VIEW; // dev: 1 = the models show their shade factor (green sun, red shade), 2 = their world position's square grid, 3 = the raw visibility, 4 = the chunk top above the pixel, 14 = an occluded draw's ambient occlusion (grey), 13 = a torch-lit draw's visibility of its torch (grey, tinted red by the torch's strength there), 12 = the clouds at the pixel's x, y at the entity's floor (red) against the entity's one value (green)
+   public static final boolean DEV_ENTITY_SHADOW_CHECK = bool("devEntityShadowCheck", false); // dev: the first 40 per-pixel binds log the model origin mapped back to the world against the object's position
+   public static final int DEV_ENTITY_SHADOW_PROBE_X = integer("devEntityShadowProbeX", 8179), DEV_ENTITY_SHADOW_PROBE_Y = integer("devEntityShadowProbeY", 11499), DEV_ENTITY_SHADOW_PROBE_Z = integer("devEntityShadowProbeZ", 1); // dev: devEntityShadowView=6 reads this square's occupancy
+   public static final boolean DEV_ENTITY_SHADOW_DEPTH_COPY = bool("devEntityShadowDepthCopy", false); // dev: the world depth copied before the moving objects every frame (GPU section esDepthCopy): the floor cost of screen-space contact shadows on entities
+   public static final boolean DEV_ENTITY_SHADOW_STATS = bool("devEntityShadowStats", false); // dev: the moving objects' vertex / fragment shader invocations every 300 frames (pipeline statistics query)
+   public static final int DEV_ENTITY_SHADOW_VIEW_CYCLE = integer("devEntityShadowViewCycle", 0); // dev: ms; devEntityShadowView steps 0, 1, 2 every period (logged with epoch ms)
    public static final int DEV_SUN_ALTERNATE = integer("devSunAlternate", 0); // dev: ms; the capsule shadow pass switches on and off every period (harness/contact/alt.py splits the frames' GPU time by it)
    public static final float DEV_SUN_HOUR_SPEED = Float.parseFloat(string("devSunHourSpeed", "0")); // dev: with devSunHour, the sun moves on at this many hours per real second (a sweep to watch the recompute waves)
    public static final int DEV_DETAIL_TOGGLE_PERIOD = integer("devDetailTogglePeriod", 0); // dev: ms; the detailed shadows (sunShadowMeshes, sunShadowTreeCards, the stock blob's fade, softness 25) and the 09-26 release's (capsules, crown ovals, the blob, softness 100) take turns every period, logged with the epoch (the Workshop card's clip)
@@ -1703,6 +1728,21 @@ public final class Config {
       SUN_SHADOW_WALL_CUT = bool("sunShadowWallCut", true);
       SUN_SHARE_WALL_HEIGHT = bool("sunShareWallHeight", true);
       SUN_SHADOW_ANIMALS = bool("sunShadowAnimals", true);
+      ENTITY_SHADOWS = bool("entityShadows", true);
+      ENTITY_SHADOW_FORM_PCT = Math.max(0, Math.min(100, integer("entityShadowFormPct", 50)));
+      ENTITY_SHADOW_CASTERS = bool("entityShadowCasters", true);
+      ENTITY_SHADOW_PER_VERTEX = bool("entityShadowPerVertex", false);
+      ENTITY_SHADOW_UNIFORM = bool("entityShadowUniform", true);
+      ENTITY_SHADOW_HYBRID = bool("entityShadowHybrid", true);
+      ENTITY_SHADOW_IMPOSTORS = bool("entityShadowImpostors", true);
+      ENTITY_SHADOW_SELF = bool("entityShadowSelf", true);
+      ENTITY_SHADOW_DETAIL = integer("entityShadowDetail", 16);
+      ENTITY_SHADOW_CLOUDS = bool("entityShadowClouds", true);
+      ENTITY_SHADOW_TORCHES = bool("entityShadowTorches", true);
+      ENTITY_SHADOW_AO_PCT = integer("entityShadowAoPct", 60);
+      ENTITY_SHADOW_SELF_MAX_ZOOM_PCT = integer("entityShadowSelfMaxZoomPct", 125);
+      ENTITY_SHADOW_METHOD = string("entityShadowMethod", "probe").trim().toLowerCase(java.util.Locale.ROOT);
+      DEV_ENTITY_SHADOW_VIEW = integer("devEntityShadowView", 0);
       SUN_SHADOW_STOCK_FADE_PCT = Math.max(0, Math.min(100, integer("sunShadowStockFadePct", 85)));
       SUN_SHADOW_RATE = string("sunShadowRate", "frame").trim().toLowerCase(java.util.Locale.ROOT);
       int rateHz = 0;
