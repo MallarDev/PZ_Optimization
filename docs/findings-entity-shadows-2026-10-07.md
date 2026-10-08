@@ -120,8 +120,9 @@ texture unit 0. The game's `ShaderProgram.compile` calls `glValidateProgram` rig
 sampler2Ds on unit 0 too. A driver that counts bindless samplers in the rule "samplers of two types may not share a unit"
 fails the validation, and the game deletes the program: nothing drawn with it shows. NVIDIA does not check the rule and
 Mesa leaves bindless samplers out of it, so neither the desktop nor the flip showed it. This is the same rule as the god
-rays' black world on the flip (2026-09-27). Not reproduced here (no AMD Windows machine): the cause is inferred. The
-fix covers both this cause and the sampler-order one below.
+rays' black world on the flip (2026-09-27). Not reproduced here (no AMD Windows machine), so the cause was inferred. The
+fix covers both this cause and the sampler-order one below. The affected AMD players confirmed the hotfix (65759d1) fixed it,
+the same day.
 
 - The bindless shaders now build every sampler from its handle's two halves in plain `int` uniforms
   (`sampler3D(uvec2(uint(pzEsVolLo), uint(pzEsVolHi)))`): no sampler uniform of ours is left in a game program on the
