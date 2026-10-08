@@ -430,6 +430,7 @@ PzoptOptionDates = {
     entityShadowBindless = "2026-10-08",
     entityShadowCasters = "2026-10-08",
     entityShadowClouds = "2026-10-08",
+    entityShadowComputeEarly = "2026-10-08",
     entityShadowDetail = "2026-10-08",
     entityShadowFormPct = "2026-10-08",
     entityShadowHybrid = "2026-10-08",
