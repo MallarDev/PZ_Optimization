@@ -110,6 +110,30 @@ needed because the game draws the same programs on other paths inside the moving
 - GodRays' roof rule (lower half of a roof square) lets a low sun through pitched eaves; entities take the whole level.
 - Dev tint views lie (game lights + clamp): write `gl_FragColor` raw (`devEntityShadowView` 9-11).
 
+## Invisible models on AMD / Windows (2026-10-08 hotfix)
+
+Players on AMD Windows drivers (RX 9070 XT and others) reported invisible characters, zombies, cars, dropped items and
+guns with eceb5cf2. Going back to dbee0c2f fixed it. The patch went into every model program whenever GL 4.3 was present,
+sun shadows on or off. Its bindless samplers were `layout(bindless_sampler)` sampler uniforms (`pzEsVol` / `pzEsDyn`
+sampler3D, `pzEsAtlas` / `pzEsCloud` sampler2D). Such a uniform holds 0 until its handle is set, which counts as
+texture unit 0. The game's `ShaderProgram.compile` calls `glValidateProgram` right after the link, with the game's own
+sampler2Ds on unit 0 too. A driver that counts bindless samplers in the rule "samplers of two types may not share a unit"
+fails the validation, and the game deletes the program: nothing drawn with it shows. NVIDIA does not check the rule and
+Mesa leaves bindless samplers out of it, so neither the desktop nor the flip showed it. This is the same rule as the god
+rays' black world on the flip (2026-09-27). Not reproduced here (no AMD Windows machine): the cause is inferred. The
+fix covers both this cause and the sampler-order one below.
+
+- The bindless shaders now build every sampler from its handle's two halves in plain `int` uniforms
+  (`sampler3D(uvec2(uint(pzEsVolLo), uint(pzEsVolHi)))`): no sampler uniform of ours is left in a game program on the
+  bindless path. Not `uvec2`: the game's `ShaderBufferData` builds an entry for every active uniform and has none for
+  unsigned types; the first try with `uvec2` made the game fail at start (the same trap as `sampler2DShadow`). That also removes
+  the other suspect, the game's post-link renumbering of sampler2Ds in the driver's order: ours are no longer
+  sampler2D uniforms.
+- The model shaders stay stock when sun shadows are off at launch ("entity shadows: sun shadows off at launch, the model
+  shaders stay stock"). Turned on during a game, the shade per pixel comes at the next launch.
+- `EntityShadowShaderTest` now fails on any `bindless_sampler` uniform, on any non-sampler2D sampler without
+  `layout(binding)`, and on any uniform type `ShaderBufferData` does not know, in the patched sources. Those are the AMD rule, checked as text because our drivers pass it.
+
 ## Rigs
 
 `devEntityShadowView` 1-14, `devEntityShadowCycle` / `Alternate` (variants off, cpu, pixel, probe, probev, flat, nocast,

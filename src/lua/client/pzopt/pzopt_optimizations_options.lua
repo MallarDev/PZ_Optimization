@@ -900,7 +900,7 @@ local ENHANCEMENT_SECTIONS = {
             { key = "sunShadowAnimals", label = "Sun shadows: animals",
               tip = "Farm and wild animals cast sun shadows too." },
             { key = "entityShadows", label = "Shadows on characters and vehicles",
-              tip = "The player, zombies, animals and cars take the shadows of buildings, walls, roofs and trees where they stand, part by part: a zombie half behind a wall has its legs in the shade and its head in the sun, a car under a porch roof is dark under the roof only. Off: one shade for a whole character, none for cars." },
+              tip = "The player, zombies, animals and cars take the shadows of buildings, walls, roofs and trees where they stand, part by part: a zombie half behind a wall has its legs in the shade and its head in the sun, a car under a porch roof is dark under the roof only. With Sun shadows turned on during a game, part by part from the next launch (one shade for a whole character until then). Off: one shade for a whole character, none for cars." },
             { key = "entityShadowFormPct", label = "Shadows on characters: sunlit side (%)",
               choices = { "0", "25", "50", "75", "100" }, note = { ["50"] = "default" },
               tip = "How much the side of a body facing the sun is brighter and the far side darker. The overall brightness stays the same. 0: flat, as the game draws them." },

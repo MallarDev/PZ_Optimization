@@ -45,6 +45,23 @@ public class EntityShadowShaderTest {
          for (String bad : new String[] {"sampler2DShadow", "samplerCubeShadow", "sampler2DArrayShadow", "sampler1DShadow"}) {
             Check.check(!v.contains(bad) && !f.contains(bad), pr[1] + ": no " + bad + " (ShaderBufferData has no entry for it)");
          }
+         // the game validates the program right after the link, its sampler2Ds on unit 0: a sampler of another type without its
+         // own unit, or a bindless sampler uniform (0 = unit 0 until its handle is set), fails AMD / Windows' validation and the
+         // game deletes the program (every character, car and item invisible, eceb5cf2); NVIDIA and Mesa pass it, so check the text
+         for (String src : new String[] {v, f}) {
+            Check.check(!src.contains("bindless_sampler"), pr[0] + " / " + pr[1] + ": no layout(bindless_sampler) uniform (handles as uvec2)");
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(layout\\s*\\(([^)]*)\\)\\s*)?uniform\\s+([iu]?sampler\\w+)\\s+(\\w+)").matcher(src);
+            while (m.find()) {
+               boolean ok = m.group(3).equals("sampler2D") || m.group(2) != null && m.group(2).contains("binding");
+               Check.check(ok, pr[0] + " / " + pr[1] + ": " + m.group(3) + " " + m.group(4) + " has no unit of its own (layout(binding))");
+            }
+            // the game's ShaderBufferData (every program on GL 4.3) builds an entry per active uniform and knows only these
+            // types: any other (uint, uvec2, ivec2, mat2...) is a null entry and the game fails at start (uvec2 handles, 2026-10-08)
+            java.util.regex.Matcher u = java.util.regex.Pattern.compile("(?m)^\\s*(?:layout\\s*\\([^)]*\\)\\s*)?uniform\\s+(\\w+)\\s").matcher(src);
+            while (u.find()) {
+               Check.check(u.group(1).matches("bool|int|float|vec[234]|mat[34]|[iu]?sampler\\w+"), pr[0] + " / " + pr[1] + ": uniform type " + u.group(1) + " is unknown to the game's ShaderBufferData");
+            }
+         }
          Check.check(f.contains("pzEsAmbient(AmbientColour)") && (f.startsWith("#version 330 compatibility") || f.startsWith("#version 420 compatibility") || f.startsWith("#version 430 compatibility")), pr[1] + ": the fragment unit was patched");
          if (pr[1].startsWith("basicEffect") || pr[1].startsWith("animalEffect")) {
             Check.check(f.contains("lighting *= pzEsTorchShade();"), pr[1] + ": the torch shadows on the clamped lighting");

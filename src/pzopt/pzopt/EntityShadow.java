@@ -47,6 +47,7 @@ public final class EntityShadow {
    /** Tests: patch the bindless variant. */
    static boolean testBindless, testGl43;
    private static volatile boolean patched; // a model program carries the patch (set when the first one is patched)
+   private static final java.util.concurrent.atomic.AtomicBoolean STOCK_LOGGED = new java.util.concurrent.atomic.AtomicBoolean(); // the "stay stock" line once
    private static long binds, perPixelBinds, constBinds, probeBinds, uniformBinds, dedupSkips, memoHits;
    private static int checks, devGets;
    private static boolean dumped;
@@ -907,6 +908,15 @@ public final class EntityShadow {
       if (!target(base)) {
          return code;
       }
+      if (!noCompileCheck && !Config.SUN_SHADOWS) {
+         // sun shadows off at launch: the model programs stay stock (a patch into every player's model shaders for a feature
+         // that is off made every character, car and item invisible on AMD / Windows, 2026-10-08); turned on later, the
+         // shade per pixel comes at the next launch and the one value a body applies until then
+         if (STOCK_LOGGED.compareAndSet(false, true)) {
+            Log.info("entity shadows: sun shadows off at launch, the model shaders stay stock");
+         }
+         return code;
+      }
       try {
          if (base.endsWith(".vert")) {
             return patchVert(base, code);
@@ -1108,8 +1118,10 @@ public final class EntityShadow {
     */
    static final String SELF_GLSL = String.join("\n",
       "#ifdef PZES_BINDLESS",
-      // (a plain sampler2D: the game's ShaderBufferData has no entry for sampler2DShadow and fails the program's setup)
-      "layout(bindless_sampler) uniform sampler2D pzEsAtlas;",
+      // (a plain sampler2D: the game's ShaderBufferData has no entry for sampler2DShadow and fails the program's setup; built
+      // from the handle's two halves, no sampler uniform: see PROBE_SAMPLERS)
+      "uniform int pzEsAtlasLo, pzEsAtlasHi;",
+      "#define pzEsAtlas sampler2D(uvec2(uint(pzEsAtlasLo), uint(pzEsAtlasHi)))",
       "uniform mat3 pzEsR;",
       "float pzEsSelf() {",
       "   if (pzEsT0.z < 0.5) return 1.0;",
@@ -1152,7 +1164,8 @@ public final class EntityShadow {
    static final String CLOUD_GLSL = String.join("\n",
       "uniform vec4 pzEsCm0, pzEsCm1, pzEsCm2;", // 1 / period, parA, parB, detail scale | uv offsets base, detail | 1 - cover, 1 / edge, erosion, opacity (<= 0: off)
       "#ifdef PZES_BINDLESS",
-      "layout(bindless_sampler) uniform sampler2D pzEsCloud;",
+      "uniform int pzEsCloudLo, pzEsCloudHi;", // (the field's handle, no sampler uniform: see PROBE_SAMPLERS)
+      "#define pzEsCloud sampler2D(uvec2(uint(pzEsCloudLo), uint(pzEsCloudHi)))",
       "float pzEsCloudAt(vec3 w, float fallback) {", // w: world squares, z levels
       "   if (pzEsCm2.w <= 0.0) return fallback;",
       "   vec2 p = w.xy + pzEsCm0.yz * w.z;",
@@ -1230,11 +1243,22 @@ public final class EntityShadow {
       "float pzEsTorchShade() { return 1.0 - pzEsTc[0].w * (1.0 - pzEsTorchVis()); }");
    private static final Pattern TORCH_LIGHT = Pattern.compile("lighting\\.z\\s*=\\s*min\\(\\s*lighting\\.z\\s*,\\s*1\\.0\\s*\\)\\s*;");
 
-   /** The probe textures, bindless (handles set once a program) or on their units; the vertex and fragment stages share them. */
+   /**
+    * The probe textures, bindless (handles set once a program) or on their units; the vertex and fragment stages share them.
+    * Bindless, every sampler is built from its handle's two halves in plain int uniforms (int: the game's ShaderBufferData
+    * builds an entry for every active uniform and knows no uint / uvec2, a null entry fails the game's start), never a
+    * layout(bindless_sampler) sampler uniform:
+    * such a uniform holds 0 until its handle is set, i.e. "unit 0", and the game's ShaderProgram validates the program right
+    * after the link, with its own sampler2Ds on unit 0 too. AMD's Windows driver counts bindless samplers in the rule that
+    * samplers of two types may not share a unit and fails the validation (NVIDIA does not check it, Mesa leaves bindless
+    * samplers out); the game then deletes the program, and every character, car and item drawn with it is invisible
+    * (eceb5cf2, 2026-10-08).
+    */
    static final String PROBE_SAMPLERS = String.join("\n",
       "#ifdef PZES_BINDLESS",
-      "layout(bindless_sampler) uniform sampler3D pzEsVol;", // the probe atlas and the moving casters' atlas by handle: no binds a draw
-      "layout(bindless_sampler) uniform sampler3D pzEsDyn;",
+      "uniform int pzEsVolLo, pzEsVolHi, pzEsDynLo, pzEsDynHi;", // the probe atlas and the moving casters' atlas by handle: no binds a draw
+      "#define pzEsVol sampler3D(uvec2(uint(pzEsVolLo), uint(pzEsVolHi)))",
+      "#define pzEsDyn sampler3D(uvec2(uint(pzEsDynLo), uint(pzEsDynHi)))",
       "#else",
       "layout(binding = " + VOL_UNIT + ") uniform sampler3D pzEsVol;",
       "layout(binding = " + DYN_UNIT + ") uniform sampler3D pzEsDyn;",
@@ -2566,8 +2590,8 @@ public final class EntityShadow {
          if (bindless) {
             if (!p.handles && Probes.volHandle != 0L) {
                p.handles = true;
-               org.lwjgl.opengl.ARBBindlessTexture.glProgramUniformHandleui64ARB(id, GL20.glGetUniformLocation(id, "pzEsVol"), Probes.volHandle);
-               org.lwjgl.opengl.ARBBindlessTexture.glProgramUniformHandleui64ARB(id, GL20.glGetUniformLocation(id, "pzEsDyn"), Probes.dynHandle);
+               handle(id, "pzEsVol", Probes.volHandle);
+               handle(id, "pzEsDyn", Probes.dynHandle);
             }
          } else {
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + VOL_UNIT);
@@ -2846,17 +2870,28 @@ public final class EntityShadow {
       return Config.ENTITY_SHADOWS && Config.ENTITY_SHADOW_IMPOSTORS && !"off".equals(variant()) ? SunShadow.characterFactor(chr) : 1F;
    }
 
+   /** Render thread: a texture handle into the program's two int uniforms {@code name}Lo / Hi (the shaders build their samplers from them, PROBE_SAMPLERS). */
+   private static void handle(int id, String name, long h) {
+      int lo = GL20.glGetUniformLocation(id, name + "Lo"), hi = GL20.glGetUniformLocation(id, name + "Hi");
+      if (lo >= 0) {
+         org.lwjgl.opengl.GL41.glProgramUniform1i(id, lo, (int)h);
+      }
+      if (hi >= 0) {
+         org.lwjgl.opengl.GL41.glProgramUniform1i(id, hi, (int)(h >>> 32));
+      }
+   }
+
    /** Render thread: the program's cloud field handle (once); false before the field exists or without bindless. */
    private static boolean cloudReady(Prog p, int id) {
       if (p.cloud) {
          return true;
       }
       long h = bindless ? CloudShadow.fieldHandle() : 0L;
-      int loc = h != 0L ? GL20.glGetUniformLocation(id, "pzEsCloud") : -1;
+      int loc = h != 0L ? GL20.glGetUniformLocation(id, "pzEsCloudLo") : -1;
       if (loc < 0) {
          return false;
       }
-      org.lwjgl.opengl.ARBBindlessTexture.glProgramUniformHandleui64ARB(id, loc, h);
+      handle(id, "pzEsCloud", h);
       p.cloud = true;
       return true;
    }
@@ -2868,12 +2903,12 @@ public final class EntityShadow {
          if (h == 0L) {
             return false;
          }
-         int loc = GL20.glGetUniformLocation(id, "pzEsAtlas");
+         int loc = GL20.glGetUniformLocation(id, "pzEsAtlasLo");
          p.r = GL20.glGetUniformLocation(id, "pzEsR");
          if (loc < 0 || p.r < 0) {
             return false;
          }
-         org.lwjgl.opengl.ARBBindlessTexture.glProgramUniformHandleui64ARB(id, loc, h);
+         handle(id, "pzEsAtlas", h);
          p.atlas = true;
       }
       if (p.rSerial != serial) {
