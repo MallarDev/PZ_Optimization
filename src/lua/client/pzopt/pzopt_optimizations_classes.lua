@@ -358,6 +358,7 @@ PzoptOptionClasses = {
     enabled = { "pzopt.Overrides" },
     entityShadowAsync = { "pzopt.EntityShadow" },
     entityShadowBindless = { "pzopt.EntityShadow" },
+    entityShadowComputeEarly = { "pzopt.EntityShadow" },
     entityShadowRoofPct = { "pzopt.EntityShadow" },
     entityUpdateLuaReplay = { "pzopt.UpdateBatch" },
     entityUpdateParallel = { "pzopt.UpdateBatch" },

@@ -195,13 +195,36 @@ public final class EntityShadow {
       @Override
       public void render() {
          rt = this;
-         if (this.on && this.method == 2) {
+         if (this.on && this.method == 2 && Config.ENTITY_SHADOW_COMPUTE_EARLY) {
             Probes.compute(this);
             Probes.computeDynamic(this);
             Probes.readBack(this);
          }
       }
    }
+
+   /**
+    * The probe compute of a frame, queued right before its moving objects draw (beforeMoving). At the top of the cell
+    * render (entityShadowComputeEarly) it ran just before IsoCell.drawStencilMask, and on the frames it dispatched the
+    * cutaway mask was lost: a see-through tree over the player was drawn whole for that frame (2026-10-08, the
+    * maintainer's flip save; runs xxl-bis-*). Here it still runs before every model draw that reads its atlas.
+    */
+   static final class ComputeDrawer extends TextureDraw.GenericDrawer {
+      FrameState f;
+
+      @Override
+      public void render() {
+         FrameState s = this.f;
+         if (s != null && s.on && s.method == 2) {
+            Probes.compute(s);
+            Probes.computeDynamic(s);
+            Probes.readBack(s);
+         }
+      }
+   }
+
+   private static final ComputeDrawer[] COMPUTES = {new ComputeDrawer(), new ComputeDrawer(), new ComputeDrawer(), new ComputeDrawer()};
+   private static FrameState queued; // game thread: the frame state frameStart queued last (its compute goes out at beforeMoving)
 
    private static final FrameState[] FRAMES = {new FrameState(), new FrameState(), new FrameState(), new FrameState()};
    private static int frameIndex;
@@ -303,6 +326,7 @@ public final class EntityShadow {
          GpuSections.end("esDepthCopy");
       }
       if (pending == null) {
+         queueCompute();
          return;
       }
       long t0 = System.nanoTime();
@@ -318,9 +342,25 @@ public final class EntityShadow {
       }
       pending = null;
       joinNs += System.nanoTime() - t0;
+      queueCompute();
+   }
+
+   /** Game thread, in beforeMoving: the frame's probe compute, after the cutaway mask and before the models (see ComputeDrawer). */
+   private static void queueCompute() {
+      FrameState f = queued;
+      queued = null;
+      if (f == null || Config.ENTITY_SHADOW_COMPUTE_EARLY || !f.on || f.method != 2) {
+         return;
+      }
+      ComputeDrawer c = COMPUTES[(frameIndex - 1) & 3];
+      c.f = f;
+      GpuSections.begin("esProbes"); // (the probe compute, when a brick changed)
+      SpriteRenderer.instance.drawGeneric(c);
+      GpuSections.end("esProbes");
    }
 
    private static void frameStartInner(int playerIndex) {
+      queued = null;
       if (!Config.ENTITY_SHADOWS || !patched || failed) {
          if (rt.on) {
             FrameState f = FRAMES[frameIndex++ & 3];
@@ -398,7 +438,7 @@ public final class EntityShadow {
          }
       }
       f.dev = Config.DEV_ENTITY_SHADOW_VIEW;
-      boolean timed = f.on && f.method == 2; // (whether a compute runs is known on the render thread)
+      boolean timed = f.on && f.method == 2 && Config.ENTITY_SHADOW_COMPUTE_EARLY; // (whether a compute runs is known on the render thread; late, queueCompute times it)
       if (Config.DEV_ENTITY_SHADOW_VIEW_CYCLE > 0) {
          long now = System.currentTimeMillis();
          if (viewT0 == 0L) {
@@ -410,6 +450,7 @@ public final class EntityShadow {
       if (timed) {
          GpuSections.begin("esProbes"); // (the probe compute, when a brick changed)
       }
+      queued = f; // its probe compute goes out at beforeMoving (ComputeDrawer)
       SpriteRenderer.instance.drawGeneric(f);
       if (timed) {
          GpuSections.end("esProbes");
