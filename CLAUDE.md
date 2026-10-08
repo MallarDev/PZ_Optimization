@@ -627,6 +627,13 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   leaves `Uninstall-PZ-Optimization.cmd` / `uninstall-pz-optimization.bash` and `pzopt/uninstall/install.{ps1,bash}` in the game
   folder; release assets `uninstall.ps1` / `uninstall.sh`; installers find our files without a manifest and refuse another mod's class
   unless `-Force`. Tests: `BootRepairTest`, `tests/install/install-sh-test.sh`, `harness/uninstall-e2e.sh` E-H. Windows test pending.
+- Reflective props (2026-10-08, `docs/findings-prop-reflections-2026-10-08.md`, `mirrorsProps`, on with mirrors): 434 prop
+  sprites that are not windows or mirror tiles (glass doors, store fronts, counters, cases, fridges, the glass table, screens,
+  gym mirrors, steel, ceramic) reflect through pzopt.Mirrors; `harness/props/masks.py` fits each texel's face (top / south /
+  east) and plane from the game's depth maps into `src/media/ui/pzopt/props/`. Flip: +107..129 us GPU in prop-dense scenes,
+  tails unchanged. Lessons for every pass: on Mesa a client-memory `glTexSubImage2D` waits for the driver thread (use a PBO);
+  sampling the depth buffer as a texture makes AMD decompress it (use `gl_FragDepth` / the hardware test); Mesa refuses a
+  declaration before an `#extension` line (MirrorsShaderTest links with Mesa llvmpipe too).
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

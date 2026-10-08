@@ -689,6 +689,16 @@ public final class Harness {
                      turnAngle = spot[3];
                   }
                }
+               if ("props".equals(HarnessFlags.get("find", ""))) {
+                  float[] spot = findProps(p); // dev: prop reflections, the route starts beside the densest cluster of reflective props
+                  if (spot != null) {
+                     x = spot[0];
+                     y = spot[1];
+                     routeZ = (int)spot[2];
+                     faceSet = true;
+                     turnAngle = spot[3];
+                  }
+               }
                if (!HarnessFlags.get("pin_zombies", "").isBlank()) {
                   pinZombiesAt(p, HarnessFlags.get("pin_zombies", "")); // dev: idle zombies held on given squares (bus shelter glass)
                }
@@ -1944,6 +1954,74 @@ public final class Harness {
     * F squares further along the wall. Every candidate is logged. find=window: the same in front of an intact window
     * (find_side=out, the default: standing outdoors; in: in its room).
     */
+   /**
+    * find=props (2026-10-08, prop reflections): the clusters of reflective props (pzopt.Props: glass counters and doors,
+    * fridges, screens, steel kitchens, toilets) within 80 tiles, densest first (props within 3 squares on the same level;
+    * clusters at least 10 squares apart); the route starts on a free square 2-4 squares south-east of the find_rank-th
+    * (default 1), facing north-west, so the props' south / east faces and tops are seen.
+    */
+   private static float[] findProps(IsoPlayer p) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = p.getXi(), py = p.getYi();
+      java.util.ArrayList<int[]> sq = new java.util.ArrayList<>(); // x, y, z, class bits
+      for (int z = 0; z <= 2; z++) {
+         for (int y = py - 80; y <= py + 80; y++) {
+            for (int x = px - 80; x <= px + 80; x++) {
+               zombie.iso.IsoGridSquare g = cell.getGridSquare(x, y, z);
+               if (g == null) continue;
+               int bits = 0;
+               for (int i = 0; i < g.getObjects().size(); i++) {
+                  float[] info = Props.info(g.getObjects().get(i).getSprite());
+                  if (info != null) bits |= 1 << (int)info[0];
+               }
+               if (bits != 0) sq.add(new int[]{x, y, z, bits});
+            }
+         }
+      }
+      // density: props within 3 squares on the same level
+      int n = sq.size();
+      int[] dens = new int[n];
+      for (int i = 0; i < n; i++) {
+         for (int j = 0; j < n; j++) {
+            int[] a = sq.get(i), b = sq.get(j);
+            if (a[2] == b[2] && Math.abs(a[0] - b[0]) <= 3 && Math.abs(a[1] - b[1]) <= 3) dens[i]++;
+         }
+      }
+      Integer[] order = new Integer[n];
+      for (int i = 0; i < n; i++) order[i] = i;
+      java.util.Arrays.sort(order, (a, b) -> dens[b] - dens[a]);
+      int rank = Integer.parseInt(HarnessFlags.get("find_rank", "1").trim());
+      java.util.ArrayList<int[]> picks = new java.util.ArrayList<>();
+      for (int k = 0; k < n && picks.size() < Math.max(rank, 8); k++) {
+         int[] a = sq.get(order[k]);
+         boolean far = true;
+         for (int[] q : picks) far &= Math.abs(q[0] - a[0]) + Math.abs(q[1] - a[1]) >= 10 || q[2] != a[2];
+         if (!far) continue;
+         int bits = 0;
+         for (int[] b : sq) if (b[2] == a[2] && Math.abs(a[0] - b[0]) <= 3 && Math.abs(a[1] - b[1]) <= 3) bits |= b[3];
+         picks.add(new int[]{a[0], a[1], a[2], dens[order[k]], bits});
+         Log.info("harness: find=props: cluster " + picks.size() + " at " + a[0] + "," + a[1] + "," + a[2] + ": " + dens[order[k]] + " prop squares, classes"
+               + ((bits & 2) != 0 ? " glass" : "") + ((bits & 4) != 0 ? " screen" : "") + ((bits & 8) != 0 ? " mirror" : "") + ((bits & 16) != 0 ? " steel" : "") + ((bits & 32) != 0 ? " ceramic" : ""));
+      }
+      if (picks.size() < rank) {
+         Log.info("harness: find=props: " + picks.size() + " clusters within 80 tiles of " + px + "," + py + " (" + n + " prop squares)");
+         return null;
+      }
+      int[] c = picks.get(rank - 1);
+      for (int r = 2; r <= 5; r++) {
+         for (int dx = r; dx >= -1; dx--) {
+            int dy = r;
+            zombie.iso.IsoGridSquare stand = cell.getGridSquare(c[0] + dx, c[1] + dy, c[2]);
+            if (stand != null && stand.isFree(false)) {
+               Log.info(String.format(java.util.Locale.ROOT, "harness: find=props: standing at %d,%d,%d facing north-west", c[0] + dx, c[1] + dy, c[2]));
+               return new float[]{c[0] + dx + 0.5F, c[1] + dy + 0.5F, c[2], 225F};
+            }
+         }
+      }
+      Log.info("harness: find=props: no free square south-east of cluster " + rank);
+      return null;
+   }
+
    private static float[] findMirror(IsoPlayer p, boolean windows) {
       boolean outSide = !"in".equals(HarnessFlags.get("find_side", "out"));
       zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;

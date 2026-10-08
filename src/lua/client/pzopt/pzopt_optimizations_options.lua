@@ -1013,6 +1013,11 @@ local ENHANCEMENT_SECTIONS = {
             { key = "mirrorsWindowPct", label = "Mirrors: window reflection strength (%)",
               choices = { "15", "30", "50", "70" }, note = { ["30"] = "default" },
               tip = "How much of a window pane is its reflection. Real glass reflects a few percent head-on, more where the room behind it is dark; higher reads more like a shop window by day. Applies on the next launch." },
+            { key = "mirrorsProps", label = "Mirrors: glass, screens and steel reflect too",
+              tip = "On: the things in a room that are not mirrors or windows reflect as well: glass doors, shop fronts and railings, shower screens, display counters and cases, glass-door fridges, the glass table, switched-off televisions and monitors, the gym's wall mirrors, steel counters, sinks and appliances, toilets. Each surface reflects the way it faces: a glass top shows what stands behind it, a door or a pane what stands in front, faintly as glass does; steel, ceramic and dark screens keep their own look and show the people and cars passing in front as a soft sheen. Their shape comes from the game's own depth maps, so nothing is guessed per object. Reflections fade where you cannot see (out of your sight the prop is dark, so is its reflection). Costs about a tenth of a millisecond on a handheld with a room full of them, a few hundredths on a fast GPU; worked out once per prop and kept while nothing changes. Applies on the next launch (with Mirror and window reflections on)." },
+            { key = "mirrorsPropGlassPct", label = "Mirrors: glass prop reflection strength (%)",
+              choices = { "15", "25", "40", "60" }, note = { ["25"] = "default" },
+              tip = "How much of a glass door, counter or case is its reflection. Real glass reflects a few percent head-on and more at a grazing angle (a glass top more than an upright pane: the game's camera sees tops at 60 degrees). Applies on the next launch." },
             { key = "mirrorsGeometry", label = "Mirrors: the room behind the glass",
               tip = "On: a wall mirror's room is rebuilt behind the glass from the game's own tiles, so the mirror shows what the camera can never see: the far side of the bathtub or the bed in front of it (the furniture's other facing, as the game draws it when you turn it), the floor behind it, and the wall across the room. Off: the reflection is made of what the camera sees, and where that is hidden (behind a table, a bathtub) the floor seen last stands in. Built once when a mirror comes on screen and kept; costs nothing while it stands. Applies on the next launch." },
             { key = "mirrorsCutawayHoldMs", label = "Mirrors: steady walls by a room corner (ms)",
@@ -1186,6 +1191,7 @@ local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true, carOccupant = true, carOc
     carGlass = true,
     -- mirrors: mirror tiles leave the chunk pictures at start-up; the settings are read once
     mirrors = true, mirrorsWindows = true, mirrorsWindowPct = true, mirrorsModels = true, mirrorsGeometry = true, mirrorsViewLateralPct = true, mirrorsViewDropPct = true,
+    mirrorsProps = true, mirrorsPropGlassPct = true,
     -- relief: compiled into the chunk composite programs when the game loads them
     relief = true, reliefDepthPct = true, reliefSunPct = true, reliefTorchShadowSteps = true }
 for _, section in ipairs(ENHANCEMENT_SECTIONS) do
@@ -1708,6 +1714,8 @@ local EFFECTS = {
     mirrors = { gpu = 1, vram = 1, render = 1 },
     mirrorsWindows = { gpu = 1 },
     mirrorsWindowPct = {},
+    mirrorsProps = { gpu = 1, render = 1 },
+    mirrorsPropGlassPct = {},
     mirrorsViewLateralPct = {},
     mirrorsViewDropPct = {},
     mirrorsModels = { gpu = 1, render = 1 },

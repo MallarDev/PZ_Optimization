@@ -6428,3 +6428,13 @@ last pass (`BLUR_FRAG`) now gives empty texels the share of the nearest ring of 
 Left open: on the flip with `spriteFilter=sharp` single seam pixels (every other pixel along a chunk border) take a few
 percent less cloud (gone with `spriteFilter=off`); keeping the DEPTH texture's own nearest filter in the composite did not
 change them.
+
+### Reflective props (2026-10-08, `mirrorsProps`, docs/findings-prop-reflections-2026-10-08.md): FBORenderCell
+
+- `FBORenderCell.pzoptPerFrameTranslucentTile` already draws `Mirrors.perFrame` sprites per frame; that test now also takes
+  the reflective props (`Props.perFrame`: 434 sprites with glass, a screen, steel or ceramic), so they leave the chunk
+  textures while mirrors are on and their quads are captured as they draw.
+- `FBORenderCell.renderTranslucent` (the capture wrapper): an opaque reflective prop (a screen, steel, ceramic, opaque glass:
+  `Props.writesDepth`) is drawn with depth writes on, as its baked self wrote depth in the chunk texture; the translucent
+  pass writes none, and the reflection of a glass table behind a television was composited over the television
+  (`mirrorsPropDepth=false`: off).
