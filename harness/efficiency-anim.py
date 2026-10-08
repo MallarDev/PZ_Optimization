@@ -69,6 +69,11 @@ VIDEOS = {  # name: (t0 s, strip label, stitch-efficiency.py kind, secondary lin
     'dell-low-end-vs-stock': (2.0, 'Low End HW Mode', 'dell', None),
     # Rosewood south drive at golden hour, partly cloudy, every visual enhancement but remembered places (runs wsc4-*, 2026-10-07): 16.7-24.6 s, the town stretch after the enhanced capture's 817 ms freeze at 15.8 s; stock's own 559 ms hitch at 23.8 s left in, b re-aligned after it
     'desktop-rosewood-golden-hour-visuals-vs-stock': (16.7, 'Entities Shadows', 'clouds', ('STOCK', 'ENHANCED'), 'visual'),
+    # the same drive uncapped, 2026-10-08 (runs wsf-*): stock vs every optimization at its default, and stock vs everything
+    # (+ the experimental optimizations + every Visuals card but remembered places); second line = the route's p99. Windows:
+    # the captures' clean stretches (opt-cap 195 ms gap at route 15.6 s, max-cap 358 ms at 16.6 s; video 0 = route +13.8 s)
+    'desktop-rosewood-all-optimizations-vs-stock': (2.2, 'Optimizations', 'wsf-opt', ('p99 26.5 ms', 'p99 7.9 ms')),
+    'desktop-rosewood-everything-vs-stock': (3.2, 'Enhancements', 'wsf-max', ('p99 26.5 ms', 'p99 14.2 ms')),
 }
 TRIPLES = {  # three-pane comparisons (2026-10-06, the Workshop mods section): stock | another mod | ours, one view of the same
              # route from three desktop recordings (run.sh --record --prop overlay=false); numbers from uncaptured runs.

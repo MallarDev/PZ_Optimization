@@ -132,8 +132,28 @@ CFG['clouds'] = dict(CFG['dell'], out='workshop-media/desktop-rosewood-golden-ho
                      card_title='GOLDEN HOUR THROUGH ROSEWOOD', card_fixed=True,
                      card_note='Options > PZ Optimization > Visuals: every card on except remembered places and HDR (SDR capture). '
                                'Runs wsc4-stock / wsc4-enh, 2026-10-07.')
+# 2026-10-08, the Workshop Features cards: the same golden-hour drive, stock vs every optimization at its default (uncapped,
+# G1 as our install sets it) and stock vs everything (+ the experimental optimizations + every Visuals card but remembered
+# places); stock at the 244 cap it never reaches. Runs wsf-* (harness/queue.sh jobs 9814-9821)
+CFG['wsf-opt'] = dict(CFG['clouds'], out='workshop-media/desktop-rosewood-all-optimizations-vs-stock.mp4', a='wsf-stock', b='wsf-opt',
+                      a_cap='wsf-stock-capram', b_cap='wsf-opt-cap', align_span=None, align_after=[], sync='distance',
+                      title='RTX 4090  ·  120 KM/H THROUGH ROSEWOOD AT GOLDEN HOUR (19:00), UNCAPPED',
+                      lb='PZ OPTIMIZATION  ·  EVERY OPTIMIZATION AT ITS DEFAULT',
+                      sub_b='the defaults of Options > PZ Optimization > Performance; no Visuals card on',
+                      footer='Desktop (Ryzen 7 9800X3D, RTX 4090, 5120x2160)  ·  the same save, car, path, hour and clouds on both sides; '
+                             'the stock car waits for chunks, so its pane shows where it passed the same spot  ·  '
+                             'the game\'s own frames, UI hidden; numbers from uncaptured runs',
+                      card_title='THE SAME DRIVE, MORE FRAMES',
+                      card_note='Options > PZ Optimization: the defaults (Recommended). Runs wsf-stock / wsf-opt, 2026-10-08.')
+CFG['wsf-max'] = dict(CFG['wsf-opt'], out='workshop-media/desktop-rosewood-everything-vs-stock.mp4', b='wsf-max', b_cap='wsf-max-cap',
+                      lb='PZ OPTIMIZATION  ·  EVERYTHING ON',
+                      sub_b='every optimization incl. the experimental ones + every Visuals card but remembered places',
+                      card_title='EVERY ENHANCEMENT, STILL FASTER THAN STOCK',
+                      card_note='Experimental: entity updates on other cores (+ overlap), zombie turning checks on workers, light read '
+                                'ahead, tile recording on workers, dynamic zombie detail. Visuals: everything but remembered places, '
+                                'HDR and upscaling. Runs wsf-stock / wsf-max, 2026-10-08.')
 CFG = CFG[KIND]
-OUT = sys.argv[2] if len(sys.argv) > 2 else CFG['out']
+OUT =sys.argv[2] if len(sys.argv) > 2 else CFG['out']
 
 
 def run_dir(label):
@@ -270,7 +290,31 @@ if NUMBERS_ONLY:
     print(json.dumps(out))
     sys.exit(0)
 ca, cb = capture(ca_dir), capture(cb_dir)
-shift = align(ca, cb)
+
+
+def path_clock(d):
+    """(route seconds, path squares driven) of a drive run (pzopt-drive.out), the squares made non-decreasing."""
+    rows = [r.split('\t') for r in open(os.path.join(d, 'pzopt-drive.out')).read().split('\n')[1:] if r.strip()]
+    a = np.array([[float(r[0]), float(r[3])] for r in rows if len(r) > 8])
+    return a[:, 0], np.maximum.accumulate(a[:, 1])
+
+
+def same_place(src, dst):
+    """route second of run dst -> the route second at which run src's car stood at the same point of the path."""
+    (ts, ss), (td, sd) = path_clock(src), path_clock(dst)
+    keep = np.concatenate(([True], np.diff(ss) > 1e-3))   # first instant at each distance (a waiting car shows its arrival)
+    return lambda t: float(np.interp(np.interp(t, td, sd), ss[keep], ts[keep]))
+
+
+# sync='distance' (2026-10-08): the stock car waits for chunks at 120 km/h (stock's streaming falls behind), so the two
+# drives part in time; the stock pane then shows the frame where its car stood where the enhanced car stands, on the
+# enhanced clock (frame sizes may differ: no picture matching)
+DIST = CFG.get('sync') == 'distance'
+if DIST:
+    a_at, a_num_at = same_place(ca_dir, cb_dir), same_place(run_dir(CFG['a']), run_dir(CFG['b']))
+    shift = 0.0
+else:
+    shift = align(ca, cb)
 # align_after: [(route s, (span lo, hi)), ...]: from that second on the stock side (a) is re-timed to match b over that span
 # (a hitch on one side put the two cars out of step for good; b keeps its clock so the enhanced side never jumps)
 shifts = [(t, align(ca, cb, sp)) for t, sp in CFG.get('align_after', [])]
@@ -287,6 +331,11 @@ def shift_at(t):
 
 t0 = max(0.0, ca[1][0] + 0.1, cb[1][0] - shift + 0.1)
 t1 = min(ca[1][-1], cb[1][-1] - shift, na.end, nb.end) - 0.1
+if DIST:   # the b seconds whose place a's capture covers
+    tb = np.arange(max(0.0, cb[1][0] + 0.1), min(cb[1][-1], nb.end) - 0.1, 0.01)
+    ok = tb[(np.array([a_at(t) for t in tb]) > ca[1][0] + 0.05) & (np.array([a_at(t) for t in tb]) < ca[1][-1] - 0.05)]
+    t0, t1 = float(ok[0]), float(ok[-1])
+    print(f'  distance sync: b route +{t0:.2f} .. +{t1:.2f} s = a capture route +{a_at(t0):.2f} .. +{a_at(t1):.2f} s')
 PH = int(round(ca[3] * PW / ca[2]))
 STRIP = HEAD + PH
 print(f'{KIND}: {ca_dir} + {cb_dir}, route +{t0:.2f} .. +{t1:.2f} s, b shifted {shift:+.3f} s, panes {PW}x{PH}')
@@ -349,9 +398,9 @@ for i in range(n):
     t = t0 + i / FPS
     fr = base_np.copy()
     # after a re-alignment the stock side skips (its own hitch put it out of step); the enhanced side never jumps
-    fr[HEAD:HEAD + PH, 0:PW] = pane(ca, t + shift - shift_at(t))
+    fr[HEAD:HEAD + PH, 0:PW] = pane(ca, a_at(t) if DIST else t + shift - shift_at(t))
     fr[HEAD:HEAD + PH, PW + 4:PW + 4 + PW] = pane(cb, t + shift)
-    key = (na.live(t), nb.live(t))
+    key = (na.live(a_num_at(t) if DIST else t), nb.live(t))
     key = ((key[0][0], None if key[0][1] is None else round(key[0][1], 1)),
            (key[1][0], None if key[1][1] is None else round(key[1][1], 1)))
     if key not in cache:
