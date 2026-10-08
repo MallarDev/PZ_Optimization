@@ -31,11 +31,8 @@ Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/
 Steam: right-click the game, Manage > Browse local files. Go up to [b]steamapps[/b], then workshop\content\108600\3805285544\mods\PZ_Optimization\42\pzopt-classes. Copy everything in it into the game folder (where projectzomboid.jar is), skipping files that already exist.
 
 [h1]New! Glass, screens and steel reflect[/h1]
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/80-reflective-props.gif[/img]
-
-[h1]New! Entities shadows[/h1]
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/74-new-entity-shadows.avif[/img]
-[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/75-new-entity-shadows-changes.png[/img]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/81-new-glass-reflections.avif[/img]
+[img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/82-new-glass-reflections-changes.png[/img]
 
 [h1]Features[/h1]
 [img]https://raw.githubusercontent.com/xD3I/PZ_Optimization/master/docs/workshop/images/65-feature-fast-boot-load-split.avif[/img]

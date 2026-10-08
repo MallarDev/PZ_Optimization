@@ -306,3 +306,10 @@ steamcmd `item.vdf` route is gone (2026-09-24).
   not under `42/media/`); they reach the game with the class files, as on the GitHub path.
 - A game update makes the runtime guard turn the classes off until a build for the new
   revision is uploaded; the page says so under "Updates".
+`81` + `82` the "New! Glass, screens and steel reflect" card redone in the AVIF template (2026-10-09, the maintainer: "the new
+visual style, same as the entities shadows avif", which it replaces on the page with its still `75`; `80` left the page):
+`harness/props-reflect-card.py` = the 630 square, strip "Glass Reflections", stock left of the divider, one sweep per segment:
+a Rosewood back yard with two sliding glass doors and a glass table placed on the patio, the player walking on foot along the
+doors to the table and back (desktop runs `gpc2-stock-cap` / `gpc2-enh-cap`, enhanced = every Visuals card but remembered
+places, HDR and upscaling off; in-game 30 fps 1:1 devCapture crops round the player), the patio halved, then 1:1 at the table
+and the doors; `harness/props-reflect-changes.py` = the still under it (what reflects, stock vs now, the cost per frame).
