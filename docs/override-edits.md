@@ -6416,3 +6416,15 @@ The player, zombies, animals and cars take the static world's sun shadow part by
 - `pzopt.GodRays`: the occupancy grid is kept in an occupancy-only frame when god rays are off and entity shadows want it; its
   uploads happen first in `Gl.frame` whatever the frame does next (a frame without light used to drop them); `Gl.occZ0Now` /
   `occMaxTop` publish the uploaded grid.
+
+### Cloud shadow grid lines (2026-10-08, maintainer report on the flip, Riverside Spiffo's lot): pzopt.ChunkAo
+
+Light dashed lines along every chunk border where a cloud shadow lay on the ground. The composite reads the direct-sun
+share from level 1 of the kept term (`cloudTermMips`, `cloudTermLod` 1), built by `glGenerateMipmap`. Empty texels past the
+first ring round the drawn ones held share 0, so the level's border texels averaged it in and the cloud darkened a dashed line
+along each chunk's diamond border less (share view `devCloudView=2`: the lines; gone with `cloudTermMips=false`). The kernel's
+last pass (`BLUR_FRAG`) now gives empty texels the share of the nearest ring of drawn texels out to `FILL_R` = 2^(lod+1) - 1
+(3 at lod 1; 7 for the stock 1.20 composite's bias read); their R (AO x sun) stays 1 as before, the first ring is unchanged.
+Left open: on the flip with `spriteFilter=sharp` single seam pixels (every other pixel along a chunk border) take a few
+percent less cloud (gone with `spriteFilter=off`); keeping the DEPTH texture's own nearest filter in the composite did not
+change them.

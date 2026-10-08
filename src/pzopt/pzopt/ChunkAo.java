@@ -3059,6 +3059,20 @@ public final class ChunkAo {
          GL20.glUseProgram(0);
       }
 
+      /**
+       * How far past a drawn edge an empty texel gets the share (render thread, at link): the composite's bilinear cloud
+       * read of the kept term's level L touches texels up to 2^(L+1) - 1 from a drawn one; the stock 1.20 composite without
+       * bindless reads with a bias (up to level 2). 1 (the drawn neighbours alone) without the mip read.
+       */
+      private static int shareFillRadius() {
+         if (!Config.CLOUD_SHADOWS || !Config.CLOUD_TERM_MIPS) {
+            return 1;
+         }
+         boolean explicit = Config.CLOUD_BINDLESS && org.lwjgl.opengl.GL.getCapabilities().GL_ARB_bindless_texture;
+         int lod = explicit ? Math.max(0, Math.min(2, Config.CLOUD_TERM_LOD)) : 2;
+         return Math.max(1, (2 << lod) - 1);
+      }
+
       private static String variant(String src, String define) {
          return src.replaceFirst("#version 140", "#version 140\n#define " + define);
       }
@@ -3076,7 +3090,7 @@ public final class ChunkAo {
       private boolean init() {
          this.aoProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, devVariant(AO_FRAG));
          this.aoOnlyProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, variant(devVariant(AO_FRAG), "AO_PASS"));
-         this.blurProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, BLUR_FRAG);
+         this.blurProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, variant(BLUR_FRAG, "FILL_R " + shareFillRadius()));
          this.mulProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, MUL_FRAG);
          this.ratioProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, RATIO_FRAG);
          this.copyProgram = AmbientOcclusion.link(AmbientOcclusion.QUAD_VERT, COPY_FRAG);
@@ -3757,6 +3771,15 @@ public final class ChunkAo {
       "uniform float sunOnly;", // dev (devSunView): the sun term alone
       "uniform float sunS;", // the sun term's strength (0: no sun term): the direct-sun share of the baked light
       "out vec4 result;",
+      // a drawn texel's direct-sun share (its own, before the tent)
+      "float share(vec4 a) {",
+      "   float o = a.a >= 0.0 ? 1.0 : 0.0, l = max(a.a, 0.0);",
+      "   return sunS > 0.0 ? sunS * l / max(1.0 - sunS * o + sunS * l, 0.05) : 0.0;",
+      "}",
+      "void ringTap(ivec2 p, inout float n, inout float qs) {",
+      "   vec4 a = texelFetch(Ao, clamp(p, ivec2(0), ivec2(params.zw)), 0);",
+      "   if (a.g < 0.99999) { qs += share(a); n += 1.0; }",
+      "}",
       "void main() {",
       "   ivec2 t = ivec2(gl_FragCoord.xy);",
       "   vec4 c = texelFetch(Ao, t, 0);",
@@ -3769,13 +3792,27 @@ public final class ChunkAo {
       "            vec4 a = texelFetch(Ao, clamp(t + ivec2(x, y), ivec2(0), ivec2(params.zw)), 0);",
       "            if (a.g >= 0.99999) continue;",
       "            float sn = a.b >= 0.0 ? a.b : 1.0;",
-      "            float o = a.a >= 0.0 ? 1.0 : 0.0, l = max(a.a, 0.0);",
       "            rs += sunOnly > 0.5 ? sn : a.r * sn;",
-      "            qs += sunS > 0.0 ? sunS * l / max(1.0 - sunS * o + sunS * l, 0.05) : 0.0;",
+      "            qs += share(a);",
       "            n += 1.0;",
       "         }",
       "      }",
-      "      result = n > 0.0 ? vec4(rs / n, clamp(qs / n, 0.0, 1.0), 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);",
+      "      if (n > 0.0) {",
+      "         result = vec4(rs / n, clamp(qs / n, 0.0, 1.0), 0.0, 1.0);",
+      "         return;",
+      "      }",
+      // farther out: the share alone from the nearest ring of drawn texels, as far as the composite's cloud read of the
+      // kept term's level 1 / 2 reaches (FILL_R: glGenerateMipmap averaged "no share" into the border texels of those
+      // levels, and the cloud skipped a dashed line along every chunk border: the grid under cloud shadows)
+      "      for (int r = 2; r <= FILL_R && n == 0.0; r++) {",
+      "         for (int k = -r; k < r; k++) {",
+      "            ringTap(t + ivec2(k, -r), n, qs);",
+      "            ringTap(t + ivec2(r, k), n, qs);",
+      "            ringTap(t + ivec2(-k, r), n, qs);",
+      "            ringTap(t + ivec2(-r, -k), n, qs);",
+      "         }",
+      "      }",
+      "      result = vec4(1.0, n > 0.0 ? clamp(qs / n, 0.0, 1.0) : 0.0, 0.0, 1.0);",
       "      return;",
       "   }",
       "   float sum = 0.0, wsum = 0.0, ssum = 0.0, swsum = 0.0, osum = 0.0, lsum = 0.0, twsum = 0.0;",
