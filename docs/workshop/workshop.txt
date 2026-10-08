@@ -3,10 +3,13 @@ id=3805285544
 title=PZ_Optimization - FPS Boost & Performance Fix: Less Stutter, Less Lag, Faster Chunk Loading [B42] (manual install)
 description=[h1]Project Zomboid without the stutter[/h1]
 description=[url=https://github.com/xD3I/PZ_Optimization#readme][img]https://da.gd/yNGa[/img][/url]
-description=Driving, hordes, storms: the game's own work spread over frames and CPU cores, so the frame time stays even. 120 km/h drive p99 19 -> 8 ms, thunderstorm 83 -> 188 fps, loading twice as fast. Optional graphics on top: lighting, shadows, reflections, glass. Steam version, Windows / Linux / macOS, Build 42.21.
+description=[img]https://da.gd/GRiLqj[/img]
+description=[img]https://da.gd/uUoYf[/img]
+description=[img]https://da.gd/nTFmH[/img]
+description=[img]https://da.gd/wu4tT[/img]
+description=[i]Desktop (Ryzen 7 9800X3D, RTX 4090, 5120x2160, Linux), 120 km/h through Rosewood at 19:00, uncapped. Optimizations: every optimization at its default. Enhancements: the experimental ones too and every Visuals option but remembered places, HDR and upscaling. The stock car waits for chunks; its side shows where it passed the same spot.[/i] [url=https://pzo.diegov.dev/d/pzopt-compare/compare?var-runs=wsf-stock-20261008-184816&var-runs=wsf-opt-20261008-185423&var-runs=wsf-max-20261008-185549&var-base=wsf-stock-20261008-184816]Runs[/url]
 description=
-description=[url=https://github.com/xD3I/PZ_Optimization][img]https://da.gd/evzPKc[/img][/url] [url=https://discord.gg/W32aAnKpK][img]https://da.gd/1vw0V[/img][/url]
-description=
+description=[h1]Install (once, about two minutes)[/h1]
 description=[quote][b]Read before subscribing[/b]
 description=[list]
 description=[*][b]Subscribing is not enough.[/b] This replaces game classes; it needs the one-time install below.
@@ -14,9 +17,8 @@ description=[*][b]Mods: untested, unsupported.[/b] Other mods may work alongside
 description=[*][b]Multiplayer: untested, unsupported.[/b] It installs on your client only; joining a server may work, may not.
 description=[*]Something wrong? Options > PZ Optimization > "Stock game" preset, restart, then tell us on Discord.
 description=[/list][/quote]
-description=
-description=[h1]Install (once, about two minutes)[/h1]
 description=[img]https://da.gd/0g0Qrs[/img]
+description=[url=https://github.com/xD3I/PZ_Optimization][img]https://da.gd/evzPKc[/img][/url] [url=https://discord.gg/W32aAnKpK][img]https://da.gd/1vw0V[/img][/url]
 description=[olist]
 description=[*]Subscribe, let Steam download it.
 description=[*]Mods (main menu): enable [b]PZ_Optimization[/b]; a window shows your install command.
@@ -64,6 +66,6 @@ description=[code]irm https://github.com/xD3I/PZ_Optimization/releases/latest/do
 description=Linux, macOS: [code]curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.sh | bash[/code]
 description=Unsubscribing and "Verify integrity of game files" leave these files in the game folder; the uninstaller removes them.
 description=
-description=Build 42.21, game revision 4a0e9546ec, commit 5199e474, 1075 files, sha256 9a543818f3a5402e64fb13e4e6a6df3c31a8590ac5e831a3c7a0098f6e72a8db. projectzomboid.jar is never modified.
+description=Build 42.21, game revision 4a0e9546ec, commit f7c4c4a0, 1075 files, sha256 e09d6636c7dfffa93c1e4cd025d42f76f111b0cdf32ef181b4026530a16d43be. projectzomboid.jar is never modified.
 tags=Build 42;
 visibility=public
