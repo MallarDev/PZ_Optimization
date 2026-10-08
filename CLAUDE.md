@@ -608,7 +608,7 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   `harness/mirrors/` (cost.py, crops.py, march_sim.py, masks.py). Since 2026-10-04 (`mirrorsGeometry`, `pzopt.MirrorGeometry`)
   a wall mirror's room is rebuilt behind the glass from the game's tiles (furniture as the sprite of its turned facing, flipped;
   the far wall in the mirror wall's paint; depth-map distances), taken where the march saw nothing or a stand-in: the
-  medicine cabinet's guessed glass 0.36 -> 0.005.
+  medicine cabinet's guessed glass 0.36 -> 0.005. Since 2026-10-08 (`docs/findings-mirror-rooms-2026-10-08.md`) a mirror mirrors only people in its own room, a pane the player never saw shows the stock glass, the room geometry is lit from each square's own light (never-seen squares left out), and a pane in a room is re-marched when its room changed instead of every 30 frames (the stand-ins jumped while walking): `harness/mirrors/room-judge.py`, scene `mirror_corners=pair`.
 - Cut-open upper floor (2026-10-05, flip save `Sandbox/2026-09-26_03-37-09`, `docs/override-edits.md` last entry): near the player
   stock stops drawing a building's orphan structures (upper-floor squares with exterior wall / ceiling / roof but no room), so
   the rooms show open. `pplCutEdge`: furniture flush against such a hidden square's edge (a bathtub) took its dark outdoor light

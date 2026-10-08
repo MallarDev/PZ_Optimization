@@ -103,6 +103,10 @@ public final class Mirrors {
    }
 
    /** The skip bits now: devMirrorsSkip, or the cycle's entry. */
+   static int skipNow() {
+      return skipNow;
+   }
+
    static int skip() {
       int c = cycleIndex();
       if (c >= 0 && !"off".equals(CYCLE[c].trim())) {
@@ -203,7 +207,22 @@ public final class Mirrors {
       float u0, v0, u1, v1, s0, t0, s1, t1, m0x, m0y, m1x, m1y;
       boolean mirror;
       Texture tex;
+      Object room; // the room the pane hangs in (OUTDOORS outside; ANY_ROOM: a window, which looks out of its room)
+      float light; // the pane's own light as drawn (its vertex colours' brightest channel)
+      boolean seen; // the pane's square was ever seen by the player (else the game draws it black: undiscovered)
    }
+
+   static final Object OUTDOORS = new Object(), ANY_ROOM = new Object();
+
+   /** The room a mirror pane / a character stands in, for keeping each mirror's reflections to its own room. */
+   static Object roomOf(IsoGridSquare sq) {
+      if (sq == null) return OUTDOORS;
+      zombie.iso.areas.IsoRoom room = sq.getRoom();
+      return room == null ? OUTDOORS : room;
+   }
+
+   private static Object capRoom;
+   private static boolean capSeen;
 
    private static ArrayList<Refl> cur = new ArrayList<>(), prev = new ArrayList<>();
    private static final ArrayList<Refl> POOL = new ArrayList<>();
@@ -333,6 +352,8 @@ public final class Mirrors {
       capInfo = info;
       capZ = sq.z;
       capAlpha = s.alpha;
+      capRoom = roomOf(sq);
+      capSeen = sq.isSeen(IsoCamera.frameState.playerIndex);
       capturing = wall;
       capturingNow = true;
       capRefl = null;
@@ -368,6 +389,8 @@ public final class Mirrors {
          capInfo = info;
       }
       capZ = sq.z;
+      capRoom = capMirror ? roomOf(sq) : ANY_ROOM;
+      capSeen = sq.isSeen(IsoCamera.frameState.playerIndex);
       capturing = o;
       capturingNow = true;
       capRefl = null;
@@ -406,6 +429,9 @@ public final class Mirrors {
       r.mirror = capMirror;
       r.tex = texd.tex;
       r.alpha = capAlpha >= 0F ? capAlpha : ((texd.col0 >>> 24) & 0xFF) / 255F;
+      r.room = capRoom;
+      r.seen = capSeen;
+      r.light = Math.max(Math.max(channelMax(texd.col0), channelMax(texd.col1)), Math.max(channelMax(texd.col2), channelMax(texd.col3)));
       double a32 = 32.0 * Core.tileScale, a16 = 16.0 * Core.tileScale;
       float offX = IsoCamera.frameState.offX, offY = IsoCamera.frameState.offY;
       r.u0 = (float)((xa + offX) / a32);
@@ -433,6 +459,22 @@ public final class Mirrors {
          r.m0x = r.m0y = 0F;
          r.m1x = r.m1y = -1F; // a window: its glass is the sprite's translucent texels
       }
+   }
+
+   private static float channelMax(int c) {
+      return Math.max(Math.max(c & 0xFF, (c >>> 8) & 0xFF), (c >>> 16) & 0xFF) / 255F;
+   }
+
+   /**
+    * How much of its reflection a pane shows by its own light: a pane in a room the player never saw is drawn black by the
+    * game and shows none (it showed the lit room geometry and the floor as a bright panel in an undiscovered room); one
+    * drawn near black (out of sight, unlit) fades out with it. (dev skip bit 8388608: always all of it, before 2026-10-08)
+    */
+   static float paneLight(Refl r) {
+      if ((skipNow & 8388608) != 0) return 1F;
+      if (!r.seen) return 0F;
+      float t = Math.max(0F, Math.min(1F, (r.light - 0.02F) / 0.10F));
+      return t * t * (3F - 2F * t);
    }
 
    /** A second quad of the same sprite (a wall drawn as left / right halves): the reflector covers both. */
@@ -494,6 +536,7 @@ public final class Mirrors {
       // planes the models are mirrored in: axis, c (relative), lateral lo / hi (absolute), zlo, zhi, iso rect u0 v0 u1 v1 (relative)
       final float[] planes = new float[MAXP * 10];
       final boolean[] planeMirror = new boolean[MAXP]; // a mirror's plane (else windows only): people placed by mirrorsView*
+      final Object[] planeRoom = new Object[MAXP]; // the room the plane's panes hang in (ANY_ROOM: windows), people elsewhere are not mirrored
       int nP;
       int modelsQueued, skip, nClear;
       float ppu, ppv; // this frame's px per iso unit (a tile marched at another zoom is read scaled by the ratio)
@@ -602,6 +645,14 @@ public final class Mirrors {
       f.nClear = 0;
       f.geo.reset();
       boolean geometry = Config.MIRRORS_GEOMETRY && (skipNow & 131072) == 0;
+      // frames the camera has stood still (a soft refresh waits for it: a march resamples the frame at the camera's offset)
+      if (f.view.offX != lastCamX || f.view.offY != lastCamY) {
+         camStill = 0;
+         lastCamX = f.view.offX;
+         lastCamY = f.view.offY;
+      } else {
+         camStill++;
+      }
       for (Refl r : prev) {
          Tile known = TILES.get(r.key);
          // visibility feedback: a pane the composite drew no pixel of (under a roof, behind a building) is neither marched
@@ -631,8 +682,22 @@ public final class Mirrors {
          float vis = ix * iy / area;
          boolean fresh = tl.refreshed < 0L;
          // (dev views 5 and 6 paint the tiles themselves: re-marched every pass frame so a toggled picture is never the dev one)
+         // a mirror in a room is re-marched when what its rays reach changed (MirrorGeometry.signature: the room's objects,
+         // light, seen and cutaway state), not every mirrorsStaticReuse frames: each re-march resampled the frame at the
+         // camera's new sub-pixel offset and the stand-ins jumped while the player walked (the reflection flickered as he
+         // moved). A long age refresh stays as a safety net. Windows and outdoor mirrors keep the age refresh. (dev skip bit
+         // 33554432: the age refresh for every pane, before 2026-10-08)
+         // (each pane's room checked every 16 frames, staggered: a few dozen squares walked per check)
+         boolean check = passFrame && !fresh && (skipNow & 33554432) == 0 && ((frames >> 2) + (tl.x >> 4) + (tl.y >> 4) & 3) == 0;
+         long sig = check ? MirrorGeometry.signature(r) : 0L;
+         long soft = MirrorGeometry.SIG[1];
+         // objects or the seen state at once; the light and the cutaway (they change all the time while the player walks:
+         // the vision cone's fade, the walls cut round him) at most every 120 frames
+         // (soft: once the camera has stood still for 10 frames, or after 480 frames walking)
+         boolean changed = sig != 0L && tl.sig != 0L && (sig != tl.sig || soft != tl.soft && frames - tl.refreshed >= 120 && (camStill >= 10 || frames - tl.refreshed >= 480));
+         int reuse = tl.sig != 0L && (skipNow & 33554432) == 0 ? Config.MIRRORS_STATIC_REUSE * 20 : Config.MIRRORS_STATIC_REUSE; // (a pane with a room: its room check refreshes it)
          boolean due = passFrame && (fresh || vis > tl.vis + 0.05F || Config.MIRRORS_STATIC_REUSE <= 0 || (skipNow & 256) != 0 || Config.DEV_MIRRORS_VIEW == 5 || Config.DEV_MIRRORS_VIEW == 6
-               || frames - tl.refreshed >= Config.MIRRORS_STATIC_REUSE && budget-- > 0);
+               || changed || frames - tl.refreshed >= reuse && budget-- > 0);
          if (!due) {
             continue;
          }
@@ -645,6 +710,14 @@ public final class Mirrors {
          }
          tl.refreshed = frames;
          tl.vis = vis;
+         if (changed) {
+            lightMarches++;
+         }
+         tl.light = r.light;
+         if (sig != 0L || tl.sig == 0L) {
+            tl.sig = sig != 0L ? sig : passFrame && (skipNow & 33554432) == 0 ? MirrorGeometry.signature(r) : 0L;
+            tl.soft = MirrorGeometry.SIG[1];
+         }
          int geo = geometry ? MirrorGeometry.collect(f.geo, r, tl) : 0;
          pack(f, r, f.sData, f.nS, false);
          f.sData[f.nS * TEX * 4 + 28] = geo > 0 ? 1F : 0F;
@@ -691,7 +764,7 @@ public final class Mirrors {
       d[o + 14] = (r.mirror || r.z <= 0F) && (skipNow & 32768) == 0 ? r.z : Math.min(r.z, 0F) - 1F;
       d[o + 15] = r.z;
       d[o + 16] = (r.mirror ? Config.MIRRORS_MIRROR_PCT : Config.MIRRORS_WINDOW_PCT) / 100F;
-      d[o + 17] = r.alpha;
+      d[o + 17] = r.alpha * paneLight(r);
       d[o + 18] = Math.max(1, Config.MIRRORS_REACH);
       d[o + 19] = stat ? 1F : 0F;
       Tile t = r.key == null ? null : TILES.get(r.key);
@@ -712,6 +785,7 @@ public final class Mirrors {
       d[o + 31] = 0F;
    }
 
+
    // ------------------------------------------------------------------------------------------------ the static atlas (game thread)
 
    static final int ATLAS = 2048;
@@ -719,6 +793,8 @@ public final class Mirrors {
       Texture tex;
       int x, y, w, h, gen;
       float ppu, ppv, scale, vis;
+      float light = -1F; // the pane's own light when it was last marched
+      long sig, soft; // MirrorGeometry.signature (objects, seen) and its soft part (light, cutaway) at the last march (0: none, the age refresh)
       long refreshed = -1L;
       volatile int visPx = -1; // the pane's pixels the composite drew (visibility feedback, 1-3 frames late; -1 unknown)
       volatile long visSerial = -1L;
@@ -826,9 +902,13 @@ public final class Mirrors {
       float zlo = Math.min(Math.min(zA, zB), Math.min(zC, zD)), zhi = Math.max(Math.max(zA, zB), Math.max(zC, zD));
       float cRel = c - (r.axis == 0 ? f.view.oy : f.view.ox);
       float ou = f.view.ox - f.view.oy, ov = f.view.ox + f.view.oy;
+      // one plane per room: panes of two rooms on one wall line are two planes (dev skip bit 4194304: merged whatever the
+      // room, before 2026-10-08; the plane keeps its first pane's room so the people mirrored across rooms are still counted)
+      Object room = r.room == null ? ANY_ROOM : r.room;
+      boolean anyRoom = (skipNow & 4194304) != 0;
       for (int i = 0; i < f.nP; i++) {
          int o = i * 10;
-         if ((int)f.planes[o] == r.axis && Math.abs(f.planes[o + 1] - cRel) < 0.05F && zlo < f.planes[o + 5] + 0.5F && zhi > f.planes[o + 4] - 0.5F) {
+         if ((int)f.planes[o] == r.axis && Math.abs(f.planes[o + 1] - cRel) < 0.05F && zlo < f.planes[o + 5] + 0.5F && zhi > f.planes[o + 4] - 0.5F && (anyRoom || f.planeRoom[i] == room)) {
             f.planes[o + 2] = Math.min(f.planes[o + 2], lo);
             f.planes[o + 3] = Math.max(f.planes[o + 3], hi);
             f.planes[o + 4] = Math.min(f.planes[o + 4], zlo);
@@ -845,6 +925,7 @@ public final class Mirrors {
          return;
       }
       f.planeMirror[f.nP] = r.mirror;
+      f.planeRoom[f.nP] = room;
       int o = f.nP++ * 10;
       f.planes[o] = r.axis;
       f.planes[o + 1] = cRel;
@@ -920,6 +1001,7 @@ public final class Mirrors {
          return;
       }
       int mask = 0;
+      Object here = o instanceof IsoGameCharacter c0 ? roomOf(c0.getCurrentSquare()) : OUTDOORS;
       for (int i = 0; i < f.nP; i++) {
          int p = i * 10;
          float cAbs = f.planes[p + 1] + (f.planes[p] == 0F ? f.view.oy : f.view.ox);
@@ -937,6 +1019,19 @@ public final class Mirrors {
          if (zi > f.planes[p + 5] || zi + h < f.planes[p + 4]) {
             continue;
          }
+         if (f.planeRoom[i] != ANY_ROOM && f.planeRoom[i] != here) {
+            // in front of the plane but in another room (a wall between): a mirror shows its own room only. Before
+            // 2026-10-08 a person behind the wall of a mirror's room showed in it (dev skip bit 4194304: the old way)
+            crossRoom++;
+            if (Config.DEV_MIRRORS_LOG && crossRoomLogs < 40) {
+               crossRoomLogs++;
+               Log.info(String.format(java.util.Locale.ROOT, "mirrors: dev %s at %.2f,%.2f,%.1f (%s) is in front of plane %d (axis %d, c %.2f, room %s), %s epoch_ms=%d", o instanceof IsoGameCharacter ? "character" : "vehicle", x, y, z,
+                     roomName(here), i, (int)f.planes[p], cAbs, roomName(f.planeRoom[i]), (skipNow & 4194304) != 0 ? "MIRRORED (old way)" : "not mirrored", System.currentTimeMillis()));
+            }
+            if ((skipNow & 4194304) == 0) {
+               continue;
+            }
+         }
          mask |= 1 << i;
       }
       if (mask != 0) {
@@ -946,6 +1041,16 @@ public final class Mirrors {
          f.modelSig = f.modelSig * 1000003L + System.identityHashCode(o) + Float.floatToIntBits(x) * 31L + Float.floatToIntBits(y) * 17L + Float.floatToIntBits(z) * 7L
                + Float.floatToIntBits(ang) * 3L + mask + (skipNow & (1048576 | 2097152));
       }
+   }
+
+   static long crossRoom, unseenPaneFrames, lightMarches;
+   private static float lastCamX = Float.NaN, lastCamY = Float.NaN;
+   private static int camStill;
+   private static int crossRoomLogs, devPaneLogs;
+   private static final IdentityHashMap<Object, Integer> DEV_PANE = new IdentityHashMap<>();
+
+   static String roomName(Object room) {
+      return room == OUTDOORS ? "outdoors" : room == ANY_ROOM ? "any" : room instanceof zombie.iso.areas.IsoRoom ir ? ir.getName() + "@" + ir.getRoomDef().getX() + "," + ir.getRoomDef().getY() + "," + ir.getRoomDef().getZ() : "?";
    }
 
    /** Game thread, FBORenderCell after the moving objects: the mirrored models into the layer. */
@@ -1015,6 +1120,19 @@ public final class Mirrors {
          Tile t = TILES.get(r.key);
          f.lTile[f.nL] = t;
          pack(f, r, f.lData, f.nL, t != null && t.refreshed >= 0L && t.gen == atlasGen && (skipNow & 1) == 0);
+         if (!r.seen) {
+            unseenPaneFrames++;
+         }
+         if (Config.DEV_MIRRORS_LOG && r.key != null) {
+            // a pane's seen state / light / shown share whenever it changes (tenths)
+            int state = (r.seen ? 1000 : 0) + Math.round(r.light * 10F) * 10 + Math.round(paneLight(r) * 9F);
+            Integer last = DEV_PANE.put(r.key, state);
+            if ((last == null || last != state) && devPaneLogs < 400) {
+               devPaneLogs++;
+               Log.info(String.format(java.util.Locale.ROOT, "mirrors: dev pane %s %s: seen %b, light %.2f, reflection shown %.2f epoch_ms=%d", r.mirror ? "mirror" : "window",
+                     r.key instanceof IsoObject ko && ko.square != null ? ko.square.x + "," + ko.square.y + "," + ko.square.z : "?", r.seen, r.light, paneLight(r), System.currentTimeMillis()));
+            }
+         }
          if (Config.DEV_MIRRORS_LOG) {
             f.lName[f.nL] = r.key instanceof IsoObject ko && ko.square != null ? ko.square.x + "," + ko.square.y + "," + ko.square.z : "?";
          }
@@ -1933,7 +2051,8 @@ public final class Mirrors {
                lateCpuNs / 1e3 / Math.max(1, lateDraws), flushCpuNs / 1e3 / Math.max(1, layerFrames))
             + String.format(java.util.Locale.ROOT, " (composite: upload %.1f, set-up %.1f, draw %.1f, restore %.1f)", lateSplit[0] / 1e3 / Math.max(1, lateDraws),
                lateSplit[1] / 1e3 / Math.max(1, lateDraws), lateSplit[2] / 1e3 / Math.max(1, lateDraws), lateSplit[3] / 1e3 / Math.max(1, lateDraws))
-            + ", " + MirrorGeometry.stats() + (failed ? ", failed" : "");
+            + ", people in front of another room's mirror " + crossRoom + ((skipNow & 4194304) != 0 ? " (mirrored: old way)" : " (not mirrored)") + ", unseen pane-frames " + unseenPaneFrames + ", re-marches for a room change " + lightMarches
+            + ((skipNow & 8388608) != 0 ? " (reflected: old way)" : " (no reflection)") + ", " + MirrorGeometry.stats() + (failed ? ", failed" : "");
    }
 
    // ------------------------------------------------------------------------------------------------ shaders

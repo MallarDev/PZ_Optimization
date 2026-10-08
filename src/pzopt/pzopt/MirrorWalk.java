@@ -42,6 +42,8 @@ final class MirrorWalk {
       boolean[][] usable, visited, blockedAt, faced, turned;
       boolean circled, unreachable;
       float colShift, rowShift; // the station grid moved off furniture in front of the glass (stations())
+      boolean visit; // mirror_corners=pair: not a mirror, the spot in the room south (vx, vy), facing north at the mirrors' room
+      float vx, vy;
    }
 
    private static boolean on, finished;
@@ -197,11 +199,13 @@ final class MirrorWalk {
       // mirror_laps=N (2026-10-08, the four-corner room): the mirrors walked N times, every other pass in the reverse order
       // (back and forth across the room), each pass with fresh stations and checks
       int laps = Integer.parseInt(HarnessFlags.get("mirror_laps", "1").trim());
+      int perPass = mirrors.size();
+      boolean visits = Harness.mirrorVisit != null && !mirrors.isEmpty();
       if (laps > 1 && mirrors.size() > 1) {
          ArrayList<M> pass = new ArrayList<>(mirrors);
          for (int l = 1; l < laps; l++) {
             java.util.Collections.reverse(pass);
-            for (int i = 1; i < pass.size(); i++) {
+            for (int i = visits ? 0 : 1; i < pass.size(); i++) {
                M o = pass.get(i), m = new M();
                m.x = o.x;
                m.y = o.y;
@@ -213,6 +217,17 @@ final class MirrorWalk {
                mirrors.add(m);
             }
          }
+      }
+      if (visits) {
+         // mirror_corners=pair: from the room south (the mirrors' room not seen yet) into the room and back, every pass
+         ArrayList<M> seq = new ArrayList<>();
+         seq.add(visitEntry(cell));
+         for (int i = 0; i < mirrors.size(); i++) {
+            seq.add(mirrors.get(i));
+            if ((i + 1) % perPass == 0) seq.add(visitEntry(cell));
+         }
+         mirrors.clear();
+         mirrors.addAll(seq);
       }
       String lim = HarnessFlags.get("mirror_secs", "").trim();
       limitSecs = lim.isEmpty() ? 10F + 25F * mirrors.size() : Float.parseFloat(lim);
@@ -232,6 +247,20 @@ final class MirrorWalk {
       if (!selfTest) startTravel();
    }
 
+   private static M visitEntry(IsoCell cell) {
+      M v = new M();
+      v.visit = true;
+      v.vx = Harness.mirrorVisit[0];
+      v.vy = Harness.mirrorVisit[1];
+      v.x = (int)Math.floor(v.vx);
+      v.y = (int)Math.floor(v.vy);
+      v.z = (int)Harness.mirrorVisit[2];
+      v.north = true;
+      v.name = "visit";
+      stations(cell, v);
+      return v;
+   }
+
    private static float dist(M m, float x, float y, float z) {
       return (float)Math.hypot(m.x - x, m.y - y) + Math.abs(m.z - z) * 8F;
    }
@@ -241,6 +270,12 @@ final class MirrorWalk {
     * with no such station (a table or a toilet in front of the glass) is moved out from the wall and sideways until one fits.
     */
    private static void stations(IsoCell cell, M m) {
+      if (m.visit) {
+         stationsAt(cell, m);
+         for (boolean[] col : m.usable) java.util.Arrays.fill(col, false);
+         m.usable[cols.length / 2][0] = true; // one spot
+         return;
+      }
       float[][] shifts = {{0F, 0F}, {0F, 0.6F}, {-0.5F, 0F}, {0.5F, 0F}, {-0.5F, 0.6F}, {0.5F, 0.6F}, {0F, 1.2F}, {-1F, 0.6F}, {1F, 0.6F}, {0F, 1.8F}};
       for (float[] sh : shifts) {
          m.colShift = sh[0];
@@ -276,6 +311,7 @@ final class MirrorWalk {
 
    /** Station (c, r) of mirror m: c squares along the wall from the glass centre, rows[r] out from the glass. */
    private static float[] world(M m, int c, int r) {
+      if (m.visit) return new float[] {m.vx, m.vy};
       float a = cols[c] + m.colShift, o = rows[r] + m.rowShift;
       return m.north ? new float[] {m.x + 0.5F + a, m.y + m.off + o} : new float[] {m.x + m.off + o, m.y + 0.5F + a};
    }

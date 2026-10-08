@@ -45,6 +45,7 @@ harness/queue.sh submit run --install opt --name <session> --intent "..." --prog
 | `mirror_only=N`, `mirror_secs=S` | walk only the N-th mirror; cap the walk (default 10 + 25 s a mirror) |
 | `mirror_laps=N` | the mirrors N times, every other pass reversed (back and forth) |
 | `mirror_corners=x,y,z` / `auto[:minW,minH]` | a mirror in each corner of that room (auto: the most free one-rect room within 80 squares whose corner spots can be stood on); NW / NE north wall, SW west wall, SE east wall (seen from the back, listed only); `mirror_corner_sprites=a,b,c,d` |
+| `mirror_corners=pair` | a corner room with another room behind its south wall: the walk starts in that room (the mirrors' room unseen), goes in and comes back between passes; judge with `harness/mirrors/room-judge.py` |
 | `mirror_corners_teleport=false` | the player walks to the room from the start instead of starting in its middle (a long, multi-floor walk) |
 | `place_tile=sprite@x,y,z/...`, `clear_wall=x,y,z/...` | extra tiles (another mirror upstairs) / remove wall decorations first |
 | `nav_selftest=true` | before the walk the keys push the player into the nearest wall: the collision counter's control (not counted) |

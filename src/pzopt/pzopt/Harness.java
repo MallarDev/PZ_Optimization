@@ -2035,7 +2035,7 @@ public final class Harness {
       zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
       zombie.iso.RoomDef room;
       int rz;
-      if (spec.trim().startsWith("auto")) {
+      if (spec.trim().startsWith("auto") || spec.trim().startsWith("pair")) {
          room = cornerRoom(cell);
          if (room == null) {
             Log.info("harness: mirror_corners: auto found no room");
@@ -2085,11 +2085,18 @@ public final class Harness {
                + ", in room " + (zombie.iso.IsoWorld.instance.getMetaGrid().getRoomAt(cx, cy, rz) == room) + ", wall " + (wall == null ? "none" : wall.getSprite() == null ? "?" : wall.getSprite().getName())
                + ", square " + spriteNames(sq));
       }
+      if (mirrorVisit != null) {
+         Log.info(String.format(java.util.Locale.ROOT, "harness: mirror_corners: the walk starts at %.2f,%.2f,%.0f in the room south (%s) and comes back there between passes", mirrorVisit[0], mirrorVisit[1], mirrorVisit[2],
+               zombie.iso.IsoWorld.instance.getMetaGrid().getRoomAt((int)mirrorVisit[0], (int)mirrorVisit[1], (int)mirrorVisit[2]) == null ? "?" : zombie.iso.IsoWorld.instance.getMetaGrid().getRoomAt((int)mirrorVisit[0], (int)mirrorVisit[1], (int)mirrorVisit[2]).getName()));
+         return mirrorVisit.clone();
+      }
       return new float[] {(x0 + x1 + 1) * 0.5F, (y0 + y1 + 1) * 0.5F, rz};
    }
 
    /** The room mirror_corners walks (x,y,z of a square in it), for MirrorWalk; null without the flag. */
    static String mirrorCornersRoom;
+   /** mirror_corners=pair: the spot in the room south of it (x, y, z) the walk starts at and comes back to; else null. */
+   static float[] mirrorVisit;
 
    /**
     * mirror_corners=auto[:minW,minH]: the loaded one-rect room within 80 squares of the player, 4x4 squares or more
@@ -2100,7 +2107,8 @@ public final class Harness {
    private static zombie.iso.RoomDef cornerRoom(zombie.iso.IsoCell cell) {
       IsoPlayer p = IsoPlayer.getInstance();
       String spec = HarnessFlags.get("mirror_corners", "auto");
-      int minW = 4, minH = 4;
+      boolean pair = spec.startsWith("pair");
+      int minW = 4, minH = pair ? 3 : 4;
       if (spec.contains(":")) {
          String[] wh = spec.substring(spec.indexOf(':') + 1).split(",");
          minW = Integer.parseInt(wh[0].trim());
@@ -2127,11 +2135,27 @@ public final class Harness {
                }
             }
             float score = (float)free / area + Math.min(area, 36) / 360F;
+            float[] visit = null;
+            if (pair) {
+               // pair: another room right behind the south wall, a spot in it in front of the NW or NE mirror and within a
+               // mirror's reach (a person there stands in front of the north-wall mirrors, a wall between)
+               for (int xs : new int[] {x0, x1}) {
+                  float vy = y1 + 1.6F;
+                  zombie.iso.IsoGridSquare q = cell.getGridSquare(xs, y1 + 1, z);
+                  zombie.iso.RoomDef qd = q == null || q.getRoom() == null ? null : q.getRoom().getRoomDef();
+                  if (qd == null || qd == r || qd.getBuilding() != r.getBuilding() || vy - (y0 + 0.03F) > 4.6F || !Nav.canStandClear(xs + 0.5F, vy, z)) continue;
+                  visit = new float[] {xs + 0.5F, vy, z};
+                  break;
+               }
+               if (visit == null) continue;
+            }
             seen++;
-            Log.info(String.format(java.util.Locale.ROOT, "harness: mirror_corners: candidate %s %d,%d-%d,%d,%d free %d/%d score %.3f", r.getName(), x0, y0, x1, y1, z, free, area, score));
+            Log.info(String.format(java.util.Locale.ROOT, "harness: mirror_corners: candidate %s %d,%d-%d,%d,%d free %d/%d score %.3f%s", r.getName(), x0, y0, x1, y1, z, free, area, score,
+                  visit == null ? "" : String.format(java.util.Locale.ROOT, ", visit %.1f,%.1f in the room south", visit[0], visit[1])));
             if (score > bestScore) {
                bestScore = score;
                best = r;
+               mirrorVisit = visit;
             }
          }
       }
