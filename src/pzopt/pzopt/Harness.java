@@ -668,6 +668,17 @@ public final class Harness {
                if (!HarnessFlags.get("place_tile", "").isBlank()) {
                   placeTiles(HarnessFlags.get("place_tile", "")); // dev: tiles added to the bench save copy (glassTilesPerFrame rig)
                }
+               if (!HarnessFlags.get("mirror_corners", "").isBlank()) {
+                  float[] spot = mirrorCorners(HarnessFlags.get("mirror_corners", "")); // dev: a wall mirror in each corner of one room, the player in its middle
+                  if (spot != null) {
+                     x = spot[0];
+                     y = spot[1];
+                     routeZ = (int)spot[2];
+                     if (!"false".equals(HarnessFlags.get("mirror_corners_teleport", "true"))) {
+                        p.teleportTo(x, y, routeZ); // explore=mirror never teleports: the walk starts in the room (false: walks there)
+                     }
+                  }
+               }
                if ("mirror".equals(HarnessFlags.get("find", "")) || "window".equals(HarnessFlags.get("find", ""))) {
                   float[] spot = findMirror(p, "window".equals(HarnessFlags.get("find", ""))); // dev: mirrors (after place_tile: a placed mirror can be the target), the player in front of the nearest wall mirror, facing it
                   if (spot != null) {
@@ -2011,6 +2022,121 @@ public final class Harness {
          zombie.iso.sprite.IsoSprite s = o == null ? null : o.getSprite();
          Log.info("harness: place_tile: " + name + " at " + x + "," + y + "," + z + (s == null ? " (no sprite)" : " depthFlags " + s.depthFlags + (GlassTiles.isGlass(s) ? " glass" : "")));
       }
+   }
+
+   /**
+    * mirror_corners=x,y,z (2026-10-08, the maintainer: "test mirrors placed in the four corners of a room"): a wall mirror on
+    * each corner square of the room at x,y,z, in the order NW, NE, SW, SE, sprites from mirror_corner_sprites (default the
+    * Large mirror on the north wall at NW and NE, on the west wall at SW, on the east wall at SE: the camera sees the back of
+    * that one). A wall object of the same facing on the square is removed first. Returns the room's middle (the player's
+    * start) or null.
+    */
+   private static float[] mirrorCorners(String spec) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      zombie.iso.RoomDef room;
+      int rz;
+      if (spec.trim().startsWith("auto")) {
+         room = cornerRoom(cell);
+         if (room == null) {
+            Log.info("harness: mirror_corners: auto found no room");
+            return null;
+         }
+         rz = room.getZ();
+         mirrorCornersRoom = room.getX() + "," + room.getY() + "," + rz;
+      } else {
+         String[] xyz = spec.trim().split(",");
+         int rx = Integer.parseInt(xyz[0].trim()), ry = Integer.parseInt(xyz[1].trim());
+         rz = xyz.length > 2 ? Integer.parseInt(xyz[2].trim()) : 0;
+         room = zombie.iso.IsoWorld.instance.getMetaGrid().getRoomAt(rx, ry, rz);
+         mirrorCornersRoom = rx + "," + ry + "," + rz;
+      }
+      if (room == null) {
+         Log.info("harness: mirror_corners: no room at " + mirrorCornersRoom);
+         return null;
+      }
+      int x0 = room.getX(), y0 = room.getY(), x1 = room.getX2() - 1, y1 = room.getY2() - 1;
+      String[] sprites = HarnessFlags.get("mirror_corner_sprites", "walls_decoration_01_5,walls_decoration_01_5,walls_decoration_01_4,walls_decoration_01_30").split(",");
+      int[][] corners = {{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}};
+      String[] names = {"NW", "NE", "SW", "SE"};
+      Log.info("harness: mirror_corners: room " + room.getName() + " " + x0 + "," + y0 + "-" + x1 + "," + y1 + "," + rz + " (" + room.getRects().size() + " rects)");
+      for (int i = 0; i < 4 && i < sprites.length; i++) {
+         int cx = corners[i][0], cy = corners[i][1];
+         zombie.iso.IsoGridSquare sq = cell.getGridSquare(cx, cy, rz);
+         if (sq == null) {
+            Log.info("harness: mirror_corners: " + names[i] + " no square at " + cx + "," + cy + "," + rz);
+            continue;
+         }
+         zombie.iso.sprite.IsoSprite spr = zombie.iso.sprite.IsoSpriteManager.instance.getSprite(sprites[i].trim());
+         String facing = spr == null || spr.getProperties() == null ? null : spr.getProperties().get("Facing");
+         // the wall the object hangs on (ISMoveableSpriteProps.getWallForFacing): S / E on this square's north / west wall,
+         // N / W on the north / west wall of the square south / east of it
+         zombie.iso.IsoGridSquare wsq = "N".equals(facing) ? cell.getGridSquare(cx, cy + 1, rz) : "W".equals(facing) ? cell.getGridSquare(cx + 1, cy, rz) : sq;
+         zombie.iso.IsoObject wall = wsq == null ? null : wsq.getWall("S".equals(facing) || "N".equals(facing));
+         for (int k = sq.getObjects().size() - 1; k >= 0; k--) {
+            zombie.iso.IsoObject o = sq.getObjects().get(k);
+            zombie.iso.sprite.IsoSprite sp = o.getSprite();
+            if (sp != null && sp.getProperties() != null && "WallObject".equals(sp.getProperties().get("MoveType")) && facing != null && facing.equals(sp.getProperties().get("Facing"))) {
+               Log.info("harness: mirror_corners: removed " + sp.getName() + " at " + cx + "," + cy + "," + rz);
+               sq.transmitRemoveItemFromSquare(o);
+            }
+         }
+         zombie.iso.IsoObject o = sq.addTileObject(sprites[i].trim());
+         Log.info("harness: mirror_corners: " + names[i] + " " + sprites[i].trim() + " facing " + facing + " at " + cx + "," + cy + "," + rz + (o == null ? " (not added)" : "")
+               + ", in room " + (zombie.iso.IsoWorld.instance.getMetaGrid().getRoomAt(cx, cy, rz) == room) + ", wall " + (wall == null ? "none" : wall.getSprite() == null ? "?" : wall.getSprite().getName())
+               + ", square " + spriteNames(sq));
+      }
+      return new float[] {(x0 + x1 + 1) * 0.5F, (y0 + y1 + 1) * 0.5F, rz};
+   }
+
+   /** The room mirror_corners walks (x,y,z of a square in it), for MirrorWalk; null without the flag. */
+   static String mirrorCornersRoom;
+
+   /**
+    * mirror_corners=auto[:minW,minH]: the loaded one-rect room within 80 squares of the player, 4x4 squares or more
+    * (mirror_corners=auto:5,5 asks for larger), with a north wall at both north corners, a west wall at the south-west
+    * one and an east wall at the south-east one, whose floor is most free (furniture blocks the walk), larger rooms first
+    * at equal freedom. Every candidate is logged.
+    */
+   private static zombie.iso.RoomDef cornerRoom(zombie.iso.IsoCell cell) {
+      IsoPlayer p = IsoPlayer.getInstance();
+      String spec = HarnessFlags.get("mirror_corners", "auto");
+      int minW = 4, minH = 4;
+      if (spec.contains(":")) {
+         String[] wh = spec.substring(spec.indexOf(':') + 1).split(",");
+         minW = Integer.parseInt(wh[0].trim());
+         minH = Integer.parseInt(wh[wh.length > 1 ? 1 : 0].trim());
+      }
+      zombie.iso.RoomDef best = null;
+      float bestScore = -1F;
+      int seen = 0;
+      for (zombie.iso.BuildingDef b : zombie.iso.IsoWorld.instance.getMetaGrid().getBuildings()) {
+         if (Math.hypot((b.getX() + b.getX2()) * 0.5F - p.getX(), (b.getY() + b.getY2()) * 0.5F - p.getY()) > 80F) continue;
+         for (zombie.iso.RoomDef r : b.getRooms()) {
+            if (r.getRects().size() != 1 || r.getW() < minW || r.getH() < minH || r.getW() > 9 || r.getH() > 9) continue;
+            int x0 = r.getX(), y0 = r.getY(), x1 = r.getX2() - 1, y1 = r.getY2() - 1, z = r.getZ();
+            zombie.iso.IsoGridSquare nw = cell.getGridSquare(x0, y0, z), ne = cell.getGridSquare(x1, y0, z), sw = cell.getGridSquare(x0, y1, z), east = cell.getGridSquare(x1 + 1, y1, z);
+            if (nw == null || ne == null || sw == null || east == null) continue;
+            if (nw.getWall(true) == null || ne.getWall(true) == null || sw.getWall(false) == null || east.getWall(false) == null) continue;
+            // the pathfinder's own stand test (a toilet or a sink is "free" to isFree), and a spot in front of each
+            // reflecting corner mirror the walk can stand on
+            if (!Nav.canStandClear(x0 + 0.5F, y0 + 1.03F, z) || !Nav.canStandClear(x1 + 0.5F, y0 + 1.03F, z) || !Nav.canStandClear(x0 + 1.03F, y1 + 0.5F, z)) continue;
+            int free = 0, area = r.getW() * r.getH();
+            for (int y = y0; y <= y1; y++) {
+               for (int x = x0; x <= x1; x++) {
+                  if (Nav.canStand(x + 0.5F, y + 0.5F, z)) free++;
+               }
+            }
+            float score = (float)free / area + Math.min(area, 36) / 360F;
+            seen++;
+            Log.info(String.format(java.util.Locale.ROOT, "harness: mirror_corners: candidate %s %d,%d-%d,%d,%d free %d/%d score %.3f", r.getName(), x0, y0, x1, y1, z, free, area, score));
+            if (score > bestScore) {
+               bestScore = score;
+               best = r;
+            }
+         }
+      }
+      Log.info("harness: mirror_corners: auto " + seen + " candidates, picked " + (best == null ? "none" : best.getName() + " " + best.getX() + "," + best.getY() + "," + best.getZ()));
+      return best;
    }
 
    private static String spriteNames(zombie.iso.IsoGridSquare sq) {

@@ -1,6 +1,5 @@
 package pzopt;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Locale;
 import zombie.characters.IsoPlayer;
@@ -8,10 +7,8 @@ import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
-import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.IsoWorld;
 import zombie.iso.objects.IsoDoor;
-import zombie.iso.objects.IsoThumpable;
 
 /**
  * Harness scene {@code explore=mirror director=jev} (2026-10-04, the maintainer: "use Jev to walk around all the mirrors in
@@ -43,20 +40,22 @@ final class MirrorWalk {
       float off;
       String name;
       boolean[][] usable, visited, blockedAt, faced, turned;
-      boolean circled;
+      boolean circled, unreachable;
+      float colShift, rowShift; // the station grid moved off furniture in front of the glass (stations())
    }
 
    private static boolean on, finished;
    private static final ArrayList<M> mirrors = new ArrayList<>();
    private static float[] cols = {-1F, 0F, 1F}, rows = {0.8F, 1.5F, 2.2F};
-   private static int mi, col, row, commands, commandSeq = -1, doorsOpened, stuckMarks;
+   private static int mi, col, row, commands, commandSeq = -1, doorsOpened;
    private static String command = "hold";
-   private static long startNs, lastStateNs, lastCmdCheckNs, lastLogNs, actionNs, moveStartNs, lastPlanNs, lastProgressNs;
-   private static float limitSecs = 300F, circleTurned, lastAngle, progressX, progressY;
-   private static boolean angleValid, arrived, travelling;
+   private static long startNs, lastStateNs, lastCmdCheckNs, lastLogNs, actionNs;
+   private static float limitSecs = 300F;
+   private static boolean arrived, travelling, selfTest;
+   private static float[][] lap; // the circle's points (pathfinder-checked), walked one by one
+   private static int lapIdx;
    private static java.io.File stateFile, cmdFile;
    private static String building = "none";
-   private static final java.util.HashSet<Long> blocked = new java.util.HashSet<>();
 
    static boolean active() {
       return on;
@@ -89,12 +88,17 @@ final class MirrorWalk {
 
    static void routeStart(IsoPlayer p) {
       startNs = System.nanoTime();
-      moveStartNs = startNs;
-      lastProgressNs = startNs;
       IsoCell cell = IsoWorld.instance.getCell();
-      BuildingDef b = null;
+      // mirror_corners=x,y,z (Harness): only the mirrors of that room are walked
+      zombie.iso.RoomDef only4 = null;
+      String mc = Harness.mirrorCornersRoom == null ? "" : Harness.mirrorCornersRoom;
+      if (!mc.isEmpty()) {
+         String[] xyz = mc.split(",");
+         only4 = IsoWorld.instance.getMetaGrid().getRoomAt(Integer.parseInt(xyz[0].trim()), Integer.parseInt(xyz[1].trim()), xyz.length > 2 ? Integer.parseInt(xyz[2].trim()) : 0);
+      }
+      BuildingDef b = only4 == null ? null : only4.getBuilding(); // the corner room's building, wherever the player stands
       IsoGridSquare sq0 = p.getCurrentSquare();
-      if (sq0 != null && sq0.getBuilding() != null) b = sq0.getBuilding().getDef();
+      if (b == null && sq0 != null && sq0.getBuilding() != null) b = sq0.getBuilding().getDef();
       if (b == null) { // outdoors: the nearest building
          float best = Float.MAX_VALUE;
          for (BuildingDef d : IsoWorld.instance.getMetaGrid().getBuildings()) {
@@ -118,6 +122,15 @@ final class MirrorWalk {
             for (int x = b.getX() - 1; x <= b.getX2() + 1; x++) {
                IsoGridSquare sq = cell.getGridSquare(x, y, z);
                if (sq == null) continue;
+               for (int i = 0; i < sq.getObjects().size(); i++) {
+                  // the walk opens the doors on its way (the pathfinder's door check); a locked one would fail the leg
+                  if (sq.getObjects().get(i) instanceof IsoDoor d && (d.isLocked() || d.isLockedByKey()) && !d.isBarricaded()) {
+                     d.setLocked(false);
+                     d.setLockedByKey(false);
+                     doorsOpened++;
+                  }
+               }
+               if (only4 != null && IsoWorld.instance.getMetaGrid().getRoomAt(x, y, z) != only4) continue;
                for (int i = 0; i < sq.getObjects().size(); i++) {
                   IsoObject o = sq.getObjects().get(i);
                   zombie.iso.sprite.IsoSprite spr = o.getSprite();
@@ -181,6 +194,26 @@ final class MirrorWalk {
          mirrors.clear();
          mirrors.add(keep);
       }
+      // mirror_laps=N (2026-10-08, the four-corner room): the mirrors walked N times, every other pass in the reverse order
+      // (back and forth across the room), each pass with fresh stations and checks
+      int laps = Integer.parseInt(HarnessFlags.get("mirror_laps", "1").trim());
+      if (laps > 1 && mirrors.size() > 1) {
+         ArrayList<M> pass = new ArrayList<>(mirrors);
+         for (int l = 1; l < laps; l++) {
+            java.util.Collections.reverse(pass);
+            for (int i = 1; i < pass.size(); i++) {
+               M o = pass.get(i), m = new M();
+               m.x = o.x;
+               m.y = o.y;
+               m.z = o.z;
+               m.north = o.north;
+               m.off = o.off;
+               m.name = o.name;
+               stations(cell, m);
+               mirrors.add(m);
+            }
+         }
+      }
       String lim = HarnessFlags.get("mirror_secs", "").trim();
       limitSecs = lim.isEmpty() ? 10F + 25F * mirrors.size() : Float.parseFloat(lim);
       StringBuilder sb = new StringBuilder();
@@ -195,14 +228,35 @@ final class MirrorWalk {
          return;
       }
       mi = 0;
-      startTravel();
+      selfTest = "true".equals(HarnessFlags.get("nav_selftest", "false"));
+      if (!selfTest) startTravel();
    }
 
    private static float dist(M m, float x, float y, float z) {
       return (float)Math.hypot(m.x - x, m.y - y) + Math.abs(m.z - z) * 8F;
    }
 
+   /**
+    * The station grid in front of m: where the player's body fits (the pathfinder's own test) in the mirror's room. A grid
+    * with no such station (a table or a toilet in front of the glass) is moved out from the wall and sideways until one fits.
+    */
    private static void stations(IsoCell cell, M m) {
+      float[][] shifts = {{0F, 0F}, {0F, 0.6F}, {-0.5F, 0F}, {0.5F, 0F}, {-0.5F, 0.6F}, {0.5F, 0.6F}, {0F, 1.2F}, {-1F, 0.6F}, {1F, 0.6F}, {0F, 1.8F}};
+      for (float[] sh : shifts) {
+         m.colShift = sh[0];
+         m.rowShift = sh[1];
+         stationsAt(cell, m);
+         if (count(m.usable) > 0) {
+            if (sh[0] != 0F || sh[1] != 0F) Log.info(String.format(Locale.ROOT, "harness: mirror walk: %s at %d,%d,%d: stations moved %.1f along, %.1f out (furniture in front)", m.name, m.x, m.y, m.z, sh[0], sh[1]));
+            return;
+         }
+      }
+      m.colShift = 0F;
+      m.rowShift = 0F;
+      stationsAt(cell, m);
+   }
+
+   private static void stationsAt(IsoCell cell, M m) {
       int nc = cols.length, nr = rows.length;
       m.usable = new boolean[nc][nr];
       m.visited = new boolean[nc][nr];
@@ -214,14 +268,16 @@ final class MirrorWalk {
          for (int r = 0; r < nr; r++) {
             float[] w = world(m, c, r);
             IsoGridSquare sq = cell.getGridSquare((int)Math.floor(w[0]), (int)Math.floor(w[1]), m.z);
-            m.usable[c][r] = sq != null && sq.isFree(false) && !sq.HasStairs() && (front == null || front.getRoom() == null || sq.getRoom() == front.getRoom());
+            // the pathfinder's own test: the player's body fits there (furniture, walls, floor)
+            m.usable[c][r] = sq != null && !sq.HasStairs() && Nav.canStandClear(w[0], w[1], m.z) && (front == null || front.getRoom() == null || sq.getRoom() == front.getRoom());
          }
       }
    }
 
    /** Station (c, r) of mirror m: c squares along the wall from the glass centre, rows[r] out from the glass. */
    private static float[] world(M m, int c, int r) {
-      return m.north ? new float[] {m.x + 0.5F + cols[c], m.y + m.off + rows[r]} : new float[] {m.x + m.off + rows[r], m.y + 0.5F + cols[c]};
+      float a = cols[c] + m.colShift, o = rows[r] + m.rowShift;
+      return m.north ? new float[] {m.x + 0.5F + a, m.y + m.off + o} : new float[] {m.x + m.off + o, m.y + 0.5F + a};
    }
 
    private static float mirrorAngle(M m) {
@@ -231,33 +287,56 @@ final class MirrorWalk {
    /** Walking to the current mirror: its usable station nearest the glass centre (the middle column, nearest row first). */
    private static void startTravel() {
       M m = mirrors.get(mi);
+      travelling = true;
+      if (!pickStation(m, true)) {
+         noStation(m);
+         return;
+      }
+      goStation("to mirror " + (mi + 1) + " " + m.name + " at " + m.x + "," + m.y + "," + m.z + ", station");
+   }
+
+   /**
+    * The next station of m: nearest the glass centre (first visit), else nearest the player, among the usable ones not
+    * blocked and not visited (then visited ones: a move may lead back). False when none is left.
+    */
+   private static boolean pickStation(M m, boolean centre) {
+      IsoPlayer p = IsoPlayer.getInstance();
       int bc = -1, br = -1;
       float best = Float.MAX_VALUE;
-      for (int c = 0; c < cols.length; c++) {
-         for (int r = 0; r < rows.length; r++) {
-            if (!m.usable[c][r] || m.blockedAt[c][r]) continue;
-            float s = Math.abs(cols[c]) * 2F + rows[r];
-            if (s < best) {
-               best = s;
-               bc = c;
-               br = r;
+      for (int pass = 0; pass < 2 && bc < 0; pass++) {
+         for (int c = 0; c < cols.length; c++) {
+            for (int r = 0; r < rows.length; r++) {
+               if (!m.usable[c][r] || m.blockedAt[c][r] || pass == 0 && m.visited[c][r]) continue;
+               float[] w = world(m, c, r);
+               float sc = centre ? Math.abs(cols[c]) * 2F + rows[r] : (float)Math.hypot(w[0] - p.getX(), w[1] - p.getY());
+               if (sc < best) {
+                  best = sc;
+                  bc = c;
+                  br = r;
+               }
             }
          }
       }
-      if (bc < 0) { // no free square in front: the square of the mirror itself
-         Log.info("harness: mirror walk: mirror " + (mi + 1) + " has no free station in front");
-         col = cols.length / 2;
-         row = 0;
-         m.usable[col][row] = true;
-      } else {
-         col = bc;
-         row = br;
-      }
-      travelling = true;
+      if (bc < 0) return false;
+      col = bc;
+      row = br;
+      return true;
+   }
+
+   /** No station of the mirror can be stood on or reached: the walk moves on (Jev reads all_done_here). */
+   private static void noStation(M m) {
+      m.unreachable = true;
+      arrived = true;
+      travelling = false;
+      Log.info(String.format(Locale.ROOT, "harness: mirror walk: mirror %d %s at %d,%d,%d: no station that can be reached, skipped epoch_ms=%d", mi + 1, m.name, m.x, m.y, m.z, System.currentTimeMillis()));
+   }
+
+   private static void goStation(String what) {
+      M m = mirrors.get(mi);
+      float[] w = world(m, col, row);
       arrived = false;
-      pathLen = 0;
-      moveStartNs = System.nanoTime();
-      stationEvent("to mirror " + (mi + 1) + " " + m.name + " at " + m.x + "," + m.y + "," + m.z + ", station");
+      Nav.go(IsoPlayer.getInstance(), w[0], w[1], m.z, "mirror " + (mi + 1) + " station " + col + "," + row);
+      stationEvent(what);
    }
 
    // ---- per frame ----
@@ -268,17 +347,19 @@ final class MirrorWalk {
          lastCmdCheckNs = nowNs;
          readCommand(nowNs);
       }
-      Showcase.releaseKeys();
+      if (selfTest && Nav.selfTest(p, nowNs)) return; // nav_selftest=true: the collision counter's control first
+      if (selfTest && !travelling && !arrived && Nav.status() == Nav.IDLE) startTravel(); // the walk waited for the push
+      Showcase.releaseKeys(); // no movement key may be down: it would cancel the game's walk
+      Nav.frame(p, nowNs);
       M m = mirrors.get(mi);
       float[] w = world(m, col, row);
-      float dx = w[0] - p.getX(), dy = w[1] - p.getY();
-      float dist = (float)Math.hypot(dx, dy);
-      boolean sameLevel = (int)Math.floor(p.getZ() + 0.01F) == m.z;
+      float dist = (float)Math.hypot(w[0] - p.getX(), w[1] - p.getY());
       if (!command.equals("done") && (nowNs - startNs) / 1e9 > limitSecs + 5F) {
          // the director is told the time is up; without one (not started, crashed) the walk ends itself 5 s later instead of
          // holding the run until the harness gives up on it (2026-10-04: 8 s routes ran 200 s)
          Log.info(String.format(Locale.ROOT, "harness: mirror walk: time limit passed by 5 s without a done from the director, ending (%d commands)", commands));
          command = "done";
+         Nav.cancel();
       }
       if (command.equals("done")) {
          if (!finished) {
@@ -288,66 +369,49 @@ final class MirrorWalk {
                v += count(k.visited);
                u += count(k.usable);
             }
-            Log.info(String.format(Locale.ROOT, "harness: mirror walk: done at +%.1f s, mirror %d of %d, %d of %d stations visited, %d commands, %d doors opened, %d stuck marks epoch_ms=%d",
-                  (nowNs - startNs) / 1e9, mi + 1, mirrors.size(), v, u, commands, doorsOpened, stuckMarks, System.currentTimeMillis()));
+            Log.info(String.format(Locale.ROOT, "harness: mirror walk: done at +%.1f s, mirror %d of %d, %d of %d stations visited, %d commands, %d doors unlocked epoch_ms=%d",
+                  (nowNs - startNs) / 1e9, mi + 1, mirrors.size(), v, u, commands, doorsOpened, System.currentTimeMillis()));
+            Log.info("harness: nav summary: " + Nav.summary());
          }
          return;
       }
       if (!arrived) {
-         if (travelling && (!sameLevel || dist > 1.2F)) {
-            walkPath(p, (int)Math.floor(w[0]), (int)Math.floor(w[1]), m.z, nowNs);
-            if (nowNs - moveStartNs > 60_000_000_000L) {
-               Log.info(String.format(Locale.ROOT, "harness: mirror walk: mirror %d not reached in 60 s (at %.2f,%.2f,%.1f)", mi + 1, p.getX(), p.getY(), p.getZ()));
-               arrived = true;
-               travelling = false;
-            }
-         } else if (dist > 0.3F) {
-            Showcase.moveKeys(dx, dy);
-            if (nowNs - moveStartNs > (travelling ? 60_000_000_000L : 4_000_000_000L)) { // furniture in the way: blocked, back to the last station
-               m.blockedAt[col][row] = true;
-               Log.info(String.format(Locale.ROOT, "harness: mirror walk: mirror %d station %d,%d blocked at %.2f,%.2f", mi + 1, col, row, p.getX(), p.getY()));
-               // stay where the furniture stopped him (walking back to the last station could block the same way)
-               arrived = true;
-               travelling = false;
-               moveStartNs = nowNs;
-            }
-         } else {
+         int st = Nav.status();
+         if (st == Nav.ARRIVED) {
             arrived = true;
             travelling = false;
             m.visited[col][row] = true;
             stationEvent("arrived at mirror " + (mi + 1) + " station");
+         } else if (st == Nav.FAILED) {
+            m.blockedAt[col][row] = true;
+            Log.info(String.format(Locale.ROOT, "harness: mirror walk: mirror %d station %d,%d not reached (at %.2f,%.2f,%.1f), another one", mi + 1, col, row, p.getX(), p.getY(), p.getZ()));
+            if (pickStation(m, false)) goStation("to mirror " + (mi + 1) + " station");
+            else noStation(m);
+         }
+      } else if (command.equals("circle") && lap != null) {
+         int st = Nav.status();
+         if (st == Nav.ARRIVED && lapIdx < lap.length - 1) {
+            lapIdx++;
+            Nav.go(p, lap[lapIdx][0], lap[lapIdx][1], m.z, "mirror " + (mi + 1) + " lap point " + lapIdx);
+         } else if (st == Nav.ARRIVED || st == Nav.FAILED) {
+            lap = null;
+            m.circled = true;
+            stationEvent((st == Nav.ARRIVED ? "circled" : "circle cut short") + " at mirror " + (mi + 1) + " station");
          }
       } else {
          switch (command) {
             case "face_mirror" -> {
-               p.setDirectionAngle(mirrorAngle(m));
+               Nav.face(p, mirrorAngle(m));
                if (nowNs - actionNs > 800_000_000L && !m.faced[col][row]) {
                   m.faced[col][row] = true;
                   stationEvent("faced mirror " + (mi + 1) + " at station");
                }
             }
             case "turn_around" -> {
-               p.setDirectionAngle((mirrorAngle(m) + 180F) % 360F);
+               Nav.face(p, (mirrorAngle(m) + 180F) % 360F);
                if (nowNs - actionNs > 800_000_000L && !m.turned[col][row]) {
                   m.turned[col][row] = true;
                   stationEvent("back to mirror " + (mi + 1) + " at station");
-               }
-            }
-            case "circle" -> {
-               float r = 0.5F;
-               float a = (float)Math.atan2(p.getY() - w[1], p.getX() - w[0]);
-               if (angleValid && Math.hypot(p.getX() - w[0], p.getY() - w[1]) > r * 0.6F) {
-                  float da = a - lastAngle;
-                  da = (float)(((da + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
-                  if (da > 0) circleTurned += da;
-               }
-               lastAngle = a;
-               angleValid = true;
-               float t = a + (float)Math.PI / 4F;
-               Showcase.moveKeys(w[0] + r * (float)Math.cos(t) - p.getX(), w[1] + r * (float)Math.sin(t) - p.getY());
-               if (!m.circled && (circleTurned >= 2 * Math.PI || nowNs - actionNs > 8_000_000_000L)) {
-                  m.circled = true;
-                  stationEvent((circleTurned >= 2 * Math.PI ? "circled" : "circle blocked") + " at mirror " + (mi + 1) + " station");
                }
             }
             default -> {
@@ -426,187 +490,30 @@ final class MirrorWalk {
       return false;
    }
 
-   // ---- walking between mirrors: a grid path over the loaded squares of every level, staircases as edges ----
-
-   private static int[] pathX = new int[0], pathY = new int[0], pathZ = new int[0];
-   private static int pathIdx, pathLen;
-   private static final int R = 50, W = 2 * R + 1;
-   private static final int[][] CLIMB = {{0, -1}, {-1, 0}};
-
-   private static void walkPath(IsoPlayer p, int gx, int gy, int gz, long nowNs) {
-      IsoGridSquare cur = p.getCurrentSquare();
-      if (cur == null) return;
-      boolean onStairs = cur.HasStairs();
-      boolean stuck = pathLen > 0 && nowNs - lastProgressNs > 1_500_000_000L;
-      if (stuck && !onStairs) {
-         int k = Math.min(pathIdx, pathLen - 1);
-         if (pathX[k] != gx || pathY[k] != gy) blocked.add(pack(pathX[k], pathY[k], pathZ[k]));
-         stuckMarks++;
-         Log.info("harness: mirror walk: stuck at " + cur.x + "," + cur.y + "," + cur.z + ", square " + pathX[k] + "," + pathY[k] + " marked blocked");
-      }
-      if (!onStairs && (pathLen == 0 || stuck || pathIdx >= pathLen || nowNs - lastPlanNs > 2_000_000_000L)) {
-         lastPlanNs = nowNs;
-         lastProgressNs = nowNs;
-         progressX = p.getX();
-         progressY = p.getY();
-         plan(cur, gx, gy, gz);
-         if (pathLen == 0) {
-            Showcase.moveKeys(gx + 0.5F - p.getX(), gy + 0.5F - p.getY()); // no path over the loaded squares: head straight for it
-            return;
+   /**
+    * A lap round the player's spot: 8 points on a circle (radius 0.6, else 0.4 squares) the player's body fits on, joined by
+    * straight walks the pathfinder calls clear; false when neither radius fits (furniture or a wall too near).
+    */
+   private static boolean startLap(M m) {
+      IsoPlayer p = IsoPlayer.getInstance();
+      float cx = p.getX(), cy = p.getY();
+      for (float r : new float[] {0.6F, 0.4F}) {
+         float[][] pts = new float[10][];
+         pts[9] = new float[] {cx, cy}; // back to the spot
+         boolean ok = Nav.lineClear(cx + r, cy, cx, cy, m.z);
+         for (int i = 0; i <= 8 && ok; i++) {
+            double a = Math.PI * 2 * i / 8;
+            pts[i] = new float[] {cx + r * (float)Math.cos(a), cy + r * (float)Math.sin(a)};
+            ok = Nav.canStandClear(pts[i][0], pts[i][1], m.z) && (i == 0 ? Nav.lineClear(cx, cy, pts[0][0], pts[0][1], m.z) : Nav.lineClear(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], m.z));
+         }
+         if (ok) {
+            lap = pts;
+            lapIdx = 0;
+            Nav.go(p, pts[0][0], pts[0][1], m.z, "mirror " + (mi + 1) + " lap point 0 (radius " + r + ")");
+            return true;
          }
       }
-      if (Math.hypot(p.getX() - progressX, p.getY() - progressY) > 0.4) {
-         progressX = p.getX();
-         progressY = p.getY();
-         lastProgressNs = nowNs;
-      }
-      while (pathIdx < pathLen && Math.hypot(pathX[pathIdx] + 0.5F - p.getX(), pathY[pathIdx] + 0.5F - p.getY()) < 0.35F) {
-         pathIdx++;
-      }
-      if (pathIdx >= pathLen) return;
-      if (!onStairs) {
-         IsoGridSquare next = cur.getCell().getGridSquare(pathX[pathIdx], pathY[pathIdx], pathZ[pathIdx]);
-         if (next != null && next.z == cur.z) openDoorBetween(p, cur, next);
-      }
-      Showcase.moveKeys(pathX[pathIdx] + 0.5F - p.getX(), pathY[pathIdx] + 0.5F - p.getY());
-   }
-
-   private static void openDoorBetween(IsoPlayer p, IsoGridSquare a, IsoGridSquare b) {
-      if (a == b) return;
-      IsoObject o = a.getDoorTo(b);
-      if (o instanceof IsoDoor d && !d.IsOpen() && !d.isBarricaded()) {
-         d.setLocked(false);
-         d.setLockedByKey(false);
-         d.ToggleDoor(p);
-         doorsOpened++;
-         Log.info("harness: mirror walk: opened a door at " + d.getSquare().x + "," + d.getSquare().y + "," + d.getSquare().z);
-      } else if (o instanceof IsoThumpable t && t.isDoor() && !t.IsOpen()) {
-         t.ToggleDoor(p);
-         doorsOpened++;
-      }
-   }
-
-   private static long pack(int x, int y, int z) {
-      return ((long)x << 40) ^ ((long)(y & 0xFFFFF) << 20) ^ (z & 0xFFFFF);
-   }
-
-   private static boolean passable(IsoGridSquare a, IsoGridSquare b) {
-      if (b == null || b.z != a.z || blocked.contains(pack(b.x, b.y, b.z))) return false;
-      if (b.HasStairs() || a.HasStairs() || !b.isFree(false)) return false;
-      if (a.isWallTo(b) || a.isWindowBlockedTo(b) || a.isStairBlockedTo(b)) return false;
-      if (a.isDoorBlockedTo(b)) {
-         IsoObject o = a.getDoorTo(b);
-         return o instanceof IsoDoor d && !d.isBarricaded() || o instanceof IsoThumpable t && t.isDoor();
-      }
-      return true;
-   }
-
-   private static boolean has(IsoCell cell, int x, int y, int z, IsoObjectType t) {
-      IsoGridSquare s = cell.getGridSquare(x, y, z);
-      return s != null && s.has(t);
-   }
-
-   /** Breadth-first from the player's square to (gx, gy, gz), or the reachable square nearest it on that level; staircases join the levels. */
-   private static void plan(IsoGridSquare start, int gx, int gy, int gz) {
-      IsoCell cell = start.getCell();
-      int ox = start.x - R, oy = start.y - R, oz = Math.min(start.z, gz) - 1, nz = Math.max(start.z, gz) + 2 - oz;
-      int[] prev = new int[W * W * nz];
-      byte[] via = new byte[prev.length];
-      java.util.Arrays.fill(prev, -2);
-      ArrayDeque<Integer> q = new ArrayDeque<>();
-      int s = idx(start.x - ox, start.y - oy, start.z - oz);
-      prev[s] = -1;
-      q.add(s);
-      int found = -1, near = -1;
-      float nearD = Float.MAX_VALUE;
-      int[][] nb = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-      while (!q.isEmpty()) {
-         int i = q.poll();
-         int x = ox + i % W, y = oy + i / W % W, z = oz + i / (W * W);
-         IsoGridSquare a = cell.getGridSquare(x, y, z);
-         if (a == null) continue;
-         if (x == gx && y == gy && z == gz) {
-            found = i;
-            break;
-         }
-         if (z == gz) {
-            float d = (float)Math.hypot(x - gx, y - gy);
-            if (d < nearD) {
-               nearD = d;
-               near = i;
-            }
-         }
-         for (int[] d : nb) {
-            IsoGridSquare b = cell.getGridSquare(x + d[0], y + d[1], z);
-            if (!passable(a, b)) continue;
-            visit(prev, via, q, i, b.x - ox, b.y - oy, z - oz, 0);
-         }
-         for (int c = 0; c < 2; c++) {
-            int dx = CLIMB[c][0], dy = CLIMB[c][1];
-            IsoObjectType bottom = c == 0 ? IsoObjectType.stairsBN : IsoObjectType.stairsBW, mid = c == 0 ? IsoObjectType.stairsMN : IsoObjectType.stairsMW,
-                  topT = c == 0 ? IsoObjectType.stairsTN : IsoObjectType.stairsTW;
-            if (has(cell, x + dx, y + dy, z, bottom) && has(cell, x + 2 * dx, y + 2 * dy, z, mid) && has(cell, x + 3 * dx, y + 3 * dy, z, topT)) {
-               IsoGridSquare e = cell.getGridSquare(x + 4 * dx, y + 4 * dy, z + 1);
-               if (e != null && e.isFree(false) && !blocked.contains(pack(e.x, e.y, e.z))) visit(prev, via, q, i, e.x - ox, e.y - oy, e.z - oz, 1 + c);
-            }
-            if (has(cell, x - dx, y - dy, z - 1, topT) && has(cell, x - 2 * dx, y - 2 * dy, z - 1, mid) && has(cell, x - 3 * dx, y - 3 * dy, z - 1, bottom)) {
-               IsoGridSquare e = cell.getGridSquare(x - 4 * dx, y - 4 * dy, z - 1);
-               if (e != null && e.isFree(false) && !e.HasStairs() && !blocked.contains(pack(e.x, e.y, e.z))) visit(prev, via, q, i, e.x - ox, e.y - oy, e.z - oz, 3 + c);
-            }
-         }
-      }
-      pathIdx = 0;
-      pathLen = 0;
-      if (found < 0) found = near;
-      if (found < 0) return;
-      int[] bx = new int[4096], by = new int[4096], bz = new int[4096];
-      int k = 0;
-      for (int i = found; i >= 0 && k < 4090; i = prev[i]) {
-         int x = ox + i % W, y = oy + i / W % W, z = oz + i / (W * W);
-         bx[k] = x;
-         by[k] = y;
-         bz[k++] = z;
-         int v = via[i];
-         if (v != 0) {
-            int c = (v - 1) % 2, dx = CLIMB[c][0], dy = CLIMB[c][1];
-            for (int m = 3; m >= 1; m--) {
-               if (v <= 2) { // up: the stair squares at +3, +2, +1 on the lower level
-                  bx[k] = x - (4 - m) * dx;
-                  by[k] = y - (4 - m) * dy;
-                  bz[k++] = z - 1;
-               } else { // down: the stair squares at -1, -2, -3 from the upper square
-                  bx[k] = x + (4 - m) * dx;
-                  by[k] = y + (4 - m) * dy;
-                  bz[k++] = z;
-               }
-            }
-         }
-      }
-      if (pathX.length < k) {
-         pathX = new int[k];
-         pathY = new int[k];
-         pathZ = new int[k];
-      }
-      for (int j = 0; j < k; j++) {
-         pathX[j] = bx[k - 1 - j];
-         pathY[j] = by[k - 1 - j];
-         pathZ[j] = bz[k - 1 - j];
-      }
-      pathLen = k <= 1 ? 0 : k;
-      pathIdx = Math.min(1, k);
-   }
-
-   private static int idx(int x, int y, int z) {
-      return (z * W + y) * W + x;
-   }
-
-   private static void visit(int[] prev, byte[] via, ArrayDeque<Integer> q, int from, int x, int y, int z, int v) {
-      if (x < 0 || y < 0 || x >= W || y >= W || z < 0 || idx(x, y, z) >= prev.length) return;
-      int j = idx(x, y, z);
-      if (prev[j] != -2) return;
-      prev[j] = from;
-      via[j] = (byte)v;
-      q.add(j);
+      return false;
    }
 
    // ---- the director (Jev) ----
@@ -618,6 +525,7 @@ final class MirrorWalk {
          if (parts.length < 2) return;
          int seq = Integer.parseInt(parts[0]);
          if (seq == commandSeq) return;
+         if (parts[1].equals("done") && !command.equals("done")) Nav.cancel();
          commandSeq = seq;
          String c = parts[1];
          if (!java.util.Arrays.asList(ACTIONS).contains(c) || c.equals("hold")) return; // hold: keep doing the current action
@@ -634,9 +542,12 @@ final class MirrorWalk {
             if (s == null) return;
             col = s[0];
             row = s[1];
-            arrived = false;
-            moveStartNs = nowNs;
-            stationEvent("to mirror " + (mi + 1) + " station");
+            goStation("to mirror " + (mi + 1) + " station");
+         } else if (c.equals("circle")) {
+            if (!startLap(m)) {
+               m.circled = true;
+               stationEvent("circle skipped (no room for a lap) at mirror " + (mi + 1) + " station");
+            }
          } else if (c.equals("next_mirror")) {
             if (mi + 1 >= mirrors.size()) return;
             mi++;
@@ -646,8 +557,6 @@ final class MirrorWalk {
          commands++;
          command = c;
          actionNs = nowNs;
-         angleValid = false;
-         circleTurned = 0F;
       } catch (Exception e) {
          // a half-written file: the next check reads it
       }
@@ -666,7 +575,7 @@ final class MirrorWalk {
       }
       grid.append(']');
       boolean checks = m.faced[col][row] && m.turned[col][row];
-      boolean mirrorDone = arrived && left(m) == 0 && checks && m.circled;
+      boolean mirrorDone = m.unreachable || arrived && left(m) == 0 && checks && m.circled; // unreachable: skipped
       String json = String.format(Locale.ROOT,
             "{\"t\":%d,\"scene\":\"mirror\",\"seconds_since_start\":%.1f,\"time_limit_seconds\":%.0f,\"time_is_up\":%b,"
                   + "\"current_action\":\"%s\",\"player\":{\"arrived_at_station\":%b,\"walking_to_this_mirror\":%b,\"distance_to_station_tiles\":%.2f,\"moving\":%b},"
