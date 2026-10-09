@@ -69,7 +69,7 @@ PzoptSettingsLayout = {
                 { title = "Boot", keys = { "aotCache", "fmodAsync", "preloadAnimSets", "bootPump", "bootFileThreads", "earlyModels",
                     "luaPrecompile", "animClipCache", "packIndex", "scriptParserFast", "itemParamSwitch", "earlyTilePacks" } },
                 { title = "Files and textures", keys = { "texCompress", "fileThreads", "fileInflight", "textureBufferMb", "parallelDepthMaps",
-                    "loaderCpuFixes", "shaderCache", "mipmapArrays", "tileDefPreload", "skipIdChecks", "voronoiFast" } },
+                    "loaderCpuFixes", "shaderCache", "shaderWarmup", "mipmapArrays", "tileDefPreload", "skipIdChecks", "voronoiFast" } },
               } },
             { id = "ui", title = "Menus, inventory and map", blurb = "Windows that answer in the frame you click.",
               subs = {

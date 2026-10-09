@@ -1573,7 +1573,7 @@
      "maxWidth": 360
     }
    },
-   "timeFrom": "22d",
+   "timeFrom": "23d",
    "hideTimeOverride": true,
    "id": 5,
    "gridPos": {
@@ -2566,7 +2566,7 @@
      "maxWidth": 360
     }
    },
-   "timeFrom": "22d",
+   "timeFrom": "23d",
    "hideTimeOverride": true,
    "id": 6,
    "gridPos": {
@@ -3403,7 +3403,7 @@
      "sort": "desc"
     }
    },
-   "timeFrom": "15d",
+   "timeFrom": "16d",
    "hideTimeOverride": true,
    "id": 12,
    "gridPos": {

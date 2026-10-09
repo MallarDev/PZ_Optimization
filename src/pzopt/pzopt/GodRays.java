@@ -2572,20 +2572,20 @@ public final class GodRays {
       static int apdProg;
       private static int[] uApd;
 
-      /**
-       * The light volumes straight into the world picture, one draw: each prism's camera-facing faces, the pixel's view
-       * column clipped against its half-spaces, dual-source blending {@code beam (1 - dst) + dst sqrt(1 + gain lit)}: a
-       * screen blend for the dust in the shaft (display space: over black it is the beam, over white nothing), the sunlit
-       * patch as the exact display-space multiplier. Overlapping prisms blend one after the other. No target, no clear, no
-       * composite.
-       */
-      private static void apDirect(Frame f, int fbo) {
+      /** Render thread, at world entry (shaderWarmup): the direct volume program built before its first draw (~40 ms cold). */
+      static void warm() {
+         if (apdProg == 0 && Config.GOD_RAYS_AP_DIRECT && wanted()) {
+            apdInit();
+         }
+      }
+
+      private static boolean apdInit() {
          if (apdProg == 0) {
             apdProg = FogPass.link(AP_VERT, APD_FRAG, new String[] {"aPos"}, null);
             if (apdProg == 0) {
                Log.warn("god rays: direct light volume shader did not compile; the two-pass path");
                Config.GOD_RAYS_AP_DIRECT = false;
-               return;
+               return false;
             }
             uApd = new int[] {GL20.glGetUniformLocation(apdProg, "uMapA"), GL20.glGetUniformLocation(apdProg, "uMapB"), GL20.glGetUniformLocation(apdProg, "uVp"),
                GL20.glGetUniformLocation(apdProg, "uDepth"), GL20.glGetUniformLocation(apdProg, "uLight"), GL20.glGetUniformLocation(apdProg, "uPlanes"),
@@ -2594,6 +2594,20 @@ public final class GodRays {
             if (apVbo == 0) {
                apVbo = GL15.glGenBuffers();
             }
+         }
+         return true;
+      }
+
+      /**
+       * The light volumes straight into the world picture, one draw: each prism's camera-facing faces, the pixel's view
+       * column clipped against its half-spaces, dual-source blending {@code beam (1 - dst) + dst sqrt(1 + gain lit)}: a
+       * screen blend for the dust in the shaft (display space: over black it is the beam, over white nothing), the sunlit
+       * patch as the exact display-space multiplier. Overlapping prisms blend one after the other. No target, no clear, no
+       * composite.
+       */
+      private static void apDirect(Frame f, int fbo) {
+         if (!apdInit()) {
+            return;
          }
          float kA = mapA[0], cA = mapA[1], kB = mapA[2], cB = mapA[3];
          int vpp = PRISM_FLOATS / 4;

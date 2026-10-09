@@ -109,3 +109,21 @@ desktop's own options file (nearly every Enhancement on, HDR on, `vrrCap=false`)
 The 144 / 428 ms frames are shaders compiled on the render thread mid-play (a foliage-sway twin of a pixelLight variant; the
 patched `vehicle` program for a burnt-car story's first car). The 20-35 ms frames are bake bursts with both threads already
 near full every frame with the Enhancements set; with the defaults the same bursts fit.
+
+Highway, same setup (`drive-120` path cut to 600 tiles, 24 s; findings §3):
+
+| run | settings | fps | p99 | p99.9 | max | frames > 20 ms | GPU | game / render thread |
+|---|---|---|---|---|---|---|---|---|
+| spk-hwy-20261009-005503 | tab, asprof + schedmon | 185 | 14.9 ms | 23.4 ms | 32.1 ms | 9 | 81 % | 72 / 91 % |
+| spk-hwy-def-20261009-005609 | defaults | 157 (cap 157) | 7.7 ms | 13.4 ms | 64.1 ms | 2 | 40 % | 36 / 29 % |
+
+The max of both is `CutawayMask.read` (the cutaway mask PNG decoded on the game thread the first time a drive's cutaway
+stencil exists, ~1.5 s into the route).
+
+Uncapped (`uncappedFps=true vrr=off`, no profiler), tab file vs defaults, runs `unc-*` 2026-10-09 01:15-01:23 (findings §4):
+
+| route | tab fps / p99 / p99.9 / >20 ms | defaults fps / p99 / p99.9 / >20 ms |
+|---|---|---|
+| highway 600 tiles | 202 / 14.4 / 21.2 / 10 | 569 / 4.8 / 8.8 / 2 |
+| Rosewood 487 tiles | 147 / 23.1 / 31.6 / 112 | 457 / 11.2 / 17.2 / 6 |
+| spin 15 s | 121 / 21.5 / 29.7 / 45 | 349 / 9.6 / 16.1 / 5 |

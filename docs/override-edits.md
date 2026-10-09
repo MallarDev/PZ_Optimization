@@ -6494,3 +6494,32 @@ change them.
   `Props.writesDepth`) is drawn with depth writes on, as its baked self wrote depth in the chunk texture; the translucent
   pass writes none, and the reflection of a glass table behind a television was composited over the television
   (`mirrorsPropDepth=false`: off).
+
+### The 300 fps loop (2026-10-09, docs/findings-frame-spikes-2026-10-09.md §6-7): SpriteRenderer (new), TextureDraw, IsoSprite, ShaderUnit, TextureID, ChunkRenderShader, LightingJNI, FBORenderCell, NoLoadingScreen hooks
+
+- `SpriteRenderer` (new override, Vineflower; `StateRun.render`'s profile probe written back as the jar's try-with-resources,
+  a decompiler fix): `RingBuffer.add` writes a draw's tile depth pair (`TextureDraw.pzoptVD`, front and far) into the third
+  texture coordinate slot (vertex attribute 4) when the draw has no third texture, where stock wrote zeros
+  (`tileVertexDepth`); `drawElements` counts its draw calls for the instrumented log.
+- `TextureDraw`: fields `pzoptVD` / `pzoptVDStart` / `pzoptVDFront` / `pzoptVDFar` (copied by `pzoptCopyFrom`); both base
+  `Create`s stamp the draw through `pzopt.TileBatch.stamp`; the `StartShader` setters clear the start flag; the render
+  thread's StartShader case calls `TileBatch.onStart` (the program's `pzoptVD` uniform 1 for a merged start, 0 for any other)
+  and remaps the chunk composite through `PixelLight.remap` before the bind (`pplRemap`: pixelLight's variant for that chunk
+  texture bound in place of the full program, one `glUseProgram` a chunk draw); the mirrors' quad capture never runs on a
+  recording thread (`tileRecordVisuals`).
+- `IsoSprite.startTileDepthShader` / `startTileDepthShader2`: the tile-depth start goes through `TileBatch.start` (the depth
+  pair instead of four uniforms; no new start while the previous draw is a merged draw of the same program); the stock
+  uniform start otherwise (swaying plants, unpatched programs).
+- `ShaderUnit`: `TileBatch.patchShader` innermost (tileWithDepth / opaqueWithDepth: the vertex unit reads the pair while
+  `pzoptVD` is 1, the fragment unit takes its blend depths from a varying).
+- `TextureID.assignFilteringFlags`: the min / mag filters the stock sequence leaves are sent only when they differ from the
+  last ones sent to that GL name (`texParamCache`; the offscreen buffer always sent; a new name resets the cache).
+- `ChunkRenderShader.startRenderThread`: `devCompositeTiming` stamps (dev).
+- `LightingJNI` (pixelLight's visibility branch): `PixelLight.visRebake` gate (`pplVisRebakeFilter`, off: wrong, the bake
+  also takes the squares' fog-of-war fade).
+- `FBORenderCell.renderTranslucent`: the mirrors' capture only off recording threads (`tileRecordVisuals`, off).
+- pzopt only: `CutawayMask` decodes on a worker at the main menu; `ModelShaders.warmup` (model shaders during the world
+  load), `Sway.warmTwin`, `GodRays.Gl.warm`, `BloodWet.Gpu.warm` (`shaderWarmup`); `Sway.patchShader` without its test
+  compile / link; `ChunkAo.packFar` (the far field interleaved on the game thread, one bulk upload);
+  `CapsuleShadow.sunTile` skips a vehicle whose pose and sun step are unchanged since its atlas tile was drawn
+  (`sunShadowStaticVehicles`).

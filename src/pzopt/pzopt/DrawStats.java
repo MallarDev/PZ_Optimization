@@ -7,6 +7,7 @@ package pzopt;
  */
 public final class DrawStats {
    public static final boolean ON = Config.INSTRUMENT;
+   public static long ringDraws, texParamSkips; // render thread: SpriteRenderer's glDrawRangeElements since the last log line
    private static boolean inBake;
    private static long bakes, startsInBake, startsOutside, lastLogNs;
 
@@ -45,7 +46,8 @@ public final class DrawStats {
          if (lastLogNs != 0L) {
             Log.info("draw stats: bakes " + bakes + ", shader starts in bakes " + startsInBake + " (" + (bakes == 0 ? 0 : startsInBake / bakes) + " a bake), outside "
                + startsOutside + (UniformCache.ON ? ", uniforms skipped " + UniformCache.skipped + " sent " + UniformCache.sent + ", sampler setups skipped "
-               + UniformCache.samplerSkips : ""));
+               + UniformCache.samplerSkips : "") + ", ring draws " + ringDraws + ", tex param skips " + texParamSkips + ", ppl vis re-bakes " + PixelLight.visRebakes + " skipped " + PixelLight.visSkipped + ", static vehicle shadow skips " + CapsuleShadow.staticVehicleSkips + (TileBatch.ON ? "; " + TileBatch.stats() : ""));
+            ringDraws = texParamSkips = 0L;
             UniformCache.skipped = UniformCache.sent = UniformCache.samplerSkips = 0L;
             java.util.ArrayList<java.util.Map.Entry<Integer, long[]>> e = new java.util.ArrayList<>(byProgram.entrySet());
             e.sort((x, y) -> Long.compare(y.getValue()[0] + y.getValue()[1], x.getValue()[0] + x.getValue()[1]));

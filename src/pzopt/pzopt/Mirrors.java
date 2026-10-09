@@ -366,6 +366,17 @@ public final class Mirrors {
    }
 
    /** Game thread, FBORenderCell.renderTranslucent: a window / mirror tile about to draw; its quads go to {@link #captured}. */
+   /** tileRecordVisuals: whether beginCapture could take this object (no side effects; the recorder leaves it to the game thread). */
+   public static boolean capturable(IsoObject o) {
+      if (!frameOn || o == null || o.square == null) {
+         return false;
+      }
+      if (o instanceof IsoWindow) {
+         return Config.MIRRORS_WINDOWS;
+      }
+      return mirrorInfo(o.getSprite()) != null || Props.on() && (Config.DEV_MIRRORS_PROP_SKIP & 1) == 0 && Props.info(o.getSprite()) != null;
+   }
+
    public static boolean beginCapture(IsoObject o) {
       if (!frameOn || o == null || o.square == null || curKey.containsKey(o)) {
          return false;

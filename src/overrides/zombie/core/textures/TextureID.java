@@ -50,6 +50,7 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
    protected transient int id = -1;
    private int glMagFilter = -1;
    private int glMinFilter = -1;
+   private int pzoptSentMin = -1, pzoptSentMag = -1; // pzopt: texParamCache, the filters last sent to this GL name (-1 unknown)
    ArrayList<AlphaColorIndex> alphaList;
    int referenceCount;
    BooleanGrid mask;
@@ -413,6 +414,7 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
    private void generateHwId(boolean setPixels) {
       pzopt.TexCompress.pollStaging(); // pzopt: texCompress, releases GPU staging ranges whose fence signalled
       this.id = pzopt.GlNames.texture(); // pzopt: glNoSync, a pooled name instead of a driver round trip
+      this.pzoptSentMin = this.pzoptSentMag = -1; // pzopt: texParamCache, a new name has the GL defaults
       Texture.totalTextureID++;
       GL11.glBindTexture(3553, Texture.lastTextureID = this.id);
       SpriteRenderer.ringBuffer.restoreBoundTextures = true;
@@ -501,6 +503,10 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
 
    private void assignFilteringFlags() {
       GL11.glBindTexture(3553, this.id);
+      if (pzopt.Config.TEX_PARAM_CACHE) { // pzopt: texParamCache, the filters the stock sequence below leaves, sent only when they changed
+         this.pzoptAssignFilteringCached(); // pzopt
+         return; // pzopt
+      } // pzopt
       if (this.width == 1 && this.height == 1) {
          GL11.glTexParameteri(3553, 10241, 9728);
          GL11.glTexParameteri(3553, 10240, 9728);
@@ -553,6 +559,60 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
          PZGLUtil.checkGLErrorThrowTexture("assignFilteringFlags id:%d pathFileName:%s", new Object[]{this.id, this.pathFileName});
       }
    }
+
+   /** pzopt: texParamCache, assignFilteringFlags' result (the last value of each filter its sequence sets) sent only on change. */
+   private void pzoptAssignFilteringCached() { // pzopt
+      int min, mag; // pzopt
+      boolean screen = false; // pzopt
+      if (this.width == 1 && this.height == 1) { // pzopt
+         min = mag = 9728; // pzopt
+      } else { // pzopt
+         if (PerformanceSettings.fboRenderChunk && Core.getInstance().getOffscreenBuffer() != null // pzopt
+            && this == ((Texture)Core.getInstance().getOffscreenBuffer().getTexture()).dataid) { // pzopt
+            this.glMinFilter = Core.getInstance().getScreenFilter(); // pzopt
+            this.glMagFilter = this.glMinFilter; // pzopt
+            screen = true; // pzopt: the offscreen buffer is never cached (the upscalers set its filters directly)
+         } // pzopt
+         min = this.glMinFilter; // pzopt
+         mag = pzopt.SpriteFilter.magFilter(this.glMagFilter); // pzopt: sprite filter, a chunk texture in the composite
+         if ((this.flags & 64) != 0 && DebugOptions.instance.isoSprite.nearestMagFilterAtMinZoom.getValue() && this.isMinZoomLevel() && this.glMagFilter != 9728) { // pzopt
+            mag = 9728; // pzopt
+         } // pzopt
+         if (PerformanceSettings.fboRenderChunk // pzopt
+            && (!DebugOptions.instance.fboRenderChunk.mipMaps.getValue() || FBORenderChunkManager.instance.renderThreadCurrent != null) && (this.flags & 64) != 0) { // pzopt
+            min = mag = 9728; // pzopt
+         } // pzopt
+         if (DebugOptions.instance.isoSprite.forceLinearMagFilter.getValue() && this.glMagFilter != 9729) { // pzopt
+            mag = 9729; // pzopt
+         } // pzopt
+         if (DebugOptions.instance.isoSprite.forceNearestMagFilter.getValue() && this.glMagFilter != 9728) { // pzopt
+            mag = 9728; // pzopt
+         } // pzopt
+         if (DebugOptions.instance.isoSprite.forceNearestMipMapping.getValue() && this.glMinFilter == 9987) { // pzopt
+            min = 9986; // pzopt
+         } // pzopt
+         if (DebugOptions.instance.isoSprite.textureWrapClampToEdge.getValue()) { // pzopt
+            GL11.glTexParameteri(3553, 10242, 33071); // pzopt
+            GL11.glTexParameteri(3553, 10243, 33071); // pzopt
+         } // pzopt
+         if (DebugOptions.instance.isoSprite.textureWrapRepeat.getValue()) { // pzopt
+            GL11.glTexParameteri(3553, 10242, 10497); // pzopt
+            GL11.glTexParameteri(3553, 10243, 10497); // pzopt
+         } // pzopt
+      } // pzopt
+      if (screen || min != this.pzoptSentMin) { // pzopt
+         GL11.glTexParameteri(3553, 10241, min); // pzopt
+         this.pzoptSentMin = screen ? -1 : min; // pzopt
+      } else { // pzopt
+         pzopt.DrawStats.texParamSkips++; // pzopt
+      } // pzopt
+      if (screen || mag != this.pzoptSentMag) { // pzopt
+         GL11.glTexParameteri(3553, 10240, mag); // pzopt
+         this.pzoptSentMag = screen ? -1 : mag; // pzopt
+      } else { // pzopt
+         pzopt.DrawStats.texParamSkips++; // pzopt
+      } // pzopt
+   } // pzopt
 
    public void setMagFilter(int filter) {
       this.glMagFilter = filter;

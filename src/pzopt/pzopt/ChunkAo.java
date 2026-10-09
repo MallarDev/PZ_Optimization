@@ -624,7 +624,7 @@ public final class ChunkAo {
          if (!deferMasks) {
             exteriorMask(job.ext, c, minLevel);
             wallMask(job.wall, c, minLevel);
-            job.far = Config.SUN_SHADOW_FAR && farGrid(job, c, minLevel);
+            job.far = Config.SUN_SHADOW_FAR && farGrid(job, c, minLevel) && packFar(job);
          }
       } else {
          job.far = false;
@@ -739,7 +739,7 @@ public final class ChunkAo {
          if (job.sun) {
             exteriorMask(job.ext, c, minLevel);
             wallMask(job.wall, c, minLevel);
-            job.far = Config.SUN_SHADOW_FAR && farGrid(job, c, minLevel);
+            job.far = Config.SUN_SHADOW_FAR && farGrid(job, c, minLevel) && packFar(job);
          }
          if (Config.AO && Config.AO_ROOF_SKIP) {
             roofLevels(job.roofLv, c, minLevel);
@@ -1347,6 +1347,20 @@ public final class ChunkAo {
       return max;
    }
 
+   /**
+    * Game thread, right after farGrid: the far field's three planes interleaved as the texture takes them, so the render
+    * thread uploads one block (it built them byte by byte per baked texture: ~3 % of the render thread, 2026-10-09).
+    */
+   private static boolean packFar(Job job) {
+      byte[] o = job.farRGB, h = job.farH, t = job.farT, p = job.farP;
+      for (int i = 0, k = 0; i < FAR_SIDE * FAR_SIDE; i++, k += 3) {
+         o[k] = h[i];
+         o[k + 1] = t[i];
+         o[k + 2] = p[i];
+      }
+      return true;
+   }
+
    /** The neighbour slots whose texture of this level pair and zoom exists and is baked. */
    private static int presentMask(IsoChunk c, int minLevel, int playerIndex, float zoom) {
       zombie.iso.IsoCell cell = IsoWorld.instance.currentCell;
@@ -1855,6 +1869,7 @@ public final class ChunkAo {
       final byte[] farT = new byte[FAR_SIDE * FAR_SIDE]; // sunShadowFarTrees: crown tops the same way (0: no crown)
       final byte[] farP = new byte[FAR_SIDE * FAR_SIDE]; // bush tops the same way
       final byte[] farScratch = new byte[FAR_SIDE * FAR_SIDE];
+      final byte[] farRGB = new byte[FAR_SIDE * FAR_SIDE * 3]; // the three planes interleaved for the upload (packFar, game thread)
       boolean farTrees; // farT has a crown
       float farMaxH; // the tallest column, squares
       float sunTanElev; // tan of the sun's elevation (the march length)
@@ -2994,9 +3009,7 @@ public final class ChunkAo {
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.farTex);
          }
          this.farBuf.clear();
-         for (int i = 0; i < FAR_SIDE * FAR_SIDE; i++) {
-            this.farBuf.put(job.farH[i]).put(job.farT[i]).put(job.farP[i]); // R columns, G crowns, B bushes
-         }
+         this.farBuf.put(job.farRGB); // R columns, G crowns, B bushes (interleaved by packFar on the game thread)
          this.farBuf.flip();
          GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 1);
          GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, FAR_SIDE, FAR_SIDE, GL11.GL_RGB, GL11.GL_UNSIGNED_BYTE, this.farBuf);

@@ -1047,6 +1047,8 @@ public final class CarGlass {
    // ------------------------------------------------------------------------------------------------ the world framebuffer (render thread)
 
    private static int worldColor, worldDepth, worldW, worldH, worldInfoFbo = -1;
+   private static long devGetFrames, devGetChecks, devGetMismatches;
+   private static int vpW, vpH;
    static final int WORLD_UNIT = 11, WORLD_DEPTH_UNIT = 12;
    private static final int[] VPI = new int[4];
    private static final float[] VP = new float[4];
@@ -1054,12 +1056,39 @@ public final class CarGlass {
    /** Render thread, carGlassSnapMode=live: the world framebuffer's textures and the viewport, once a frame; no copies. */
    private static void liveSetup() {
       try {
-         int worldFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
-         GL11.glGetIntegerv(GL11.GL_VIEWPORT, VPI);
-         VP[0] = VPI[0];
-         VP[1] = VPI[1];
-         VP[2] = VPI[2];
-         VP[3] = VPI[3];
+         // carGlassNoGet: the game's tracked binding and, with no render scale, the world framebuffer's full size: a glGet here
+         // waited for NVIDIA's threaded GLX driver to drain its queue every frame (37 % of the render thread, 2026-10-09)
+         boolean tracked = Config.CAR_GLASS_NO_GET && worldInfoFbo > 0 && worldW > 0 && !RenderScale.active() && zombie.characters.IsoPlayer.numPlayers == 1;
+         int worldFbo;
+         if (tracked) {
+            worldFbo = zombie.core.textures.TextureFBO.lastID;
+            vpW = zombie.core.Core.width; // the world pass's viewport: the screen (the texture is larger, a power of two; the offscreen size is the zoomed-out one); one player only
+            vpH = zombie.core.Core.height;
+            VP[0] = 0F;
+            VP[1] = 0F;
+            VP[2] = vpW;
+            VP[3] = vpH;
+            if (Config.DEV_CAR_GLASS_GET_CHECK > 0 && ++devGetFrames % Config.DEV_CAR_GLASS_GET_CHECK == 0) {
+               int real = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+               GL11.glGetIntegerv(GL11.GL_VIEWPORT, VPI);
+               devGetChecks++;
+               if (real != worldFbo || VPI[0] != 0 || VPI[1] != 0 || VPI[2] != vpW || VPI[3] != vpH) {
+                  if (devGetMismatches++ < 10) {
+                     Log.info("car glass: dev get check: framebuffer " + real + " tracked " + worldFbo + ", viewport " + VPI[0] + "," + VPI[1] + " " + VPI[2] + "x" + VPI[3] + " tracked " + vpW + "x" + vpH);
+                  }
+               }
+               if (devGetChecks % 200 == 0) {
+                  Log.info("car glass: dev get checks " + devGetChecks + ", mismatches " + devGetMismatches);
+               }
+            }
+         } else {
+            worldFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+            GL11.glGetIntegerv(GL11.GL_VIEWPORT, VPI);
+            VP[0] = VPI[0];
+            VP[1] = VPI[1];
+            VP[2] = VPI[2];
+            VP[3] = VPI[3];
+         }
          if (worldFbo != worldInfoFbo) {
             GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, worldFbo);
             worldInfo(worldFbo);

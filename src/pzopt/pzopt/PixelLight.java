@@ -511,6 +511,61 @@ public final class PixelLight {
     * base, 32 registers; the full program 48, 10 waves instead of 16 on the flip's RDNA 3.5), switched through the game's
     * program cache; the first draw of a frame on each program sets its light uniforms, every draw its light list.
     */
+   /**
+    * Render thread, TextureDraw's StartShader before the bind (pplRemap): the program chunkDraw would switch to for this
+    * chunk texture (the variant for its lights, foliage sway's twin of it), bound in place of the full one, so a chunk
+    * draw binds one program instead of two (2 % of the render thread on the 120 km/h drive, 2026-10-09).
+    */
+   public static int remap(int program, TextureDraw texd) {
+      if (!Config.PPL_REMAP || !ACTIVE || failed || !Gl.wantOn || texd == null || texd.tex1 == null) {
+         return program;
+      }
+      zombie.viewCone.ChunkRenderShader stock = zombie.core.SceneShaderStore.chunkRenderShader;
+      if (stock == null || program != stock.getID() || shaderIsDevStock(stock) || (costMask & (256 | 512 | 8192)) != 0) {
+         return program;
+      }
+      try {
+         zombie.core.opengl.Shader want = GL.variantFor(GL.lightBits(texd.tex1));
+         if (Config.SWAY_TWIN_REMAP) {
+            want = Sway.twinOrSelf(want, texd);
+         }
+         return want != null ? want.getID() : program;
+      } catch (Throwable t) {
+         return program;
+      }
+   }
+
+   private static boolean shaderIsDevStock(zombie.viewCone.ChunkRenderShader s) {
+      return s == stockShader;
+   }
+
+   public static long visRebakes, visSkipped;
+
+   /**
+    * LightingJNI, a square's visibility bits changed under pixelLight (the texture is unlit; the bits decide object
+    * alphas in the bake): whether its chunk level must re-bake. The bake reads them only for a change of "seen" (powered
+    * objects, first sight), on a square with a cut wall (cutaway alpha by canSee; a window or door's cutaway by its own
+    * and its north / west neighbour's couldSee, so also the squares south and east of it). Elsewhere a flip of canSee /
+    * couldSee changes nothing baked: those re-bakes were half of all bakes while driving (615 vs 303 a second, 2026-10-09).
+    */
+   public static boolean visRebake(zombie.iso.IsoGridSquare sq, int was, int now) {
+      if (!Config.PPL_VIS_REBAKE_FILTER || sq == null || ((was ^ now) & ~Config.PPL_VIS_REBAKE_SKIP_BITS) != 0 || cutWall(sq)) {
+         visRebakes++;
+         return true;
+      }
+      zombie.iso.IsoCell cell = sq.getCell();
+      if (cell != null && (cutWall(cell.getGridSquare(sq.x, sq.y + 1, sq.z)) || cutWall(cell.getGridSquare(sq.x + 1, sq.y, sq.z)))) {
+         visRebakes++;
+         return true;
+      }
+      visSkipped++;
+      return false;
+   }
+
+   private static boolean cutWall(zombie.iso.IsoGridSquare sq) {
+      return sq != null && (sq.has(zombie.iso.SpriteDetails.IsoFlagType.cutN) || sq.has(zombie.iso.SpriteDetails.IsoFlagType.cutW));
+   }
+
    public static void chunkDraw(zombie.core.opengl.Shader shader, TextureDraw texd) {
       try {
          zombie.viewCone.ChunkRenderShader stock = stockShader;
@@ -1762,6 +1817,7 @@ public final class PixelLight {
       private final int[] chunkFlags = new int[1024];
       private boolean baseTried;
       private int precompiled;
+      private int twinsWarmed;
       // dry: torch and lamps, torch, lamps; then the same in the rain
       private static final int[] PRECOMPILE = {V_NO_WET | V_NO_MASK, V_NO_WET | V_NO_MASK | V_NO_POINT, V_NO_WET | V_NO_MASK | V_NO_TORCH, V_NO_MASK,
          V_NO_MASK | V_NO_POINT, V_NO_MASK | V_NO_TORCH};
@@ -2123,6 +2179,11 @@ public final class PixelLight {
             if (!this.variants.containsKey(key)) {
                this.variants.put(key, compileVariant(key));
             }
+         } else if (baseShader != null && Config.DEV_PPL_VIEW == 0 && this.twinsWarmed <= PRECOMPILE.length) {
+            // then foliage sway's twin of each, one a frame (built on its first draw it was a 144 ms frame mid-drive)
+            int key = this.twinsWarmed == 0 ? V_BASE : PRECOMPILE[this.twinsWarmed - 1];
+            this.twinsWarmed++;
+            Sway.warmTwin(this.variants.get(key));
          }
          this.shadowLight = f.shadowLight;
          System.arraycopy(f.la, 0, this.la, 0, f.lights * 4);
@@ -3137,7 +3198,7 @@ public final class PixelLight {
       "}");
 
    /** The game's chunkShader.frag (DIFFUSE x vertex colour, depth = chunkDepth + the texture's depth) with the light multiplied in. */
-   private static final String CHUNK_FRAG_BODY = String.join("\n",
+   private static final String CHUNK_FRAG_BODY = (Config.DEV_COMPOSITE_EMPTY_SKIP > 0 ? "#define PZ_EMPTY_SKIP " + Config.DEV_COMPOSITE_EMPTY_SKIP + ".0\n" : "") + String.join("\n",
       "#ifdef PPL_NO_RELIEF", // dev: a variant without relief (cost A/B)
       "#undef PPL_RELIEF",
       "#undef RELIEF_SHADOW",
@@ -3248,6 +3309,9 @@ public final class PixelLight {
       "}",
       "#endif",
       "void main() {",
+      "#ifdef PZ_EMPTY_SKIP", // dev (devCompositeEmptySkip): how much of the composite's GPU time empty texels cost (a coarse mip level fully transparent: discarded first; approximate, faint texels too)
+      "   if (textureLod(DIFFUSE, texCoord.st, PZ_EMPTY_SKIP).a <= 0.0) discard;",
+      "#endif",
       "   vec4 c = vec4(1.0, 1.0, 1.0, 1.0);",
       "   if (useTexture == 1) c = texture(DIFFUSE, texCoord.st);",
       "   float dt = texture(DEPTH, texCoord.st).r;",

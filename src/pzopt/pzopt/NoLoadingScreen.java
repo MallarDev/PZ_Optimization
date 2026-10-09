@@ -36,7 +36,16 @@ public final class NoLoadingScreen {
          return;
       }
       last = current;
+      CutawayMask.prefetch(); // the first state change (main menu): decoded long before the first cutaway
+      ModelShaders.collectWarmup();
+      if (current instanceof zombie.gameStates.GameLoadingState) {
+         ModelShaders.warmup();
+      }
       if (current instanceof IngameState) {
+         if (Config.SHADER_WARMUP && Overrides.enabled()) {
+            zombie.core.opengl.RenderThread.queueInvokeOnRenderContext(GodRays.Gl::warm);
+            zombie.core.opengl.RenderThread.queueInvokeOnRenderContext(BloodWet.Gpu::warm);
+         }
          CenterFirstLoad.onWorldEntered();
          ResumeShot.onWorldEntered();
          visibleState = 0;

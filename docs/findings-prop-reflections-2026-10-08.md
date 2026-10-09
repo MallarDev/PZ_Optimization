@@ -139,6 +139,25 @@ A top z = c is a plane of the model pass too (the camera's reflection in the mod
 - dev views 7 / 8 (the raw layers over the reflector quads) must write `gl_FragDepth` on their early return in the props'
   program, or nothing draws (the first probes looked empty for that reason).
 
+## Open: sliding glass door leaves do not reflect (2026-10-09, maintainer: "I'll tackle it later")
+
+Found making the Workshop card (`harness/props-reflect-card.py`, runs `gpc2-stock-cap` / `gpc2-enh-cap`, the Rosewood back
+yard with two sliding doors at 7951,11503-04 and 11507-08): only half of each sliding glass door reflects. A sliding door is
+two tiles:
+
+| Part | Sprites | Tile data | Reflects |
+|---|---|---|---|
+| fixed pane | `fixtures_doors_01_104-107` (brown frame), `112-115` (white) | `WindowW` / `windowW`, `MaterialType=Glass`, `GlassRemovedOffset` | yes, as a window (the mirrors' window path) |
+| sliding leaf | `fixtures_doors_01_108-111` (brown), `116-119` (white) | `Material=Door`, `doorW` / `doorN`, `doorTrans`, no glass word anywhere; only `DoorSound=SlidingGlassDoor` tells it | no |
+
+`harness/props/catalog.py` skips the leaves: `classify()` drops window tiles and tests only the material / group / name
+fields for "glass". Fix to try: class `glass` for `DoorSound=SlidingGlassDoor` tiles without a window key (or name the 8
+sprites), rerun `masks.py` (the open-state sprites 110/111, 118/119 are mostly frame: check their masks), rebuild, and check
+the leaf as an IsoDoor in both states (open / closed, the open one drawn as `doorTrans`); then a release. Other glass doors
+whose tile data has no glass word may be missing the same way: list the doors (`DoorSound`, `doorTrans`) the catalog leaves
+out. Repro: the card's walk (`walk=7951.0,11502.3;7951.0,11508.3`, `start=7952,11503`, zoom 0.5, noon), compare the two
+halves of the door at 7951,11507-08 (the player's image shows in the lower-left pane only).
+
 ## Rigs
 
 - `harness/props/catalog.py --sheet`, `masks.py --sheet` (faces coloured: top yellow, south cyan, east magenta).

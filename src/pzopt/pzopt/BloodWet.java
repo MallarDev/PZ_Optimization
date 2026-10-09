@@ -619,6 +619,19 @@ public final class BloodWet {
          });
       }
 
+      /**
+       * Render thread, at world entry (shaderWarmup): both programs built before the first blood is drawn (~60 ms cold, mid-play
+       * before); not while reflections are wanted but not patched in yet (the surface program bakes in their mode).
+       */
+      static void warm() {
+         boolean ssrWanted = Config.SSR && Config.SSR_STRENGTH_PCT > 0;
+         if (!on() || ssrWanted && !(Ssr.supported() && (!"ppr".equals(Ssr.mode()) || Ssr.ppr()))) {
+            return;
+         }
+         init(false);
+         init(true);
+      }
+
       private static boolean init(boolean glint) {
          if (failed) {
             return false;
