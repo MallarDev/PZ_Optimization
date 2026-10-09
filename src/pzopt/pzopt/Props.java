@@ -144,6 +144,9 @@ public final class Props {
    }
 
    private static boolean enabledClass(int cls) {
+      if (cls == MIRROR && !Config.MIRRORS_WALL_MIRRORS) {
+         return false; // the gym's wall mirrors go with the wall mirrors
+      }
       String want = Config.MIRRORS_PROP_CLASSES;
       if (want.isBlank() || "all".equals(want)) {
          return true;

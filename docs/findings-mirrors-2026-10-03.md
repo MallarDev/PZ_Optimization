@@ -341,6 +341,18 @@ it by up to d along the glass (the room keeps the true lateral shift).
 The mirror walk also ends on its own 5 s past `mirror_secs` when no director said done (an 8 s route without a running
 `explore-director.py` held the game ~200 s until the harness gave up).
 
+## Windows without the wall mirrors (2026-10-09, `mirrorsWallMirrors`)
+
+A player on Discord asked for the window and mirror reflections as separate settings: in their mirrors the reflected room
+went entirely black, and they wanted the windows anyway. `mirrorsWindows=false` already turned the windows off;
+`mirrorsWallMirrors=false` (default true, tab entry "Mirrors: wall mirrors reflect too", next launch) is the other half.
+`Mirrors.mirrorInfo` returns null for every mirror tile and wall-overlay mirror, so they bake and draw as stock (no
+per-frame tile, no capture, no room geometry, no cutaway hold on their wall), and `Props` drops the `mirror` class (the
+gym's wall mirrors). The rigs (`find=mirror`, `MirrorWalk`) find the mirrors through the ungated `mirrorTileInfo` /
+`attachedMirrorTile`. Runs `wm3-false` / `wm3-true` (the upstairs dresser at 7989,11276,1, lights on): the dresser shows
+its stock glass with `false`, the windows still reflect (152 tiles, 9,662 pane marches, 0 room-geometry marches vs 33).
+The black room itself was not reproduced here (no save or screenshot yet).
+
 ## Rigs
 
 - `harness/mirrors/tiles.py` (tile definitions by property), `packsprite.py` (sprites out of the .pack files),

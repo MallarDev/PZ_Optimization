@@ -136,12 +136,12 @@ final class MirrorWalk {
                for (int i = 0; i < sq.getObjects().size(); i++) {
                   IsoObject o = sq.getObjects().get(i);
                   zombie.iso.sprite.IsoSprite spr = o.getSprite();
-                  float[] info = Mirrors.mirrorInfo(spr);
+                  float[] info = Mirrors.mirrorTileInfo(spr);
                   if (info == null) {
-                     zombie.iso.sprite.IsoSpriteInstance att = Mirrors.attachedMirror(o);
+                     zombie.iso.sprite.IsoSpriteInstance att = Mirrors.attachedMirrorTile(o);
                      if (att != null) {
                         spr = att.getParentSprite();
-                        info = Mirrors.mirrorInfo(spr);
+                        info = Mirrors.mirrorTileInfo(spr);
                      }
                   }
                   if (info == null) {

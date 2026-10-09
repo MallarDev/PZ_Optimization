@@ -1450,6 +1450,7 @@ public final class Config {
    public static final int SSR_DISTORT_PCT = integer("ssrDistortPct", 100); // reflections: how far the waves displace the reflected image
    public static final boolean MIRRORS = bool("mirrors", false); // wall mirrors and windows reflect the room / street in front of them, characters and cars as their real mirrored models (pzopt.Mirrors; next launch)
    public static final boolean MIRRORS_WINDOWS = bool("mirrorsWindows", true); // mirrors: windows reflect too (false: wall mirrors only)
+   public static final boolean MIRRORS_WALL_MIRRORS = bool("mirrorsWallMirrors", true); // mirrors: wall mirrors reflect too (mirror tiles, mirrored cabinets and dressers, the gym's mirror props); false = windows / glass props only, the mirror tiles bake and draw as stock (Discord request 2026-10-09: windows without mirrors)
    public static final int MIRRORS_WINDOW_PCT = integer("mirrorsWindowPct", 30); // mirrors: how much of a window pane is its reflection, %
    public static final int MIRRORS_MIRROR_PCT = integer("mirrorsMirrorPct", 90); // mirrors: how much of a mirror's glass is its reflection, % (silvered glass: ~90)
    public static final boolean MIRRORS_MODELS = bool("mirrorsModels", true); // mirrors: characters and vehicles in front of a reflector drawn once more through the mirror plane (their real other side); false = only what the camera sees

@@ -2059,10 +2059,10 @@ public final class Harness {
                      if (!(o instanceof zombie.iso.objects.IsoWindow win) || win.isDestroyed() || win.isSmashed() || win.IsOpen()) continue;
                      info = new float[]{win.getNorth() ? 0F : 1F, 0F, 0F};
                   } else {
-                     info = Mirrors.mirrorInfo(o.getSprite());
+                     info = Mirrors.mirrorTileInfo(o.getSprite());
                      if (info == null) {
-                        zombie.iso.sprite.IsoSpriteInstance att = Mirrors.attachedMirror(o); // a wall mirror the map placed: an overlay of its wall
-                        info = att == null ? null : Mirrors.mirrorInfo(att.getParentSprite());
+                        zombie.iso.sprite.IsoSpriteInstance att = Mirrors.attachedMirrorTile(o); // a wall mirror the map placed: an overlay of its wall
+                        info = att == null ? null : Mirrors.mirrorTileInfo(att.getParentSprite());
                      }
                   }
                   if (info == null) continue;

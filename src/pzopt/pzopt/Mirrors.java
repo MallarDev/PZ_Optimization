@@ -132,6 +132,11 @@ public final class Mirrors {
 
    /** A mirror tile the camera sees the glass of: {axis (0 north wall, 1 west wall), plane offset from the wall, mask cell}, else null. */
    static float[] mirrorInfo(IsoSprite s) {
+      return Config.MIRRORS_WALL_MIRRORS ? mirrorTileInfo(s) : null; // (mirrorsWallMirrors off: no mirror tile is per frame, captured or held in the cutaway)
+   }
+
+   /** {@link #mirrorInfo} whether or not wall mirrors reflect (the harness rigs find the mirrors with it). */
+   static float[] mirrorTileInfo(IsoSprite s) {
       if (s == null) {
          return null;
       }
@@ -248,7 +253,15 @@ public final class Mirrors {
     * an object, so they bake with the wall and the object test never saw them (player save, 2026-10-04).
     */
    public static zombie.iso.sprite.IsoSpriteInstance attachedMirror(IsoObject o) {
-      if (!Config.MIRRORS || failed || o == null) {
+      if (!Config.MIRRORS || failed || !Config.MIRRORS_WALL_MIRRORS) {
+         return null;
+      }
+      return attachedMirrorTile(o);
+   }
+
+   /** {@link #attachedMirror} whether or not the mirrors are on (the harness rigs find the mirrors with it). */
+   static zombie.iso.sprite.IsoSpriteInstance attachedMirrorTile(IsoObject o) {
+      if (o == null) {
          return null;
       }
       ArrayList<zombie.iso.sprite.IsoSpriteInstance> a = o.getAttachedAnimSprite();
@@ -257,7 +270,7 @@ public final class Mirrors {
       }
       for (int i = 0, n = a.size(); i < n; i++) {
          zombie.iso.sprite.IsoSpriteInstance s = a.get(i);
-         if (s != null && mirrorInfo(s.getParentSprite()) != null) {
+         if (s != null && mirrorTileInfo(s.getParentSprite()) != null) {
             return s;
          }
       }

@@ -557,6 +557,7 @@ PzoptOptionClasses = {
     mirrorsViewDropPct = { "pzopt.Mirrors" },
     mirrorsViewLateralPct = { "pzopt.Mirrors" },
     mirrorsVisibility = { "pzopt.Mirrors" },
+    mirrorsWallMirrors = { "pzopt.Mirrors", "pzopt.Props" },
     mirrorsWindowHalfRes = { "pzopt.Mirrors" },
     mirrorsWindowPct = { "pzopt.Mirrors" },
     mirrorsWindows = { "pzopt.Mirrors" },
