@@ -31,6 +31,7 @@
 #   harness/queue.sh events [N]                # the last N events of this session
 #   harness/queue.sh status|wait|result|log [-f]|cancel <id|label>
 #   harness/queue.sh start [machine...] | stop [--now] | worker --machine <m> | monitor
+#   harness/queue.sh pause <machine> [reason] | resume <machine>   hold one machine's worker (no job, no idle reinstall)
 #
 # Session affinity: the session id is $PZQ_SESSION, else $CLAUDE_CODE_SESSION_ID (every Claude Code tool
 # shell has it), else user+parent pid. The first submit (or `bind`) records sessions/<sid>/machine and every
@@ -542,7 +543,7 @@ list() {
     printf '%-5s %-9s %-8s %-9s %-6s %-30s %-12s %s\n' "$(job_id "$d")" "$st" "$(jget "$d" machine)" "$(jget "$d" kind)" "$(order_of "$d")" "$(jget "$d" label | cut -c1-30)" "$(jget "$d" submitted | cut -c6-16)" "$note"
   done
   for m in $(machines); do
-    worker_alive "$m" && echo "worker $m: running (pid $(cat "$Q/worker-$m.pid"))$( [[ -f "$Q/stop" ]] && echo ', stopping after the current job')"
+    worker_alive "$m" && echo "worker $m: running (pid $(cat "$Q/worker-$m.pid"))$( [[ -f "$Q/stop" ]] && echo ', stopping after the current job')$( [[ -f "$Q/pause-$m" ]] && echo ", PAUSED: $(cat "$Q/pause-$m")")"
   done
   if monitor_alive; then echo "monitor: running (pid $(cat "$Q/monitor.pid"))"; else echo "monitor: not running (harness/queue.sh start)"; fi
 }
@@ -946,7 +947,6 @@ workshop_job() { # stage, then the Steamworks API upload (scripts/workshop-uploa
   launch "$d" "$cwd" scripts/workshop.sh "${argv[@]}" || return 1
   grep -q "^id=$WORKSHOP_ID" "$WS_DIR/workshop.txt" 2>/dev/null || { echo "[$(ts)] $WS_DIR/workshop.txt is not staged for item $WORKSHOP_ID" >> "$d/output.log"; return 1; }
   launch "$d" "$cwd" python3 scripts/workshop-upload.py --dir "$WS_DIR" --notes "$notes" || return $?
-  cp "$WS_DIR/workshop.txt" "$cwd/docs/workshop/workshop.txt" 2>/dev/null && echo "[$(ts)] copied workshop.txt to $cwd/docs/workshop/workshop.txt (uncommitted)" >> "$d/output.log"
   # every release is announced on Discord after the upload (2026-10-04); a failed post does not fail the job
   local i tag=""
   for ((i = 0; i < ${#argv[@]}; i++)); do [[ "${argv[i]}" == --tag ]] && tag="${argv[i+1]}"; done
@@ -954,6 +954,7 @@ workshop_job() { # stage, then the Steamworks API upload (scripts/workshop-uploa
     launch "$d" "$cwd" python3 scripts/discord-announce.py --tag "$tag" ||
       echo "[$(ts)] discord announce failed; post it with: scripts/discord-announce.py --tag $tag" >> "$d/output.log"
   fi
+  cp "$WS_DIR/workshop.txt" "$cwd/docs/workshop/workshop.txt" 2>/dev/null && echo "[$(ts)] copied workshop.txt to $cwd/docs/workshop/workshop.txt (uncommitted)" >> "$d/output.log"
   return 0
 }
 
@@ -962,8 +963,8 @@ result_workshop() {
   echo "--- workshop_log.txt ($WORKSHOP_ID)"; grep -a "$WORKSHOP_ID" "$STEAM_LOGS/workshop_log.txt" 2>/dev/null | tail -3 | cut -c1-200
   echo "--- change-notes page (newest entry)"; changelog_first_entry
   echo "--- staged"; grep -E '^(id|title)=' "$WS_DIR/workshop.txt" 2>/dev/null
-  echo "--- workshop-upload.py"
   echo "--- discord"; grep -a '^discord' "$d/output.log" | tail -2
+  echo "--- workshop-upload.py"
   grep -a -E '^(steam:|item |description |submitted|  +[0-9.]+ s  |upload (OK|FAILED)|check OK|Steam |SteamAPI_|no result|the SubmitItemUpdate|note:)' "$d/output.log" | tail -16
   if (( rc == 0 )); then
     echo "next: commit $cwd/docs/workshop/workshop.txt (\"workshop: stage the <commit> release\")"
@@ -1116,6 +1117,8 @@ worker() { # --machine <m>
   local d rc
   while :; do
     if [[ -f "$Q/stop" ]]; then say "worker $m stopping"; break; fi
+    # queue.sh pause <m>: start no job (and no idle reinstall) until resume; the worker stays up so a submit cannot undo it
+    if [[ -f "$Q/pause-$m" ]]; then sleep 10; continue; fi
     d=$(next_pending "$m"); rc=$?
     case "$rc" in
       0) run_job "$d" "$m" ;;
@@ -1173,6 +1176,9 @@ case "${1:-}" in
   cancel) [[ -n "${2:-}" ]] || die "cancel <id|label>"; cancel "$2" ;;
   start) shift; start_cmd "$@" ;;
   stop) stop_cmd "${2:-}" ;;
+  pause) [[ -n "${2:-}" ]] && is_machine "$2" || die "pause <machine> [reason]"
+    echo "$(date '+%F %T') ${3:-paused by $USER}" > "$Q/pause-$2"; echo "$2 paused: its worker starts no job until 'harness/queue.sh resume $2' (a running job finishes)" ;;
+  resume) [[ -n "${2:-}" ]] && is_machine "$2" || die "resume <machine>"; rm -f "$Q/pause-$2"; echo "$2 resumed" ;;
   worker) shift; worker "$@" ;;
   monitor) monitor ;;
   dir) echo "$Q" ;;

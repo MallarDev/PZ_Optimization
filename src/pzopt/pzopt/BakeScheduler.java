@@ -69,6 +69,18 @@ public final class BakeScheduler {
    public void begin(int frameNo) {
       this.frame = frameNo;
       this.n = 0;
+      // Chunk objects the streamer threads reused since the last frame leave the tables here, on the game thread: the
+      // maps are plain IdentityHashMaps read and written by the plan, and a remove from WorldReuserThread / WorldStreamer
+      // while the prune below iterated them was a ConcurrentModificationException out of the cell render (one frame
+      // without a world composite, 2026-10-01 console of the maintainer's Riverside session).
+      for (Object c; (c = REUSED.poll()) != null; ) {
+         for (BakeScheduler s : players) {
+            if (s != null) {
+               s.dirtySince.remove(c);
+               s.arrivalGrant.remove(c); // the repeat stat is per chunk position
+            }
+         }
+      }
       for (long[] g : this.granted.values()) {
          long bits = g[0];
          while (bits != 0L) {
@@ -350,14 +362,15 @@ public final class BakeScheduler {
       }
    }
 
-   /** A chunk object is being reused for another position. */
+   /** Chunk objects reused for another position (IsoChunk.resetForStore, on the world streamer / reuser threads). */
+   private static final java.util.concurrent.ConcurrentLinkedQueue<Object> REUSED = new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+   /**
+    * A chunk object is being reused for another position. Called off the game thread (WorldReuserThread, WorldStreamer,
+    * WorldGenerate): the removal is queued and done by every player's {@link #begin} on the game thread.
+    */
    public static void chunkReused(Object c) {
-      for (BakeScheduler s : players) {
-         if (s != null) {
-            s.dirtySince.remove(c);
-            s.arrivalGrant.remove(c); // the repeat stat is per chunk position
-         }
-      }
+      REUSED.add(c);
    }
 
    public String summary() {

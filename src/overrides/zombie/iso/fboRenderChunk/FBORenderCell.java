@@ -6363,7 +6363,8 @@ public final class FBORenderCell {
             if (renderLevels.isOnScreen(z) && renderLevels.isDirty(z, zoom)) {
                // pzopt: bakeScheduler, a held level re-bakes in a later frame; the occluders only change with the levels
                // granted now (the rebuild ran every frame while any re-bake waited: 7 % of late game steps, run td-prof4)
-               if (this.pzoptSchedPlanned && pzopt.Config.OCCLUSION_GRANTED_ONLY && !pzopt.BakeScheduler.get(playerIndex).peek(c, renderLevels.getMinLevel(z))) {
+               if (this.pzoptSchedPlanned && pzopt.Config.OCCLUSION_GRANTED_ONLY && !pzopt.BakeScheduler.get(playerIndex).peek(c, renderLevels.getMinLevel(z))
+                     && !renderLevels.isDirty(z, 2048L | 16384L, zoom)) { // pzopt: a held cutaway / collapse change still rebuilds the grid (see prepareChunksForUpdating)
                   continue;
                }
                if (renderLevels.isDirty(z, ~32L, zoom)) {
@@ -6612,10 +6613,18 @@ public final class FBORenderCell {
                   continue; // pzopt: zoomRetain, prepared in the frame the plan bakes it (a zoom-out dirties ~200 levels at once)
                }
                if (this.pzoptSchedPlanned && !pzopt.BakeScheduler.get(playerIndex).peek(c, z) && renderLevels.getFBOForLevel(z, zoom) != null
-                     && !renderLevels.isDirty(z, 512L, zoom)) {
+                     && !renderLevels.isDirty(z, 512L, zoom) && !renderLevels.isDirty(z, 2048L | 16384L, zoom)) { // pzopt
                   // pzopt: bakeScheduler, a held level keeps its texture and the square flags of its last preparation (they
                   // match what is on screen); a never-textured level is always prepared: the occlusion count reads these
-                  // flags, and one never prepared counted 0 squares, was skipped as occluded and never baked (holes, td-combo6r)
+                  // flags, and one never prepared counted 0 squares, was skipped as occluded and never baked (holes, td-combo6r).
+                  // A held cutaway / collapse change (2048 / 16384) is prepared anyway: walking into a building marks every
+                  // level of its chunks at once and the grants spread them over several frames; the levels still waiting
+                  // kept the flags of the roof squares, the occlusion grid went on counting that roof as cover over the
+                  // garage floor below, the already prepared garage level counted 0 rendered squares, was freed as hidden
+                  // and came back a few frames later: black chunk-shaped holes in the floor for 2-3 frames at every entry
+                  // (fire department, 2026-10-01, runs ghost-south-*; census ghost-south-census: "hidden" re-creations
+                  // 5 frames after the burst). With the flags fresh the hidden levels above cull at once and the floor
+                  // below keeps its texture; only the bake itself waits for its grant.
                   continue; // pzopt
                }
                this.prepareChunkForUpdating(playerIndex, c, z);

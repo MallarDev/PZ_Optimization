@@ -55,7 +55,8 @@ with tempfile.TemporaryDirectory() as td:
             st, n = l.rsplit(" ", 1)
             fr = st.split(";")
             n = int(n)
-            if fr[0].startswith("[MainThread"):
+            # native threads started from the game thread inherit its name: only the one running Java frames counts
+            if fr[0].startswith("[MainThread") and any(x.endswith("_[j]") for x in fr):
                 game[chain(fr)] += n
                 gtot += n
             elif fr[0].startswith("[main"):

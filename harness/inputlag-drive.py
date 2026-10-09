@@ -44,6 +44,37 @@ def now_us():
     return time.time_ns() // 1000
 
 
+def kwin_js(src):
+    """Run a one-off KWin script (KDE Wayland) and return what it printed after "PZOPT_KWIN:" ("" when unavailable)."""
+    path = "/tmp/pzopt-kwin-%d.js" % time.time_ns()
+    name = path.rsplit("/", 1)[1]
+    try:
+        with open(path, "w") as f:
+            f.write(src)
+        since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 1))
+        sid = subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.loadScript", path, name],
+                             capture_output=True, text=True, timeout=3).stdout.strip()
+        if not sid.lstrip("-").isdigit() or int(sid) < 0:
+            return ""
+        subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting/Script" + sid, "org.kde.kwin.Script.run"],
+                       capture_output=True, timeout=3)
+        time.sleep(0.2)
+        subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", name],
+                       capture_output=True, timeout=3)
+        out = subprocess.run(["journalctl", "--user", "--since", since, "-o", "cat"], capture_output=True, text=True,
+                             timeout=5).stdout
+        hits = [l.split("PZOPT_KWIN:", 1)[1] for l in out.splitlines() if "PZOPT_KWIN:" in l]
+        return hits[-1].strip() if hits else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    finally:
+        try:
+            import os
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 class Driver:
     def __init__(self, flag_file):
         self.flag_file = flag_file
@@ -62,6 +93,9 @@ class Driver:
                                   timeout=3).stdout.strip()
         except (OSError, subprocess.TimeoutExpired):
             name = ""
+        if name != "Project Zomboid":
+            # a native Wayland game window (hdr / hdrAuto) is invisible to xdotool: ask KWin
+            name = kwin_js('print("PZOPT_KWIN:" + (workspace.activeWindow ? workspace.activeWindow.caption : ""));') or name
         if name == "Project Zomboid":
             self.skips = 0
             return True
@@ -112,6 +146,8 @@ class Driver:
         elif op == "activate":  # raise the game window once (the run was announced; it has focus after launch anyway)
             subprocess.run(["xdotool", "search", "--name", "^Project Zomboid$", "windowactivate", "--sync"],
                            capture_output=True, timeout=5)
+            kwin_js('for (const w of workspace.windowList()) if (w.caption == "Project Zomboid") '
+                    '{ workspace.activeWindow = w; print("PZOPT_KWIN:raised"); }')  # native Wayland window
             self.log("activate t=%d" % now_us())
         elif op == "flag":
             with open(self.flag_file, "a") as f:

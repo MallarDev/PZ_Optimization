@@ -288,6 +288,7 @@ PzoptOptionClasses = {
     devSsrBarrierOff = { "pzopt.Ssr" },
     devSsrDumpAt = { "pzopt.Ssr" },
     devSsrNoPatch = { "pzopt.Ssr" },
+    devSsrNoStencil = { "pzopt.Ssr" },
     devSsrSkip = { "pzopt.Ssr" },
     devSsrTiming = { "pzopt.Ssr" },
     devSsrTrace = { "pzopt.Ssr" },

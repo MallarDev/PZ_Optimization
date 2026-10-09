@@ -6045,6 +6045,62 @@ test that returns at once.
 - `sunShadowLampMeshNearPct` / `FarPct` (100 / 300): a character's lamp-view shadow (torch / headlight) fades into the
   capsules' soft shadow from 1 to 3 squares from the caster; a low headlight's leg shadows no longer run as thin torn strands.
 
+## pzopt.BakeScheduler (2026-10-01): chunk reuse off the game thread
+
+`BakeScheduler.chunkReused` is called from `IsoChunk.resetForStore`, which the world streamer and reuser threads run
+(`WorldReuserThread`, `WorldStreamer`, `WorldGenerate`) when a chunk object is handed to another position. It removed the
+chunk from the scheduler's `dirtySince` / `arrivalGrant` `IdentityHashMap`s while the game thread's `begin` pruned them
+(`removeIf` every 256 frames) or `offer` wrote them: the maintainer's 2026-10-01 console had three
+`java.util.ConcurrentModificationException` out of `FBORenderCell.pzoptRenderInternal` (frames 262912, 311808, 318464),
+each one frame with no world composite (`docs/findings-burn-in-ghost-2026-10-01.md`; the ghost image of that report is
+not this). The reuse now goes into a `ConcurrentLinkedQueue` and `begin` removes the queued chunks from every player's
+maps on the game thread before the prune.
+
+## zombie.iso.fboRenderChunk.FBORenderCell (edit of 2026-10-01, held cutaway levels keep their square flags fresh)
+
+Walking into a building (the Riverside fire department garage from the street, runs `ghost-south-*`) showed, for 2-3
+frames at 60 fps, fragments of the roof still drawn over the garage next to chunk-shaped black holes in the floor; the
+stock control (`enabled=false`, run `ghost-south-stock`) switches in one frame. The per-frame bake census
+(`--prop instrument=true`, run `ghost-south-census`) had the building's cutaway / collapse re-bakes (flags 2048 / 16384)
+spread by the bake scheduler over eight game frames, and in the last three of them five garage chunk levels re-created
+"without prior dirt" (`BakeLog.hidden`): a held level kept the square flags of its last preparation (the comment in
+`prepareChunksForUpdating`: they match the texture on screen), so the occlusion grid went on counting the neighbours'
+roof squares as cover over the garage floor, the garage level already prepared counted 0 rendered squares, took the
+occlusion return (`clearDirty` + `freeFBOsForLevel`) and came back a few frames later as a creation, black until granted.
+
+Edit (`// pzopt` lines): `prepareChunksForUpdating` prepares a held level anyway when its dirt includes 2048 or 16384
+(flags only; the bake still waits for its grant), and `pzoptOcclusionGridChanged` no longer skips such a level under
+`occlusionGrantedOnly`, so the grid is rebuilt from flags of one state. Hidden levels above cull at once (their count is
+0), the floor below keeps its texture. Run `ghost-south-fix2`: census shows no hidden re-creations after the settle, the
+recording switches roof -> garage in one frame (12 fps crop), the flash counter's worst cell 708 px vs 930-1,016 px in
+five cells before.
+
+Found on the way and not ours: the façade wall lamp standing in the middle of the garage for ~1 s after the entry,
+fading. Stock does the same (the cut-away object's alpha fades at `IsoObject.updateAlpha`'s rate, `alphaStep / 14`
+per frame on game time, ~1 s at any frame rate); while the game is paused the fade stands still.
+
+## Reflections: the moving-object scatter marks its pixels (2026-10-01, pzopt.Ssr, `devSsrNoStencil`)
+
+Report (maintainer, 2026-10-01): puddle reflections flicker where broken glass lies in the puddle, while the character
+walks and when the glass is next to a window. Code reading: the moving-object box pass (`Ssr.Moving`, run after the water
+for the next frame's epoch) scattered **every** pixel of the object's screen box whose world depth fell into the object's
+own band, not only the object's: a broken-glass decal at the character's feet (a `MinusFloor` sprite without
+`solidfloor`, baked with standing depth) and the wall or window right behind the character are in that band too, and
+their copy written at this frame's camera position for the next frame sat beside the composite's fresh key of the same
+surface once the camera had moved (same epoch, `atomicMax` per texel): a per-frame alternation between two copies of
+the shards' reflection. Now the models' pixels carry a stencil mark and the pass draws with `glStencilFunc(GL_NOTEQUAL,
+0, 0x7F)`, so only what the moving objects drew is scattered; static sources stay the composite's alone.
+
+Rig and what the captures showed: `harness/CLAUDE.md` (`glass=` flags, `glass-flicker.py`), runs `glass-*`. The
+teleport walk's one-frame redraws of the interior behind a smashed window happen in stock too (whole-tile teleports);
+the puddle itself did not flicker with the camera still. The real-walk A/B of the fix: runs `glass-circ-*`.
+
+### zombie.core.textures.TextureDraw
+- The DrawModel case (render thread), where the upscaler's motion id selects `ObjectMotion.beginStencil`: with no motion id
+  and `Ssr.stencilMoving()` true (reflections on, pixel-projected, the moving pass not skipped, the world framebuffer bound)
+  the draw is wrapped the same way with `ObjectMotion.MOVING_ID` (126; the motion ids now stop at 125). Nothing else changes.
+  Atlas (far) zombies are drawn as sprite quads, carry no mark and are therefore no longer reflected by the moving pass.
+
 ## Key binding label: the overlay binding's text (2026-10-05, Discord bug report; PerformanceSettings)
 
 ### zombie.core.PerformanceSettings

@@ -24,8 +24,10 @@ public final class ObjectMotion {
    private ObjectMotion() {
    }
 
-   /** Stencil ids 1..126 for objects (bit 7 is the game's tree mask; 127 is the water, {@link #WATER_ID}). */
-   static final int MAX_IDS = 126;
+   /** Stencil ids 1..125 for objects (bit 7 is the game's tree mask; 126 marks a moving object for the reflections, {@link #MOVING_ID}; 127 is the water, {@link #WATER_ID}). */
+   static final int MAX_IDS = 125;
+   /** The stencil id TextureDraw gives a model's pixels when no motion id applies and pzopt.Ssr wants them marked (its moving-object scatter reads only marked pixels). */
+   public static final int MOVING_ID = 126;
    /** The stencil id of the water surface (dlssWaterCurrent): ModelManager.RenderWater writes it, {@link Dlss} masks it. */
    static final int WATER_ID = 127;
    private static final int SLOTS = 4;

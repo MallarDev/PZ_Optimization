@@ -650,6 +650,20 @@ public final class Ssr {
       }
    }
 
+   /**
+    * Render thread, TextureDraw as a model draws into the world framebuffer: true when the moving-object scatter wants
+    * the model's pixels marked in the stencil (ids as pzopt.ObjectMotion writes them, bit 7 stays the game's). The pass
+    * then scatters only marked pixels. Before (2026-10-01): every pixel of the object's depth band, so the floor decals
+    * at a character's feet (broken glass) and the wall behind it were written a second time, for the next frame, at this
+    * frame's camera position; after the camera moved the stale key sat beside the composite's fresh one and the puddle's
+    * reflection of the shards flickered every frame of a walk.
+    */
+   public static boolean stencilMoving() {
+      Frame f = renderFrame;
+      return f != null && f.view.on && !failed && !Config.DEV_SSR_NO_STENCIL && (Config.DEV_SSR_SKIP & 1) == 0 && ppr()
+            && zombie.core.textures.TextureFBO.lastID == cachedFbo;
+   }
+
    private static final class Moving extends TextureDraw.GenericDrawer {
       final Frame frame;
       static int program, vao;
@@ -719,7 +733,17 @@ public final class Ssr {
             GL20.glUniform1f(u[12], f.puddles ? 0.4F : 0.75F);
             GL20.glUniform1f(u[13], reachRows(f.view, VP));
             GL11.glDisable(GL11.GL_SCISSOR_TEST);
-            GL11.glDisable(GL11.GL_STENCIL_TEST);
+            boolean stencil = stencilMoving();
+            if (stencil) {
+               // only the pixels the models drew this frame (TextureDraw marks them): the floor and whatever stands in
+               // the object's depth band are the composite's own sources, a second copy of them would be stale next frame
+               GL11.glEnable(GL11.GL_STENCIL_TEST);
+               GL11.glStencilMask(0);
+               GL11.glStencilFunc(GL11.GL_NOTEQUAL, 0, 0x7F);
+               GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_KEEP);
+            } else {
+               GL11.glDisable(GL11.GL_STENCIL_TEST);
+            }
             GL11.glDisable(GL11.GL_ALPHA_TEST);
             GL11.glDisable(GL11.GL_DEPTH_TEST);
             GL11.glDisable(GL11.GL_BLEND);
@@ -728,6 +752,9 @@ public final class Ssr {
             GL30.glBindVertexArray(vao);
             org.lwjgl.opengl.GL31.glDrawArraysInstanced(GL11.GL_TRIANGLE_FAN, 0, 4, f.boxes);
             GL30.glBindVertexArray(0); // (restoreVbos below: the ring buffer binds its own again)
+            if (stencil) {
+               ObjectMotion.endStencil(); // the game's cached stencil state back
+            }
             org.lwjgl.opengl.GL42.glBindImageTexture(HASH_IMAGE_UNIT, hashTex, 0, false, 0, org.lwjgl.opengl.GL15.GL_READ_WRITE, GL30.GL_R32UI);
             movingDraws++;
             trMoving++;

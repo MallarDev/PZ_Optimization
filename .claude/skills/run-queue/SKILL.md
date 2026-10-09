@@ -168,6 +168,8 @@ loss (ssh keepalive 5 s × 2).
 harness/queue.sh cancel <id|label>       # pending: dropped; running: SIGTERM to its process group (run.sh restores latestSave.ini)
 harness/queue.sh start [machine...]      # monitor + workers (transient user units pzq-monitor, pzq-<m>); submit does this itself
 harness/queue.sh stop [--now]            # after the current jobs / interrupt them; use only when the user asks
+harness/queue.sh pause <m> [reason]      # one machine starts no job (no idle reinstall) until `resume <m>`; `list` shows PAUSED + reason;
+harness/queue.sh resume <m>              #   for a maintainer using the machine themselves (only when the user asks; jobs wait, not dropped)
 ```
 
 State lives outside the repo in `~/.local/state/pzopt-queue/` (`jobs/`, `machines/<m>/state`,

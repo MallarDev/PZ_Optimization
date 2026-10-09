@@ -800,6 +800,128 @@ local function lureTick()
     end
 end
 
+-- glass=R (2026-10-01, puddle reflection flicker with broken glass): glass_at (4) s after the player exists, broken
+-- glass (IsoGridSquare.addBrokenGlass, the stock IsoBrokenGlass floor sprite, baked as a MinusFloor object) on every
+-- free level-0 square within R tiles of the player, glass_dx / glass_dy (0) tiles away; one log line with the count.
+-- With weather=storm thunder_secs=0 puddles=0.8 and a still camera (route=S:1 speed=1 hold=N) the puddles lie over
+-- the shards: runs `glass-*`.
+local glass = nil
+local function glassTick()
+    if glass == false then return end
+    local player = getPlayer()
+    if not player then return end
+    if glass == nil then
+        local flags = readFlags()
+        if not flags or not flags.glass or flags.glass == "" then glass = false; return end
+        local win = flags.glass:match("^window([NW]?)$")
+        if flags.glass == "find" then win = "" end -- list the candidates (nearest first, up to 12), smash nothing
+        glass = { r = win and (tonumber(flags.glass_r) or 40) or (tonumber(flags.glass) or 3), window = win,
+                  dx = tonumber(flags.glass_dx) or 0, dy = tonumber(flags.glass_dy) or 0,
+                  atMs = getTimestampMs() + (tonumber(flags.glass_at) or 4) * 1000, find = flags.glass == "find",
+                  n = tonumber(flags.glass_n) or 1 }
+    end
+    if getTimestampMs() < glass.atMs then return end
+    local sq = player:getCurrentSquare()
+    if not sq then return end
+    if glass.window then
+        -- glass=windowN|windowW: the nearest exterior window of that facing within glass_r (40) tiles on level 0,
+        -- smashed (no alarm), broken glass on both of its squares, the player put 3 tiles along the wall on the
+        -- outside square so a route E:6 (N) / S:6 (W) walks past it; the route origin is the player's position at
+        -- route start, so this teleport must land before it (glass_at)
+        local want = glass.window
+        local cell = getCell()
+        local r = glass.r
+        local best, bestD, bestOut, bestWx, bestWy = nil, 1e9, nil, 0, 0
+        local fb, fbD, fbOut, fbWx, fbWy = nil, 1e9, nil, 0, 0 -- fallback: any window of the facing with a free opposite square
+        local nSq, nWin, nFacing, nShown = 0, 0, 0, 0
+        local found = {}
+        for x = sq:getX() - r, sq:getX() + r do
+            for y = sq:getY() - r, sq:getY() + r do
+                local s = cell:getGridSquare(x, y, 0)
+                if s then
+                    nSq = nSq + 1
+                    local objs = s:getObjects()
+                    for i = 0, objs:size() - 1 do
+                        local o = objs:get(i)
+                        if instanceof(o, "IsoWindow") then
+                            nWin = nWin + 1
+                            local north = o:getNorth()
+                            if (want == "" or north == (want == "N")) and not o:isDestroyed() then
+                                nFacing = nFacing + 1
+                                local opp = cell:getGridSquare(north and x or x - 1, north and y - 1 or y, 0)
+                                -- "outside" = the square has puddle geometry (level-0 outdoor squares only; isOutside() and
+                                -- getRoom() said false / nil for every square of the Rosewood store, 2026-10-01)
+                                local sOut, oOut = s:getPuddles() ~= nil, opp and opp:getPuddles() ~= nil or false
+                                local d = (x - sq:getX()) ^ 2 + (y - sq:getY()) ^ 2
+                                table.insert(found, { d = d, x = x, y = y, north = north, sOut = sOut, oOut = oOut, o = o })
+                                if glass.find then
+                                elseif nShown < 4 then
+                                    nShown = nShown + 1
+                                    print(string.format("[pzopt-harness] glass: window%s %d,%d puddles=%s opposite puddles=%s", north and "N" or "W", x, y,
+                                        tostring(sOut), tostring(oOut)))
+                                end
+                                local out = nil
+                                if opp and oOut and not sOut then out = opp
+                                elseif opp and sOut and not oOut then out = s end
+                                if out and d < bestD then best, bestD, bestOut, bestWx, bestWy = o, d, out, x, y end
+                                if opp and d < fbD then fb, fbD, fbOut, fbWx, fbWy = o, d, (sOut and s or opp), x, y end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        print(string.format("[pzopt-harness] glass: scanned %d squares, %d windows, %d facing %s, exterior match=%s", nSq, nWin, nFacing, want, tostring(best ~= nil)))
+        if glass.find then
+            table.sort(found, function(a, b) return a.d < b.d end)
+            for i = 1, math.min(12, #found) do
+                local w = found[i]
+                local ox, oy = w.x, w.y
+                if w.north then oy = oy - 1 else ox = ox - 1 end
+                print(string.format("[pzopt-harness] glass: find %2d: window%s %d,%d dist %.0f puddles=%s opposite(%d,%d) puddles=%s", i, w.north and "N" or "W",
+                    w.x, w.y, math.sqrt(w.d), tostring(w.sOut), ox, oy, tostring(w.oOut)))
+            end
+            glass = false
+            return
+        end
+        if not best and fb then best, bestOut, bestWx, bestWy = fb, fbOut, fbWx, fbWy; print("[pzopt-harness] glass: no exterior test match, taking the nearest window of that facing") end
+        if not best then print("[pzopt-harness] glass: no window" .. want .. " within " .. r .. " tiles of " .. sq:getX() .. "," .. sq:getY()); glass = false; return end
+        best:smashWindow(false, false)
+        best:addBrokenGlass(false)
+        best:addBrokenGlass(true)
+        if glass.n > 1 then
+            -- glass_n=N: the N nearest windows of the facing (a shop front), glass on both squares of each
+            table.sort(found, function(a, b) return a.d < b.d end)
+            local k = 1
+            for i = 1, #found do
+                if k >= glass.n then break end
+                local w = found[i]
+                if w.o ~= best and not w.o:isDestroyed() then
+                    w.o:smashWindow(false, false); w.o:addBrokenGlass(false); w.o:addBrokenGlass(true); k = k + 1
+                    print(string.format("[pzopt-harness] glass: also window%s %d,%d", w.north and "N" or "W", w.x, w.y))
+                end
+            end
+        end
+        local north = best:getNorth()
+        print(string.format("[pzopt-harness] glass: window%s at %d,%d smashed, glass on both squares, outside square %d,%d (put the route past it with start= / route=)",
+            north and "N" or "W", bestWx, bestWy, bestOut:getX(), bestOut:getY()))
+        glass = false
+        return
+    end
+    local cx, cy = sq:getX() + glass.dx, sq:getY() + glass.dy
+    local n, skipped = 0, 0
+    for x = cx - glass.r, cx + glass.r do
+        for y = cy - glass.r, cy + glass.r do
+            local s = getCell():getGridSquare(x, y, 0)
+            if s and s:isFree(false) and s:getBrokenGlass() == nil then
+                s:addBrokenGlass(); n = n + 1
+            else skipped = skipped + 1 end
+        end
+    end
+    print(string.format("[pzopt-harness] glass: %d squares of broken glass round %d,%d (r=%d), %d skipped", n, cx, cy, glass.r, skipped))
+    glass = false
+end
+
 -- options_check=S (2026-09-23): S seconds into the world, activate the Optimizations tab of the in-game options
 -- screen (built lazily on first activation since the lazy-tab change) through the stock tab path, without
 -- showing the screen, and log whether it built, its control count and whether building left the screen
@@ -950,11 +1072,60 @@ local function inputLagTick()
     end
 end
 
+-- world_map=<s> (2026-09-27, Workshop report "CTD when opening the map or at max zoom"): <s> seconds after the player
+-- exists open the world map, then sweep its zoom (setZoom, no easing) from the maximum down to the base zoom (fully
+-- zoomed out), back up and down again in world_map_steps (24) steps of world_map_step_ms (250) each, logging
+-- [pzopt-map] zoom=; it stays fully zoomed out until world_map_secs (30) after opening, then closes the map.
+local worldMap = nil
+local function worldMapTick()
+    if worldMap == false then return end
+    if not getPlayer() then return end
+    local now = getTimestampMs()
+    if worldMap == nil then
+        local flags = readFlags()
+        if not flags or not flags.world_map or flags.world_map == "" then worldMap = false; return end
+        worldMap = { openMs = now + (tonumber(flags.world_map) or 8) * 1000, secs = tonumber(flags.world_map_secs) or 30,
+            stepMs = tonumber(flags.world_map_step_ms) or 250, steps = tonumber(flags.world_map_steps) or 24, i = 0 }
+    end
+    if not worldMap.opened then
+        if now < worldMap.openMs then return end
+        worldMap.opened = true
+        print("[pzopt-map] opening world map, allowed=" .. tostring(ISWorldMap.IsAllowed()))
+        ISWorldMap.ShowWorldMap(0)
+        worldMap.closeMs = now + worldMap.secs * 1000
+        worldMap.nextMs = now + 1000
+        print("[pzopt-map] open=" .. tostring(ISWorldMap_instance and ISWorldMap_instance:isVisible()))
+        return
+    end
+    local ui = ISWorldMap_instance
+    if not ui then return end
+    if now >= worldMap.closeMs then
+        ui:close()
+        print("[pzopt-map] closed")
+        worldMap = false
+        return
+    end
+    local n = worldMap.steps
+    if now < worldMap.nextMs or worldMap.i > 3 * n then return end
+    worldMap.nextMs = now + worldMap.stepMs
+    local base, max = ui.mapAPI:getBaseZoom(), 18.0
+    -- 0..n: max -> base, n..2n: base -> max, 2n..3n: max -> base
+    local i = worldMap.i
+    local t = (i <= n) and (i / n) or ((i <= 2 * n) and (1 - (i - n) / n) or ((i - 2 * n) / n))
+    ui.mapAPI:setZoom(max + (base - max) * t)
+    worldMap.i = i + 1
+    print("[pzopt-map] step " .. i .. " zoom=" .. string.format("%.3f", ui.mapAPI:getZoomF()) .. " base=" .. string.format("%.3f", base))
+end
+
 local function onTickEvenPaused()
+    local ok5, err5 = pcall(worldMapTick)
+    if not ok5 then print("[pzopt-map] rig error " .. tostring(err5)); worldMap = false end
     local ok4, err4 = pcall(inputLagTick)
     if not ok4 then print("[pzopt-inputlag] rig error " .. tostring(err4)); inputLag = false end
     local ok3, err3 = pcall(pauseMenuTick)
     if not ok3 then print("[pzopt-harness] pause menu: rig error " .. tostring(err3)); pauseMenu = false end
+    local okg, errg = pcall(glassTick)
+    if not okg then print("[pzopt-harness] glass: rig error " .. tostring(errg)); glass = false end
     local ok, err = pcall(lureTick)
     if not ok then print("[pzopt-harness] lure: rig error " .. tostring(err)); lure = false end
     local ok2, err2 = pcall(optionsCheckTick)

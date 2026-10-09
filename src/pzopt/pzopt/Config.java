@@ -1399,6 +1399,7 @@ public final class Config {
    public static final int DEV_SSR_ALTERNATE = integer("devSsrAlternate", 0); // dev: the reflections flip on / off every N ms (same-run A/B of their cost)
    public static final boolean DEV_SSR_BARRIER_OFF = bool("devSsrBarrierOff", false); // dev: devSsrAlternate's off frames still issue the texture barrier
    public static final int DEV_SSR_SKIP = integer("devSsrSkip", 0); // dev: cost probes, bits: 1 no moving-object scatter, 2 no water resolve (strength 0), 4 no barriers before the water, 8 no composite scatter
+   public static final boolean DEV_SSR_NO_STENCIL = bool("devSsrNoStencil", false); // dev: the moving-object scatter takes every pixel of the object's depth band again instead of the pixels the models drew (stencil): the 2026-10-01 puddle flicker beside broken glass while walking
    public static final int DEV_SSR_VIEW = integer("devSsrView", 0); // dev: 1 = water and puddles show the reflection term alone
    public static final boolean DEV_SSR_NO_PATCH = bool("devSsrNoPatch", false); // dev: the shaders stay stock (cost of the patched programs with the reflections off)
    public static final boolean DEV_SSR_TRACE = bool("devSsrTrace", false); // dev: one log line per frame of the reflection scatter (map uploads with their water bits, chunk textures near water, composite draws with the scatter on, water draws, render-thread replays) with epoch ms, to line up with a devCapture

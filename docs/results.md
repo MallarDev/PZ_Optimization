@@ -10,6 +10,26 @@ Jev's verdict. This file keeps the prose: what was run, why, and what it showed.
 the dashboards "PZ run" / "PZ compare" show the numbers behind it, and states the frame tail (p99 / p99.9 /
 spikes / jitter) and the utilization over the route window, as the objective requires.
 
+## 2026-09-24 afternoon: sound engine pass (horde + thunderstorm + house and car alarms + gunfire + helicopter)
+
+Scene `--preset louisville --flag weather=storm --flag house_alarm=12 --flag car_alarm=8 --flag gunshots=2|8
+[--flag gunshot_weapon=Base.AssaultRifle] --flag helicopter=true --flag route=S:25 --flag speed=1 --route-seconds 25
+--record --record-audio game --asprof event=cpu,interval=5ms,threads --prop uncappedFps=true`, desktop, 5120x2160,
+NVIDIA GL, zoom 2.5, direct launch; stock = the same build with `--prop enabled=false`. Details and the audio verdicts:
+`findings-sound-2026-09-24.md`.
+
+| Run | fps | p50 / p99 / p99.9 ms | > 33 ms | jitter | game / render thread | GPU | sound code (game thread) | clipped samples | Jev audio |
+|---|---|---|---|---|---|---|---|---|---|
+| `snd-i4-stock-20260924-155836` (pistol) | 32.7 | 25.5 / 119.2 / 126.4 | 131 | 8.4 ms | 93 % / 52 % | 53 % | 1.3 ms / frame | 6,161 | distortion |
+| `snd-i4-opt-20260924-155716` (pistol) | 115.6 | 7.7 / 28.6 / 47.8 | 16 | 2.4 ms | 97 % / 39 % | 51 % | 0.24 ms / frame | 0 | clean 0.96 |
+| `snd-i6-stress-stock2-20260924-161256` (rifle, 8 shots/s) | 30.3 | 27.2 / 123.6 / 137.3 | 174 | 9.4 ms | 93 % / 51 % | 53 % | 1.38 ms / frame | 19,113 | distortion |
+| `snd-i6-stress-opt-20260924-160738` (rifle, 8 shots/s) | 118.1 | 7.7 / 25.5 / 65.5 | 17 | 2.3 ms | 96 % / 40 % | 53 % | 0.28 ms / frame | 0 | clean 0.96 |
+
+Both builds stay game-thread bound (93-97 % of a core) with the GPU half busy: below the cap with the GPU left
+over, the horde's simulation is the wall, not sound. Sound code was 5.3 % of the optimized game thread before the pass
+(`snd-i1-off-20260924-150826`) and is 2.7-2.9 % after (`emitterIdleSkip`: `snd-i1-on`; `soundTickHz`: `snd-i5-tick0`
+vs `snd-i5-tick60`). FMOD's own threads: 0.10-0.12 of a core in every run.
+
 ## 2026-09-24 evening: render distance upstairs (`chunkGridFollowView`)
 
 The maintainer's report: with a render distance above vanilla the screen corners are filled at the widest zoom on the
@@ -71,3 +91,21 @@ every optimization the game thread is still the wall (91 %) at half the GPU. Riv
 runs 1 and 3), p99 17 -> 7 ms; optimized it is GPU-bound (86-93 %). Run 2 (244 fps) had the machine's CPU at 51 %
 against 38-40 % in the others with the game's own CPU unchanged (something else was running), so it was redone (run 3);
 the director plays each run differently, so the shootout varies more than the walk.
+
+## 2026-10-09 00:00 — frame-time spikes, short drive and spin (`docs/findings-frame-spikes-2026-10-09.md`)
+
+Desktop, 5120x2160 at **165 Hz with VRR** (no longer 240 Hz), NVIDIA GL, direct launcher, `--option frameRate=240`, zoom 2.5.
+Drive = the first 487 tiles of `drive-120-south` (25 s), spin = the spin route with `--route-seconds 15`. "tab" = the
+desktop's own options file (nearly every Enhancement on, HDR on, `vrrCap=false`); "def" = an empty options file (VRR cap 157).
+
+| run | settings | fps | p99 | p99.9 | max | frames > 20 ms | GPU | game / render thread |
+|---|---|---|---|---|---|---|---|---|
+| spk-drive-20261008-235836 | tab, asprof + schedmon | 152 | 21.1 ms | 26.8 ms | 144 ms | 53 | 74 % | 74 / 92 % |
+| spk-spin-20261008-235941 | tab, asprof + schedmon | 123 | 21.9 ms | 30.1 ms | 428 ms | 49 | 63 % | 85 / 87 % |
+| spk-spin-tab-20261009-000606 | tab | 130 | 20.8 ms | 30.8 ms | 36.5 ms | 35 | 85 % | 86 / 88 % |
+| spk-spin-nohdr-20261009-000708 | tab, `hdr=false hdrAuto=false` | 110 | 24.7 ms | 40.9 ms | 158 ms | 105 | 62 % | 94 / 55 % |
+| spk-spin-def-20261009-000810 | defaults | 153 (cap 157) | 11.7 ms | 20.4 ms | 57.6 ms | 5 | 46 % | 68 / 39 % |
+
+The 144 / 428 ms frames are shaders compiled on the render thread mid-play (a foliage-sway twin of a pixelLight variant; the
+patched `vehicle` program for a burnt-car story's first car). The 20-35 ms frames are bake bursts with both threads already
+near full every frame with the Enhancements set; with the defaults the same bursts fit.

@@ -713,6 +713,10 @@ public final class Scene {
       if (treeMap > 0) {
          logTreeMap(IsoPlayer.getInstance(), treeMap);
       }
+      int groundMap = Integer.parseInt(HarnessFlags.get("ground_map", "0").trim());
+      if (groundMap > 0) {
+         logGroundMap(IsoPlayer.getInstance(), groundMap);
+      }
       SoundProbe.routeStart(IsoPlayer.getInstance(), nowNs);
    }
 
@@ -735,7 +739,9 @@ public final class Scene {
       }
    }
 
-   /** lights=on: grid power on, then every light switch within 50 tiles (levels 0-3) switched on, electricity check ignored. */
+   /** lights=on: grid power on (hydro power and the sandbox's ElecShutModifier past the world's age: a switch and a
+    *  street lamp only light while {@code hasGridPower()}, i.e. worldAgeDays <= ElecShutModifier, and the bench save is
+    *  past it), then every light switch within 50 tiles (levels 0-3) switched on, electricity check ignored. */
    private static void lightsOn() {
       IsoPlayer p = IsoPlayer.getInstance();
       lightsOnAround((int)p.getX(), (int)p.getY());
@@ -783,6 +789,34 @@ public final class Scene {
       Log.info("harness: tree map: " + found + " tree / vegetation objects within " + n + " squares of " + px + "," + py);
    }
 
+   /** ground_map=N: the level-0 squares within N tiles of the player at the route start, one console line per row
+    *  (x grows to the right, y downwards: world axes, not the screen's): P the player's square, W water, # a dry floor,
+    *  . no floor / not loaded; then the player's square (floor sprite, water, water squares within 1 and 2 tiles). The
+    *  standing-spot check of the preview shots (is the character on the dock, not over the river). */
+   private static void logGroundMap(IsoPlayer p, int n) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = (int)p.getX(), py = (int)p.getY();
+      int w1 = 0, w2 = 0;
+      for (int y = py - n; y <= py + n; y++) {
+         StringBuilder row = new StringBuilder();
+         for (int x = px - n; x <= px + n; x++) {
+            zombie.iso.IsoGridSquare sq = cell.getGridSquare(x, y, 0);
+            boolean water = sq != null && sq.isWaterSquare();
+            if (water) {
+               int d = Math.max(Math.abs(x - px), Math.abs(y - py));
+               if (d <= 1) w1++;
+               if (d <= 2) w2++;
+            }
+            row.append(x == px && y == py ? 'P' : water ? 'W' : sq != null && sq.getFloor() != null ? '#' : '.');
+         }
+         Log.info("harness: ground map y=" + y + " x=" + (px - n) + ".." + (px + n) + ": " + row);
+      }
+      zombie.iso.IsoGridSquare sq = cell.getGridSquare(px, py, 0);
+      zombie.iso.IsoObject floor = sq == null ? null : sq.getFloor();
+      Log.info("harness: ground under the player " + px + "," + py + ": floor=" + (floor == null || floor.getSprite() == null ? "none" : floor.getSprite().getName())
+            + " water=" + (sq != null && sq.isWaterSquare()) + " water within 1 tile=" + w1 + " within 2 tiles=" + w2);
+   }
+
    static boolean lightsFlag() {
       return "on".equals(lights);
    }
@@ -791,6 +825,11 @@ public final class Scene {
    static void lightsOnAround(int px, int py) {
       try {
          zombie.iso.IsoWorld.instance.setHydroPowerOn(true);
+         zombie.SandboxOptions so = zombie.SandboxOptions.instance;
+         int shut = (int)Math.ceil(zombie.iso.IsoWorld.instance.getWorldAgeDays()) + 30;
+         if (so.getElecShutModifier() < shut) {
+            so.elecShutModifier.setValue(shut);
+         }
          zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
          int on = 0;
          for (int z = 0; z < 4; z++) {
@@ -809,7 +848,9 @@ public final class Scene {
                }
             }
          }
-         Log.info("harness: lights=on: hydro power on, " + on + " light switches switched on within 50 tiles of " + px + "," + py);
+         Log.info("harness: lights=on: hydro power on, ElecShutModifier " + so.getElecShutModifier() + " (world age "
+               + (int)zombie.iso.IsoWorld.instance.getWorldAgeDays() + " days), grid power " + zombie.SandboxOptions.instance.doesPowerGridExist()
+               + ", " + on + " light switches switched on within 50 tiles of " + px + "," + py);
       } catch (Exception e) {
          Log.warn("harness: lights on failed: " + e);
       }

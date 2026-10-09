@@ -24,7 +24,8 @@ import zombie.vehicles.BaseVehicle;
  *
  * Keys it uses:
  *   mode     bench|parity|drive  drive the legacy route or validate and run a vehicle route; anything else: inactive
- *   route    legs      e.g. "E:600,S:600,W:600,N:600" — direction and length in tiles (drive: total distance; first leg = spawn heading)
+ *   route    legs      e.g. "E:600,S:600,W:600,N:600" — direction and length in tiles (drive: total distance; first leg = spawn heading);
+ *                      NE / NW / SE / SW legs run the diagonal (length along it)
  *   vehicle  script    drive mode: vehicle spawned on the nearest road when the player is on foot (default the race car; "none" = fixture required)
  *   kmh      km/h      drive mode: cruise-control speed (default 60); the route follows the road (roadFollow)
  *   path     x,y/x,y/… drive mode: drive this centreline instead (DrivePath, corners rounded to corner_radius, 10): the
@@ -71,6 +72,7 @@ import zombie.vehicles.BaseVehicle;
  *                      attached and overlay sprites (gas canopy lights, 2026-09-28)
  *   upstairs Z         dev: at route start move the player to the nearest loaded indoor square at level Z (issue #12)
  *   upstairs_at S      dev: with upstairs, make that move S seconds into the route instead (a Stats mark "upstairs")
+ *   pause_at S         dev: pause the game (speed 0, as the player's pause) S seconds into the route; the route stops too
  *   close_curtains true dev: at route start close every open curtain in that range through IsoCurtain.ToggleDoor
  *                      (map curtains always load open; the bench save is a copy, nothing persists)
  *   route_start_epoch  unix seconds: do not start the route before this instant (puts the route on the
@@ -198,6 +200,7 @@ public final class Harness {
    private static float x, y;
    private static int routeZ; // the level the bench route walks on (upstairs=Z moves it)
    private static float upstairsAt; // upstairs_at: seconds into the route of the level change (0 = at route start)
+   private static float pauseAt; // pause_at: seconds into the route at which the game is paused (UIManager speed 0), 0 = never
    private static float startX, startY;
    private static int chunksAtStart;
    private static long runStartNs;
@@ -707,6 +710,7 @@ public final class Harness {
                }
                int upstairs = Integer.parseInt(HarnessFlags.get("upstairs", "0").trim());
                upstairsAt = Float.parseFloat(HarnessFlags.get("upstairs_at", "0").trim());
+               pauseAt = Float.parseFloat(HarnessFlags.get("pause_at", "0").trim()); // pause_at=S: the game's own pause (speed 0) S seconds into the route
                if (upstairs > 0 && upstairsAt <= 0f) {
                   goUpstairs(p, upstairs); // dev: upper-floor rig (issue #12, FSR black squares upstairs)
                }
@@ -793,6 +797,12 @@ public final class Harness {
             if (Explore.done() || TreeWalk.done() || LightWalk.done() || RoomLightRig.done()) {
                finish(p, 0); // explore=restaurant: every room visited (or the director said done)
                return;
+            }
+            if (pauseAt > 0f && (nowNs - runStartNs) / 1e9 >= pauseAt) {
+               pauseAt = 0f; // once: the game paused as a player would (pause_at rig, the 2026-10-01 burn-in report was taken paused)
+               Stats.mark("pause");
+               Log.info(String.format(java.util.Locale.ROOT, "harness: paused at t=%.1fs", (nowNs - runStartNs) / 1e9));
+               zombie.ui.UIManager.getSpeedControls().SetCurrentGameSpeed(0);
             }
             if (upstairsAt > 0f && (nowNs - runStartNs) / 1e9 >= upstairsAt) {
                upstairsAt = 0f; // once: the level change mid-route (upstairs_at, issue #12 transition)
@@ -972,6 +982,11 @@ public final class Harness {
             case "W" -> legs.add(new float[]{-1, 0, len});
             case "N" -> legs.add(new float[]{0, -1, len});
             case "S" -> legs.add(new float[]{0, 1, len});
+            // diagonal legs (2026-10-01, the tree-stripes forest run): unit vector, len tiles along the diagonal
+            case "NE" -> legs.add(new float[]{0.70710677f, -0.70710677f, len});
+            case "NW" -> legs.add(new float[]{-0.70710677f, -0.70710677f, len});
+            case "SE" -> legs.add(new float[]{0.70710677f, 0.70710677f, len});
+            case "SW" -> legs.add(new float[]{-0.70710677f, 0.70710677f, len});
             default -> Log.warn("harness: unknown route direction " + kv[0]);
          }
       }

@@ -663,6 +663,9 @@ public final class TextureDraw {
                   break; // pzopt
                } // pzopt
                int pzoptMotionId = this.b > 0 && pzopt.RenderScale.inWorldPass() ? this.b : 0; // pzopt: upscaler, object motion vectors
+               if (pzoptMotionId == 0 && pzopt.Ssr.stencilMoving()) { // pzopt: reflections, the moving-object scatter reads only the pixels the models drew
+                  pzoptMotionId = pzopt.ObjectMotion.MOVING_ID; // pzopt
+               } // pzopt
                if (pzoptMotionId > 0) {
                   pzopt.ObjectMotion.beginStencil(pzoptMotionId);
                }
