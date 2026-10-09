@@ -80,8 +80,16 @@ public final class SquareTrace {
             IsoObject o = sq.getObjects().get(i);
             ObjectRenderInfo ri = o.getRenderInfo(playerIndex);
             String name = o.getSprite() == null ? "?" : o.getSprite().getName();
-            sb.append(String.format(Locale.ROOT, " [%s %s a=%.2f/%.2f%s]", name, ri.layer, ri.targetAlpha, o.getAlpha(playerIndex),
-                  o.getOverlaySprite() == null ? "" : " ov=" + o.getOverlaySprite().getName()));
+            StringBuilder att = new StringBuilder(); // (the map's wall overlays: wall mirrors, pictures)
+            if (o.getAttachedAnimSprite() != null) {
+               for (zombie.iso.sprite.IsoSpriteInstance s : o.getAttachedAnimSprite()) {
+                  if (s != null && s.getParentSprite() != null) {
+                     att.append(att.length() == 0 ? " att=" : ",").append(s.getParentSprite().getName());
+                  }
+               }
+            }
+            sb.append(String.format(Locale.ROOT, " [%s %s a=%.2f/%.2f%s%s]", name, ri.layer, ri.targetAlpha, o.getAlpha(playerIndex),
+                  o.getOverlaySprite() == null ? "" : " ov=" + o.getOverlaySprite().getName(), att));
          }
       }
       baked.clear();

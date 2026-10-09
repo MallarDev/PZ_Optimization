@@ -767,7 +767,26 @@ public final class Mirrors {
       } else {
          camStill++;
       }
-      for (Refl r : prev) {
+      // the static atlas holds one tile per pane at this zoom. Zoomed in among many panes (a motel's windows, glass and
+      // fixtures at zoom 0.25: 36 panes, ~5.4 M px for a 4.2 M px atlas) it cannot hold them all. Before 2026-10-10 a full
+      // atlas started over in the middle of a pass: the tiles handed out before the reset were void, those panes marched
+      // again the next pass, the atlas filled and started over again (337 times in 900 frames), and the panes first in
+      // line never kept a tile: a bathroom mirror showed only the stock glass (maintainer, 2026-10-09). Now the panes ask in
+      // order of importance (silvered mirrors first, then the nearest to the screen's centre), a pane that does not fit
+      // goes without a reflection, and the atlas starts over only at the top of a pass frame, when tiles of panes no longer
+      // on screen hold the space a pane on screen waits for. (dev skip bit 134217728: the old way)
+      ArrayList<Refl> order = prev;
+      if ((skipNow & 134217728) == 0) {
+         ORDER.clear();
+         ORDER.addAll(prev);
+         float cu = MAPG[1] + MAPG[0] * vw * 0.5F + ou, cv = MAPG[3] + MAPG[2] * vh * 0.5F + ov; // (the screen centre in pane units)
+         ORDER.sort((a, b) -> Float.compare(rank(a, cu, cv), rank(b, cu, cv)));
+         order = ORDER;
+         if (staticPass && passFrame && !zoomMoving) {
+            compactAtlas(order, ppu, ppv);
+         }
+      }
+      for (Refl r : order) {
          Tile known = TILES.get(r.key);
          // visibility feedback: a pane the composite drew no pixel of (under a roof, behind a building) is neither marched
          // nor a reason to mirror anyone (dev bit 1024: off)
@@ -962,7 +981,7 @@ public final class Mirrors {
       d[o + 21] = t == null ? 0F : t.y;
       d[o + 22] = t == null ? 0F : t.w;
       d[o + 23] = t == null ? 0F : t.h;
-      d[o + 24] = r.mirror ? 1F : 0F;
+      d[o + 24] = r.mirror ? 1F + viewLateral(true, skipNow) : 0F; // a mirror: 1 + where its people stand sideways of their image (viewLateral)
       d[o + 25] = t == null ? 1F : t.scale; // texels per px: 1, or 0.5 (a window's half-resolution march)
       d[o + 26] = t == null || t.ppu <= 0F || f.ppu <= 0F ? 1F : t.ppu / f.ppu; // tile px per px of this frame (1 unless the tile was marched at another zoom)
       d[o + 27] = t == null || t.ppv <= 0F || f.ppv <= 0F ? 1F : t.ppv / f.ppv;
@@ -1001,7 +1020,50 @@ public final class Mirrors {
    }
 
    private static final IdentityHashMap<Object, Tile> TILES = new IdentityHashMap<>();
+   private static final ArrayList<Refl> ORDER = new ArrayList<>();
    private static int shelfX, shelfY, shelfH, atlasGen;
+   private static long usedArea; // px handed out since the atlas last started over
+   static long atlasFullSkips;
+
+   /** A pane's place in the tile queue: silvered mirrors first, then by the distance (pane units) to the screen's centre. */
+   private static float rank(Refl r, float cu, float cv) {
+      float du = 0.5F * (r.u0 + r.u1) - cu, dv = 0.5F * (r.v0 + r.v1) - cv;
+      return (r.mirror || r.prop == Props.MIRROR ? 0F : 1e12F) + du * du + dv * dv;
+   }
+
+   private static int tileW(Refl r, float ppu) {
+      return (int)Math.ceil((r.u1 - r.u0) * ppu) + 2;
+   }
+
+   private static int tileH(Refl r, float ppv) {
+      return (int)Math.ceil((r.v1 - r.v0) * ppv) + 2;
+   }
+
+   /**
+    * Top of a pass frame: start the atlas over when panes on screen wait for a tile that does not fit in what is left and
+    * tiles of panes gone (or of an old size) hold at least an eighth of the atlas. Panes that do not fit after that go
+    * without a tile (tileFor), so a crowded view settles instead of starting over every pass.
+    */
+   private static void compactAtlas(ArrayList<Refl> order, float ppu, float ppv) {
+      long live = 0L, missing = 0L;
+      for (Refl r : order) {
+         Tile t = TILES.get(r.key);
+         int w = tileW(r, ppu), h = tileH(r, ppv);
+         if (t != null && t.gen == atlasGen && t.ppu == ppu && t.ppv == ppv && t.w >= w && t.h >= h && t.tex == r.tex) {
+            live += (long)(t.w + 1) * (t.h + 1);
+         } else if (w <= ATLAS && h <= ATLAS) {
+            missing += (long)(w + 1) * (h + 1);
+         }
+      }
+      long free = (long)ATLAS * ATLAS - usedArea;
+      if (missing > 0L && missing > free * 0.9F && usedArea - live >= (long)ATLAS * ATLAS / 8) {
+         atlasGen++;
+         atlasResets++;
+         TILES.clear();
+         shelfX = shelfY = shelfH = 0;
+         usedArea = 0L;
+      }
+   }
    static volatile float lastVw, lastVh;
    private static float lastPpu, lastPpv;
    private static final float[] VPG = new float[4], MAPG = new float[6];
@@ -1015,7 +1077,7 @@ public final class Mirrors {
    private static Tile tileFor(Refl r, float ppu, float ppv, boolean keep) {
       Tile t = TILES.get(r.key);
       float scale = !r.mirror && r.prop != Props.MIRROR && Config.MIRRORS_WINDOW_HALF_RES ? 0.5F : 1F;
-      int w = (int)Math.ceil((r.u1 - r.u0) * ppu) + 2, h = (int)Math.ceil((r.v1 - r.v0) * ppv) + 2; // (px of the quad: the colour and the glass mask texel per px)
+      int w = tileW(r, ppu), h = tileH(r, ppv); // (px of the quad: the colour and the glass mask texel per px)
       if (t != null && t.gen == atlasGen && t.ppu == ppu && t.ppv == ppv && t.scale == scale && t.w >= w && t.h >= h && t.tex == r.tex) {
          return t;
       }
@@ -1025,16 +1087,21 @@ public final class Mirrors {
       if (w > ATLAS || h > ATLAS) {
          return null;
       }
-      if (shelfX + w > ATLAS) {
+      if (shelfX + w > ATLAS && shelfY + shelfH + h <= ATLAS) {
          shelfX = 0;
          shelfY += shelfH;
          shelfH = 0;
       }
-      if (shelfY + h > ATLAS) {
-         atlasGen++; // full: start over, every pane marched again
+      if (shelfX + w > ATLAS || shelfY + h > ATLAS) {
+         if ((skipNow & 134217728) == 0) {
+            atlasFullSkips++; // full: this pane goes without a reflection (compactAtlas starts over at the top of a pass)
+            return null;
+         }
+         atlasGen++; // full: start over, every pane marched again (the old way)
          atlasResets++;
          TILES.clear();
          shelfX = shelfY = shelfH = 0;
+         usedArea = 0L;
       }
       t = new Tile();
       t.x = shelfX;
@@ -1048,6 +1115,7 @@ public final class Mirrors {
       t.tex = r.tex; // (a smashed / opened window draws another sprite: a new tile, marched at once)
       shelfX += w + 1;
       shelfH = Math.max(shelfH, h + 1);
+      usedArea += (long)(w + 1) * (h + 1);
       TILES.put(r.key, t);
       tileAllocs++;
       return t;
@@ -1392,6 +1460,9 @@ public final class Mirrors {
          Tile t = TILES.get(r.key);
          f.lTile[f.nL] = t;
          pack(f, r, f.lData, f.nL, t != null && t.refreshed >= 0L && t.gen == atlasGen && (skipNow & 1) == 0);
+         if ((skipNow & 67108864) != 0) {
+            f.lData[f.nL * TEX * 4 + 29] = -1F; // (row 7 .y, the composite's copy only: the old occlusion test for the mirrored people)
+         }
          if (!r.seen) {
             unseenPaneFrames++;
          }
@@ -1737,9 +1808,9 @@ public final class Mirrors {
          return;
       }
       int w = ATLAS, h = ATLAS;
-      glassTex = GL11.glGenTextures(); // each pane's glass mask, written by the static pass (the composite reads no sprite)
+      glassTex = GL11.glGenTextures(); // each pane's glass mask (R) and its people's line of sight (G, losOut), written by the static pass (the composite reads no sprite)
       GL11.glBindTexture(GL11.GL_TEXTURE_2D, glassTex);
-      GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_R8, w, h, 0, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE, (ByteBuffer)null);
+      GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RG8, w, h, 0, GL30.GL_RG, GL11.GL_UNSIGNED_BYTE, (ByteBuffer)null);
       GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
       GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
       staticTex = GL11.glGenTextures();
@@ -2016,7 +2087,7 @@ public final class Mirrors {
                }
             }
             GL42.glBindImageTexture(IMAGE_UNIT, staticTex, 0, false, 0, GLOSS_ACCUM ? GL15.GL_READ_WRITE : GL15.GL_WRITE_ONLY, GL11.GL_RGBA8);
-            GL42.glBindImageTexture(IMAGE_UNIT + 1, glassTex, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_R8);
+            GL42.glBindImageTexture(IMAGE_UNIT + 1, glassTex, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RG8);
             GL11.glDisable(GL11.GL_SCISSOR_TEST);
             GL11.glDisable(GL11.GL_STENCIL_TEST);
             GL11.glDisable(GL11.GL_DEPTH_TEST);
@@ -2940,7 +3011,7 @@ public final class Mirrors {
    }
 
    public static String stats() {
-      return "mirrors: frames " + frames + ", static draws " + staticDraws + " (" + tileMarches + " pane marches, " + tileAllocs + " tiles, " + atlasResets + " atlas resets, " + hiddenSkips + " hidden pane-frames skipped, " + budgetHolds + " held by the pass budget)" + ", composites " + lateDraws + ", model layer frames " + layerFrames + " (kept " + modelReuses + "), mirrored model draws " + modelDraws
+      return "mirrors: frames " + frames + ", static draws " + staticDraws + " (" + tileMarches + " pane marches, " + tileAllocs + " tiles, " + atlasResets + " atlas resets, " + atlasFullSkips + " panes without room, " + hiddenSkips + " hidden pane-frames skipped, " + budgetHolds + " held by the pass budget)" + ", composites " + lateDraws + ", model layer frames " + layerFrames + " (kept " + modelReuses + "), mirrored model draws " + modelDraws
             + ", framebuffer queries " + requeries + String.format(java.util.Locale.ROOT, ", render thread us per call: static %.1f, composite %.1f, model flush %.1f per drawn frame", staticCpuNs / 1e3 / Math.max(1, staticDraws),
                lateCpuNs / 1e3 / Math.max(1, lateDraws), flushCpuNs / 1e3 / Math.max(1, layerFrames))
             + String.format(java.util.Locale.ROOT, " (composite: upload %.1f, set-up %.1f, draw %.1f, restore %.1f)", lateSplit[0] / 1e3 / Math.max(1, lateDraws),
@@ -3083,7 +3154,7 @@ public final class Mirrors {
          kind == K_STATIC_IMAGE ? (GLOSS_ACCUM ? "#define PZ_ACCUM\nlayout(rgba8) uniform image2D Static;" : "layout(rgba8) writeonly uniform image2D Static;") : "",
          "uniform vec4 metal;", // x: steel / ceramic composited as a modulation (mirrorsPropMetalBlend)
          "uniform vec4 gloss;", // the static pass's jitter seed, the glossy history's blend weight
-         kind == K_STATIC_IMAGE ? "layout(r8) writeonly uniform image2D Glass;" : "",
+         kind == K_STATIC_IMAGE ? "layout(rg8) writeonly uniform image2D Glass;" : "",
          stat ? "" : "uniform sampler2D GlassTex;",
          stat ? "" : "uniform sampler2D StaticMip;",
          stat ? "" : "uniform sampler2D LayerTopColor;", // (the models mirrored in the props' tops)
@@ -3113,6 +3184,32 @@ public final class Mirrors {
    static final String FUNCS = String.join("\n",
          "float isoDepth(vec2 px) { return mapC.x * texelFetch(WorldDepth, ivec2(px), 0).r + mapC.y; }",
          "bool inside(vec2 px) { return px.x >= vp.x && px.y >= vp.y && px.x < vp.x + vp.z && px.y < vp.y + vp.w; }",
+         // a mirror's people stand where their own line of sight leaves pane point P: out, vl squares sideways (lateral - vl t)
+         // and vs levels down a square out (viewLateral / viewDrop; the camera's reflected ray is vl 1, vs 1/3). The first
+         // thing the frame shows on that line (marched before the characters draw: never the person) hides a person standing
+         // behind it; the camera's slanted ray (marchRay) is another line, which meets a side wall or the furniture beside
+         // the glass first: a person in front of a mirror next to a wall showed as a sliver (maintainer, 2026-10-09). Stored
+         // in the glass's G as 1 - distance / reach (0: nothing in the way within reach, the cleared value)
+         "#ifdef PZ_STATIC",
+         "float losOut(vec3 P, float axis, float vl, float vs, float reach, float floorZ) {",
+         "   float tEnd = min(reach, vs > 0.001 ? (P.z - floorZ) / vs - 0.05 : reach);", // (past its floor the line is under the people's feet)
+         "   float t0 = min(0.2, 0.5 * tEnd);", // (the glass's own frame and wall, as marchRay)
+         "   if (tEnd <= t0) return 0.0;",
+         "   vec2 pxPerT = axis < 0.5 ? vec2((-1.0 - vl) / mapA.x, (1.0 - vl + 6.0 * vs) / mapA.z) : vec2((1.0 + vl) / mapA.x, (1.0 - vl + 6.0 * vs) / mapA.z);",
+         "   vec2 px0 = vec2((P.x - P.y - mapA.y) / mapA.x, (P.x + P.y - 6.0 * P.z - mapA.w) / mapA.z);",
+         "   float wM = P.x + P.y + 2.0 * P.z, dw = 1.0 - vl - 2.0 * vs;", // (iso depth along the line)
+         "   int n = int(clamp(length(pxPerT) * (tEnd - t0) / march.w, 4.0, march.x));",
+         "   for (int i = 1; i <= 64; i++) {",
+         "      if (i > n) break;",
+         "      float t = t0 + (tEnd - t0) * float(i) / float(n);",
+         "      vec2 px = px0 + pxPerT * t;",
+         "      if (!inside(px)) return 0.0;",
+         "      float d = isoDepth(px) - (wM + dw * t);",
+         "      if (d >= 0.0 && d < march.y) return 1.0 - clamp(t / reach, 0.0, 1.0);",
+         "   }",
+         "   return 0.0;",
+         "}",
+         "#endif",
          // the reflected ray from pane point P (x, y, z relative; z in levels): screen line px0 + pxPerT t, iso depth wM - 2t/3,
          // height z - t/3; the first tap where the scene stands in front of the ray within the thickness, refined
          // dev view 5: how each ray ended (green floor shortcut, blue marched hit, magenta a marched hit under the pane's own
@@ -3349,13 +3446,38 @@ public final class Mirrors {
          "   if (g7.x < 0.5 || (int(dev.y) & 131072) != 0) return dev.x == 6.0 ? vec4(0.0, 0.0, 0.0, 1.0) : r;",
          "   vec4 g = texelFetch(GeomTex, at, 0);",
          "   float gc = floor(g.a * 255.0 + 0.5);",
+         "   bool furn = gc < 254.5 && mod(gc, 2.0) > 0.5;", // (MirrorGeometry: furniture standing in the room)
+         "   if (furn) { gc -= 1.0; g.a = gc / 255.0; }",
          "   if (dev.x == 6.0) return gc < 254.5 ? g : vec4(0.0, 0.0, 0.0, 1.0);",
          "   if (gc > 254.5) return r;",
          "   float rc = floor(r.a * 255.0 + 0.5);",
          "   bool real = rc < 254.5 && mod(rc, 2.0) < 0.5;",
          "   float tR = floor(rc * 0.5) / 126.0 * mapC.w, tG = floor(gc * 0.5) / 126.0 * mapC.w;",
-         "   if (real && tR <= tG + g7.y) return r;",
+         // furniture is drawn per frame often (the translucent layer: a sink, its tap), after this pass reads the frame: the
+         // march saw the counter's cut-out under it, a black hole, where the reflected sink belongs (maintainer, 2026-10-10).
+         // The room's furniture wins over a marched hit unless the camera clearly sees something nearer (dev skip bit
+         // 268435456: the march's hit wins as before)
+         // (within a square of the glass always: the mirror shows the side of it the camera never sees, its turned sprite;
+         // the march's hit there is the camera's view of the counter's foot, often its dark cut-out under the basin)
+         "   bool furnWins = furn && (tG <= tR + 0.35 || tG <= 1.0) && (int(dev.y) & 268435456) == 0;",
+         // a pure black hit where the room has a texel is a hole in the frame this pass reads (an object drawn later: the
+         // counter's cut-out under the basin), not a black surface: the room's geometry, lit by the same squares, stands in
+         "   bool hole = max(r.r, max(r.g, r.b)) < 0.09 && (int(dev.y) & 268435456) == 0;", // (the cut-out reads 18 / 255)
+         "   if (real && tR <= tG + g7.y && !furnWins && !hole) return r;",
          "   return dev.x == 5.0 ? vec4(0.0, 1.0, 1.0, g.a) : g;",
+         "}",
+         // the mirrored people's line of sight (losOut's code) shortened by the room's furniture within a square of the glass:
+         // the reflected sink and its tap stand in front of whoever stands behind them. (Only near furniture: the geometry is
+         // drawn along the camera's slanted ray, which is a square sideways a square out; walls never hide a person in their
+         // own room, so they are left out.) Dev skip bit 268435456: off
+         "float losGeom(float enc, ivec2 at) {",
+         "   vec4 g7 = texelFetch(Data, ivec2(7, inst), 0);",
+         "   if (g7.x < 0.5 || (int(dev.y) & (131072 | 268435456)) != 0) return enc;",
+         "   float gc = floor(texelFetch(GeomTex, at, 0).a * 255.0 + 0.5);",
+         "   if (gc > 254.5 || mod(gc, 2.0) < 0.5) return enc;",
+         "   float tG = floor(gc * 0.5) / 126.0 * mapC.w;",
+         "   float reach = texelFetch(Data, ivec2(4, inst), 0).z;",
+         "   return tG <= 1.0 ? max(enc, 1.0 - clamp(tG / reach, 0.0, 1.0)) : enc;",
          "}",
          "#endif");
 
@@ -3404,6 +3526,7 @@ public final class Mirrors {
          stat ? String.join("\n",
          "   fragColor = vec4(0.0);",
          "   if (any(lessThan(lp, ivec2(0)))) return;",
+         "   if (t6.x > 0.5 && t6.x < 1.999 && pr.x < 0.5) imageStore(Glass, ivec2(tile.xy) + texel, vec4(mask, losGeom(losOut(P, pl.x, t6.x - 1.0, texelFetch(Data, ivec2(7, inst), 0).z / 3.0, st.z, pl.w), ivec2(tile.xy) + texel), 0.0, 0.0));", // a mirror: its people's line of sight (losOut, losGeom)
          "   if ((int(dev.y) & 32) != 0) { imageStore(Static, ivec2(tile.xy) + texel, vec4(0.5, 0.5, 0.5, 0.5)); return; }", // dev: the pass without the march (the glass mask still written)
          "   if (t6.y > 0.75) { imageStore(Static, ivec2(tile.xy) + texel, withGeom(pr.x > 0.5 ? propRay(P, face, pl, st, pr, sq.w) : marchRay(P, pl.x, st.z, pl.z, pl.w), ivec2(tile.xy) + texel)); return; }",
          "   if (((lp.x | lp.y) & 1) != 0) return;", // half resolution: the even px of each 2x2 marches and stores the block
@@ -3459,6 +3582,7 @@ public final class Mirrors {
          // a metal's reflection is tinted by the metal (F0 = its colour: steel ~0.55): a darker, greyer picture than glass's
          "   vec3 colS = col;", // (the static reflection alone, before the mirrored people / cars)
          "   vec4 lc = vec4(0.0);",
+         "   float devShown = 0.0, devHidden = 0.0;",
          // the model layer was mirrored in the prop's main vertical face: only that face's texels show it
          "   bool layerOk = pr.x < 0.5 || (face >= 2 && abs((face == 2 ? 0.0 : 1.0) - pl.x) < 0.5 && abs((face == 2 ? P.y : P.x) - pl.y) < 0.1)",
          "      || (face == 1 && abs(P.z - texelFetch(Data, ivec2(7, inst), 0).w) < 0.1);", // (a top: its plane, pack row 7 .w)
@@ -3468,9 +3592,18 @@ public final class Mirrors {
          "      if (lc.a > 0.01) {",
          "         float wP = layerMap.w + ((face == 1 ? texelFetch(LayerTopDepth, lfc, 0).r : texelFetch(LayerDepth, lfc, 0).r) * 2.0 - 1.0 - layerMap.z) * layerMap.y;",
          "         float tM = 0.375 * (wM - wP) * texelFetch(Data, ivec2(7, inst), 0).z;", // the model's distance in front of the pane (iso depth falls 8/3 a square behind it), on the room's scale (pack: 3 viewDrop)
-         "         if (tM < tS + 0.15 && tM > -0.25) { col = mix(col, lc.rgb, lc.a); conf = mix(conf, 1.0, lc.a); hit = true; tS = min(tS, tM); }",
+         // a mirror (its people at viewLateral below 1): hidden only by what stands on their own line of sight before them
+         // (losOut, glass G), not by the static ray's hit (dev skip bit 67108864 / row 7 .y -1: the old test)
+         "         bool shown = tM < tS + 0.15 && tM > -0.25;",
+         "         if (t6.x > 0.5 && t6.x < 1.999 && pr.x < 0.5 && texelFetch(Data, ivec2(7, inst), 0).y >= 0.0) {",
+         "            float g = st.w > 0.5 ? texelFetch(GlassTex, ivec2(tile.xy) + texel, 0).g : 0.0;",
+         "            float dM = 0.375 * (wM - wP);", // (the person's own distance in front of the glass, squares)
+         "            shown = dM > -0.25 && (g < 0.002 || dM < (1.0 - g) * st.z + 0.15);",
+         "         }",
+         "         if (shown) { col = mix(col, lc.rgb, lc.a); conf = mix(conf, 1.0, lc.a); hit = true; tS = min(tS, tM); devShown = lc.a; } else devHidden = lc.a;",
          "      }",
          "   }",
+         "   if (dev.x == 9.0) { fragColor = vec4(devHidden, devShown, 0.15, mask); return; }", // dev: the mirrored people on the glass, green shown, red hidden
          "   if (!hit) discard;",
          "   float fade = 1.0 - smoothstep(0.75, 1.0, tS / mapC.w);",
          "   float a = mask * st.x * st.y * fade * conf;",
@@ -3519,13 +3652,15 @@ public final class Mirrors {
          "      mask = m.z < 0.0 ? smoothstep(0.1, 0.2, sp.a) * (1.0 - smoothstep(0.9, 0.97, sp.a)) : texture(Masks, mUv).r * step(0.5, sp.a);",
          "      if (pr.x > 0.5) mask = face > 0 ? prefl * (mod(pr.y, 2.0) > 0.5 ? smoothstep(0.1, 0.2, sp.a) * (1.0 - smoothstep(0.9, 0.97, sp.a)) : step(0.5, sp.a)) : 0.0;",
          "   }",
-         "   glassOut = vec4(mask);",
+         "   glassOut = vec4(mask, 0.0, 0.0, 0.0);",
          "   fragColor = vec4(0.0, 0.0, 0.0, 1.0);", // no reflection here (every texel of the tile is written: no clear)
          "   if (mask < 0.004) return;",
          "   if ((int(dev.y) & 32) != 0) { fragColor = vec4(0.5, 0.5, 0.5, 0.5); return; }",
          "   vec3 P = pl.x < 0.5 ? vec3(u + pl.y, pl.y, 0.0) : vec3(pl.y, pl.y - u, 0.0);",
          "   P.z = (P.x + P.y - v) / 6.0;",
          "   if (pr.x > 0.5) { fragColor = propRay(propPoint(face, poff, u, v, sq.xyz), face, pl, st, pr, sq.w); return; }",
+         "   vec4 t6 = texelFetch(Data, ivec2(6, inst), 0);",
+         "   if (t6.x > 0.5 && t6.x < 1.999) glassOut.g = losGeom(losOut(P, pl.x, t6.x - 1.0, texelFetch(Data, ivec2(7, inst), 0).z / 3.0, st.z, pl.w), ivec2(gl_FragCoord.xy));", // a mirror: its people's line of sight
          "   fragColor = withGeom(marchRay(P, pl.x, st.z, pl.z, pl.w), ivec2(gl_FragCoord.xy));",
          "}");
 

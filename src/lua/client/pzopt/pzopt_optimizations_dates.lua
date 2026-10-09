@@ -675,6 +675,7 @@ PzoptOptionDates = {
     mirrorsViewDropPct = "2026-10-04",
     mirrorsViewLateralPct = "2026-10-04",
     mirrorsVisibility = "2026-10-04",
+    mirrorsWallMirrors = "2026-10-09",
     mirrorsWindowHalfRes = "2026-10-04",
     mirrorsWindowPct = "2026-10-04",
     mirrorsWindows = "2026-10-04",

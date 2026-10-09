@@ -251,6 +251,7 @@ final class MirrorGeometry {
       Mirrors.Tile tl;
       int axis, z, playerIndex;
       float c;
+      boolean furniture; // the next add() is furniture standing in the room (not a floor, wall or edge piece)
    }
 
    private static final Ctx CTX = new Ctx();
@@ -311,6 +312,7 @@ final class MirrorGeometry {
             add(k, s, depthOf(s, k.axis == 1 ? TileDepthMapManager.TileDepthPreset.NWall : TileDepthMapManager.TileDepthPreset.WWall), mx, my, ryo, false, light, Float.NaN);
             continue;
          }
+         k.furniture = true;
          if (t != null) {
             turned++;
             add(k, t, depthOf(t, null), mx, my, ryo, true, light, Float.NaN);
@@ -323,6 +325,7 @@ final class MirrorGeometry {
             }
             add(k, s, depthOf(s, null), mx, my, ryo, false, light, Float.NaN);
          }
+         k.furniture = false;
       }
    }
 
@@ -630,7 +633,7 @@ final class MirrorGeometry {
       d[o + 24] = light.r;
       d[o + 25] = light.g;
       d[o + 26] = light.b;
-      d[o + 27] = 0F;
+      d[o + 27] = k.furniture ? 1F : 0F; // furniture: its texels carry the code's odd bit (Mirrors.withGeom / losGeom)
       d[o + 28] = tl.x;
       d[o + 29] = tl.y;
       d[o + 30] = tl.x + tl.w;
@@ -844,7 +847,9 @@ final class MirrorGeometry {
          "   if (t < 0.0 || t > params.x) discard;", // behind the glass, or past the longest ray
          "   gl_FragDepth = t / params.x;",
          "   vec3 col = c.rgb / max(c.a, 0.001) * li.rgb;", // (the game's textures are premultiplied)
-         "   fragColor = vec4(col, floor(clamp(t / params.x, 0.0, 0.99) * 126.0 + 0.5) * 2.0 / 255.0);", // the static atlas' code: distance, no stand-in bit
+         // the static atlas' code: distance; the odd bit (a stand-in in the march's codes) marks furniture here, cleared by
+         // Mirrors.withGeom before the code reaches the atlas
+         "   fragColor = vec4(col, (floor(clamp(t / params.x, 0.0, 0.99) * 126.0 + 0.5) * 2.0 + (li.w > 0.5 ? 1.0 : 0.0)) / 255.0);",
          "}");
 
    static String stats() {
