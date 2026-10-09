@@ -27,12 +27,10 @@ public final class TileBatch {
    private TileBatch() {
    }
 
-   // Not on macOS: on the GL 2.1 context the patched shaders' `layout(location = 4)` input does not exist in GLSL 1.20; on
-   // the 4.1 core context (macGlCore) every shader goes through CoreGlsl and every GL call through CoreGl's rebuilt table,
-   // and this path (attribute 4, the depth pair per vertex) was only verified on NVIDIA and Mesa: kept off there until a
-   // picture + drive pair on the Mac says it is exact (2026-10-09, caution, not a known failure).
-   public static final boolean ON = Config.TILE_VERTEX_DEPTH && Overrides.enabled() && !CoreGl.legacyMac()
-      && !System.getProperty("os.name", "").startsWith("Mac");
+   // Not on macOS's GL 2.1 context: the patched shaders' `layout(location = 4)` input does not exist in GLSL 1.20. On the
+   // 4.1 core context (macGlCore, CoreGlsl / CoreGl) it is on since 2026-10-09: picture pairs no different from run-to-run
+   // noise, 0 failed programs, drives +6 % (docs/findings-frame-spikes-2026-10-09.md section 10).
+   public static final boolean ON = Config.TILE_VERTEX_DEPTH && Overrides.enabled() && !CoreGl.legacyMac();
 
    // ------------------------------------------------------------------------------------------------ shaders
 

@@ -397,12 +397,20 @@ North Main St + Jacks Lane, `abl-rs-*-f1/f2`). Frame time each adds to the defau
 
 **Laptops** (`harness/spikes/laptopab.sh`, the loop's keys off vs on, the tab file's Visuals as props on an empty options file):
 - **Mac (M1 Pro, GL 4.1 core)**: short Rosewood drive 45.8 / 47.7 fps -> 51.6 / 49.8 (+8 %), p99 better, all four drives
-  valid. Tile vertex depth / state folding are off on the Mac by design (`TileBatch.ON`), so this is the texture-parameter
+  valid. Tile vertex depth / state folding were off on the Mac then (`TileBatch.ON`; on since the next release, below), so this is the texture-parameter
   cache, pplRemap, the static-vehicle shadow skip, car glass without `glGet` and the shader warm-up. 0 shaders failed on
   either side. Picture: the first pairs differed by 1.7 % of pixels > 32 levels, but in both directions between runs:
   cloud shadows drift in real time and are never the same in two launches. With `--prop cloudShadows=false` (`m3`) the
   interior matches; left is a smooth 1-2 level outdoor field (weather / ambient drift between launches), no edge or depth
   difference.
+- **Tile vertex depth on the Mac (4.1 core), `devTileVertexDepthMac=true`** (2026-10-09 16:40-17:15, every other key at its
+  default, runs `mac-lab-mac-*-vd1..3`): batching active (tile shader starts in a drive ~300k -> ~65k), 79 programs linked,
+  0 failed, the same console error lines both sides. Pictures (two pairs, cloud shadows off): off vs on differs no more than
+  off vs off or on vs on (> 32 levels: 0.0007-0.28 % cross, 0.13-0.22 % same side; the window-frame lines and the wall corner
+  differ between launches either way). Drives, 5 per side, alternating: off 64.4 / 43.5 / 47.0 / 44.2 / 53.8 fps (median 47.0,
+  p99 median 61.9 ms), on 54.5 / 50.3 / 51.9 / 55.7 / 55.8 (median 54.5, p99 median 55.6 ms): +6 % mean, steadier; the Mac's
+  run-to-run spread is ~20 fps, so a sixth pair could move it. No sign the Mac needed the exclusion: on by default on the 4.1
+  core context since this test (the dev switch was removed again; still off on the 2.1 context, whose GLSL has no `layout`).
 - **Flip (Radeon, Mesa 26.2.4, balanced profile)**: short Rosewood drive 155.9 / 155.4 fps -> 162.3 / 156.9 / 161.7
   (+3 %), p99 21.7-22.1 ms on both sides, all five drives complete (485 tiles), no shader errors or exceptions; tile vertex
   depth and state folding are active there. (The first drive pair was lost: the flip dropped off the network at 12:42 and

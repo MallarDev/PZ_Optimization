@@ -13,6 +13,8 @@ case $M in
   mac) EMPTY=/Users/diegovillalobos/pzopt-defaults.ini; SHOT=(--flag shot_at=${SHOT_AT:-3}) ;;
   *) EMPTY=/home/diego/pzopt-defaults.ini; SHOT=(--shot-at ${SHOT_AT:-3}) ;;
 esac
+# TOGGLE (env): only these keys differ between the sides (off = false, on = true), every other key at its default
+[[ -n ${TOGGLE:-} ]] && KEYS=$TOGGLE
 KEYS=${KEYS:-"tileVertexDepth tileStateFold texParamCache pplRemap sunShadowStaticVehicles carGlassNoGet shaderWarmup"}
 VIS=(--prop pixelLight=true --prop sunShadows=true --prop sunShadowFar=true --prop foliageSway=true --prop spriteFilter=sharp
   --prop carGlass=true --prop carOccupant=impostor --prop ambientOcclusion=true --prop reflections=true --prop mirrors=true
@@ -33,7 +35,7 @@ sub() { # label intent args...
 ALL="tileVertexDepth tileStateFold texParamCache pplRemap sunShadowStaticVehicles carGlassNoGet shaderWarmup"
 for side in ${SIDES:-off on}; do
   [[ $side == none ]] && continue   # SIDES=none: the drives only
-  if [[ $side == on ]]; then K=("${ON[@]}"); for k in $ALL; do [[ " $KEYS " == *" $k "* ]] || K+=(--prop "$k=false"); done; else K=("${OFF[@]}"); fi
+  if [[ $side == on ]]; then K=("${ON[@]}"); [[ -z ${TOGGLE:-} ]] && for k in $ALL; do [[ " $KEYS " == *" $k "* ]] || K+=(--prop "$k=false"); done; else K=("${OFF[@]}"); fi
   sub "lab-$M-shot-$side-$SUF" "picture pair ($side)" --mode bench --flag start=8147,11507 --flag zoom=1 --flag route=E:0 --flag speed=1 \
     "${SHOT[@]}" ${SHOT_EXTRA:-} --flag hold=12 --flag wind=0 --flag zombies=off --prop overlay=false "${VIS[@]}" --prop foliageSway=false "${COMMON[@]}" "${K[@]}"
 done
