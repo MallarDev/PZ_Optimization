@@ -692,6 +692,7 @@ public final class Config {
    public static final int DEV_OUTLINE_VIEW = integer("devOutlineView", 0); // dev: occluded outlines, 1 = paint the stencil codes instead of the contour (hidden red, seen zombie green, other characters blue)
    public static final int DEV_OUTLINE_ALTERNATE = integer("devOutlineAlternate", 0); // dev: ms; occluded outlines switch off and on every period (a within-run A/B, read with devOutlineTiming)
    public static final int DEV_GT_ALTERNATE = integer("devGtAlternate", 0); // dev: ms; the keys in devGtAlternateKeys switch off and on every period (a within-run A/B: harness/gtab.py)
+   public static final boolean DEV_GT_RECORD = bool("devGtRecord", false); // dev: record the same per-frame gtab section timings without switching any optimization key; use separate fixed-config runs when in-run alternation would change simulation state
    public static final String DEV_TORCH_SOURCE_CYCLE = string("devTorchSourceCycle", ""); // dev: torchSource variants taking turns in one run (off,on,hold0,item,stale,noclamp), a per-variant report line (pzopt.TorchSource)
    public static final int DEV_TORCH_SOURCE_PERIOD = integer("devTorchSourcePeriod", 2000); // dev: ms per devTorchSourceCycle variant
    public static final boolean DEV_TORCH_SOURCE_VIEW = bool("devTorchSourceView", false);
