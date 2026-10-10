@@ -21,14 +21,15 @@ list mutation, relevance sorting, `setSceneCulled`, animation blending or any ot
 Key: `sceneCullParallel=true` (default off while experimental).
 
 Exactness rig: `devSceneCullCheck=true` recomputes every worker answer on the game thread. Any mismatch uses the serial
-answer for that zombie and disables the batch for later frames. The `gt_offload=` line reports frames, objects,
-serial fallbacks, checks, mismatches and task failures.
+answer for that zombie and disables the batch for later frames. While that rig is enabled, `SceneCullBatch` also logs a
+`sceneCull check:` summary about every five seconds, so correctness can be checked during an ordinary play session without
+the benchmark harness. The `gt_offload=` line reports the same counters in harness runs.
 
 ## Measurement
 
 Use the Louisville 120 scene and an in-run ABBA with:
 
-`devGtAlternate=230, devGtAlternateKeys=sceneCullParallel`
+`devGtAlternate=2000, devGtAlternateKeys=sceneCullParallel`
 
 Read `cull_classify`, `cull_sort`, `cull_commit` and whole game-thread CPU from `pzopt-gtab.out`. First gate:
 
