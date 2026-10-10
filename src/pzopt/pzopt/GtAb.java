@@ -6,6 +6,9 @@ package pzopt;
  * scene, the clocks and other load drift alike) and {@code harness/gtab.py} splits the frames and the game-thread profile
  * by half. Keys not listed, or no alternation, read their Config value unchanged. The phase flips only at a frame start
  * ({@link #frame}, from {@code Pacing.stepStart}), so a frame never mixes the two paths.
+ *
+ * <p>{@code devGtRecord} records the same rows and section timers with a fixed configuration and never changes
+ * {@link #off}. Use it for stateful keys whose ON/OFF transitions would themselves confound live-play validation.
  */
 public final class GtAb {
    private GtAb() {
@@ -78,16 +81,21 @@ public final class GtAb {
     * render thread), and the process column shows where the work went.
     */
    public static void frame() {
-      if (Config.DEV_GT_ALTERNATE <= 0 || MASK == 0) {
+      if (!TIMING) {
          return;
       }
+      boolean alternating = Config.DEV_GT_ALTERNATE > 0 && MASK != 0;
       long now = System.currentTimeMillis();
       if (t0 == 0L) {
          if (zombie.iso.IsoWorld.instance == null || zombie.iso.IsoWorld.instance.currentCell == null) {
             return; // from the first world frame
          }
          t0 = now;
-         Log.info("gt ab: alternating every " + Config.DEV_GT_ALTERNATE + " ms from epoch_ms " + now + " (on first), keys " + Config.DEV_GT_ALTERNATE_KEYS);
+         if (alternating) {
+            Log.info("gt ab: alternating every " + Config.DEV_GT_ALTERNATE + " ms from epoch_ms " + now + " (on first), keys " + Config.DEV_GT_ALTERNATE_KEYS);
+         } else {
+            Log.info("gt record: fixed configuration from epoch_ms " + now + " (devGtRecord=true)");
+         }
       }
       long cpu = THREADS.getCurrentThreadCpuTime();
       long proc = OS instanceof com.sun.management.OperatingSystemMXBean sun ? sun.getProcessCpuTime() : 0L;
@@ -107,11 +115,15 @@ public final class GtAb {
       lastCpu = cpu;
       lastProc = proc;
       lastWall = wall;
-      long period = (now - t0) / Config.DEV_GT_ALTERNATE;
-      // ABBA (devGtAbba, default on): on, off, off, on, on, off, ... so a scene that grows heavier along the route weighs
-      // both halves alike; plain alternation put every off half after its on half (an A/A placebo read 0.6 ms / 7 points
-      // of misses "better" on, 2026-10-05)
-      off = Config.DEV_GT_ABBA ? ((period + 1L) >> 1 & 1L) == 1L : (period & 1L) == 1L;
+      if (alternating) {
+         long period = (now - t0) / Config.DEV_GT_ALTERNATE;
+         // ABBA (devGtAbba, default on): on, off, off, on, on, off, ... so a scene that grows heavier along the route weighs
+         // both halves alike; plain alternation put every off half after its on half (an A/A placebo read 0.6 ms / 7 points
+         // of misses "better" on, 2026-10-05)
+         off = Config.DEV_GT_ABBA ? ((period + 1L) >> 1 & 1L) == 1L : (period & 1L) == 1L;
+      } else {
+         off = false;
+      }
       lastOff = off;
    }
 
@@ -120,8 +132,8 @@ public final class GtAb {
          if (out == null) {
             java.io.File f = new java.io.File(zombie.ZomboidFileSystem.instance.getCacheDir(), "pzopt-gtab.out");
             out = new java.io.BufferedWriter(new java.io.FileWriter(f));
-            out.write("# epoch_ms on(1)/off(0) game_thread_cpu_ns process_cpu_ns wall_ns zombie_updates, then ns per section: startFrame schedUpdate animalLos playerLos pplBeforeComposite renderMovingObjects performRenderTiles postupdate visPolyRenderMain aoFlush chunkMapUpdate popmanUpdate lightingUpdate logic finishAnimation renderInternal sceneCull atlases cellRender pu_loop pu_move pu_flush pu_zombies pu_moved pu_collided vzmUpdate chunkPos nativeUnload bake_t0 bake_t1 bake_t2 bake_t3 bake_offered tl_pass tl_record tl_splice  (per frame, devGtAlternate " + Config.DEV_GT_ALTERNATE + " ms, keys "
-               + Config.DEV_GT_ALTERNATE_KEYS + ")\n");
+            out.write("# epoch_ms on(1)/off(0) game_thread_cpu_ns process_cpu_ns wall_ns zombie_updates, then ns per section: startFrame schedUpdate animalLos playerLos pplBeforeComposite renderMovingObjects performRenderTiles postupdate visPolyRenderMain aoFlush chunkMapUpdate popmanUpdate lightingUpdate logic finishAnimation renderInternal sceneCull atlases cellRender pu_loop pu_move pu_flush pu_zombies pu_moved pu_collided vzmUpdate chunkPos nativeUnload bake_t0 bake_t1 bake_t2 bake_t3 bake_offered tl_pass tl_record tl_splice  (per frame, "
+               + (Config.DEV_GT_RECORD && (Config.DEV_GT_ALTERNATE <= 0 || MASK == 0) ? "fixed devGtRecord" : "devGtAlternate " + Config.DEV_GT_ALTERNATE + " ms, keys " + Config.DEV_GT_ALTERNATE_KEYS) + ")\n");
          }
          out.write(LOG.toString());
          out.flush();
@@ -147,7 +159,7 @@ public final class GtAb {
    public static final int S_TL_PASS = 33, S_TL_RECORD = 34, S_TL_SPLICE = 35; // tileRecordParallel: the translucent passes (either path), recording, splicing
    private static final int SECTIONS = 36;
    private static final long[] SECTION_NS = new long[SECTIONS];
-   public static final boolean TIMING = Config.DEV_GT_ALTERNATE > 0 && MASK != 0;
+   public static final boolean TIMING = Config.DEV_GT_RECORD || Config.DEV_GT_ALTERNATE > 0 && MASK != 0;
 
    /** Game thread: a section starts (0 when no alternation runs). */
    public static long begin() {
