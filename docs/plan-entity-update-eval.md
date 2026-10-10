@@ -112,6 +112,38 @@ The Ryzen 5 5600 has six physical cores. Eight FrameBatch workers plus game/rend
 the cores; four workers leave a core budget for the game and render threads. Acceptance: retain >=0.20 ms scheduler gain,
 remove the >35 ms render stalls / black flashes, and avoid a frame-time-tail regression.
 
+## Phase 2b result (2026-10-10, 4 frame workers)
+
+The 4-worker follow-up did not improve the practical outcome.
+
+- 58 usable paired ON blocks after startup/switch guards;
+- paired `schedUpdate` on-off: **-0.152 ms/frame** overall;
+- pairs with >=500 zombie updates/frame: **-0.472 ms/frame**, but noisy (SE ~0.269 ms);
+- paired whole game-thread CPU: **-0.069 ms/frame** overall;
+- paired wall/frame time: **+0.048 ms/frame** overall (effectively zero);
+- raw mean wall time was ~20.05 ms in both phases (~49.9 fps equivalent);
+- render-time tails were present in both phases, not confined to entity-update ON.
+
+The game launched with a 60 fps cap in this run, unlike the preceding uncapped run. The player reported even more
+brief black flashes and no perceptible fps difference. GL-state telemetry continued to report zero driver fallbacks
+and zero mismatches, so there is no direct evidence of GL-state corruption.
+
+A stronger confound emerged: the first live safety run used entityUpdateParallel continuously and had no reported black
+flashes; both runs that alternated the key every 2300 ms did. Do not use the within-run alternator for further functional
+validation of this stateful simulation key. If entityUpdateParallel is revisited, use fixed-mode runs or a record-only
+timing mode.
+
+Fire remains non-attributed to the batch. This run logged 116 `IsoFireManager.Remove unknown fire, ignoring` messages,
+starting as early as frame 63/192 during initial world activity, before the later manual Molotov test. The same save has
+now crossed several fire/unload tests, so further fire correctness work should use a disposable save copy.
+
+### Decision on this machine
+
+Do not enable `entityUpdateParallel` by default and do not proceed to `entityUpdateSafeStates=false`.
+The conservative path saves scheduler time under large hordes, but the whole-frame gain is below perception/noise on the
+Ryzen 5 5600 and the A/B test mode itself is now a functional confound. Keep the branch as evidence; move optimization
+work to a larger residual frame-time section.
+
 ## Phase 3 only if Phase 2 pays
 
 Upstream's September tests found the original broad PR filter safe after `physicsDefer`, `emitterDefer`, Lua replay,
