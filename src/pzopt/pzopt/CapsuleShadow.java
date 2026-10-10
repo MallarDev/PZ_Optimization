@@ -350,6 +350,8 @@ public final class CapsuleShadow {
    private static final long[] TILE_SEEN = new long[ShadowAtlas.MAX_TILES]; // the stamp its character last joined a pass
    private static final long[] TILE_DRAWN = new long[ShadowAtlas.MAX_TILES]; // the stamp of its last sun draw (0: never)
    private static final long[] TILE_SUN = new long[ShadowAtlas.MAX_TILES]; // the sun step it was drawn under
+   private static final float[] TILE_POSE = new float[ShadowAtlas.MAX_TILES * 6]; // sunShadowStaticVehicles: a vehicle's position and angles at its last draw
+   public static long staticVehicleSkips;
    private static final float[] TILE_OFF = new float[ShadowAtlas.MAX_TILES * 4]; // the tile's content: its centre from its character (at the draw), half size
    private static final float[] TILE_NEXT = new float[ShadowAtlas.MAX_TILES * 4]; // a draw scheduled this frame (drawn at the frame's end)
    private static final long[] TILE_SCHED = new long[ShadowAtlas.MAX_TILES]; // the stamp of the frame that scheduled its last draw
@@ -544,6 +546,20 @@ public final class CapsuleShadow {
       boolean due = TILE_DRAWN[tile] == 0L
          || drawsNow < budget && (stamp - TILE_DRAWN[tile] >= period || TILE_SUN[tile] != sunStep)
          || rateHz <= 0 && chr instanceof zombie.characters.IsoPlayer && TILE_DRAWN[tile] != stamp; // a player's own shadow never waits a turn
+      int pq = tile * 6;
+      float vax = 0F, vay = 0F, vaz = 0F;
+      if (ch == null && Config.SUN_SHADOW_STATIC_VEHICLES && chr instanceof zombie.vehicles.BaseVehicle bv) {
+         // a vehicle that has not moved since its tile was drawn under this sun step: the tile already holds it (a redraw
+         // gives the same depth); parked cars were half the mesh draws of a town drive (2026-10-09)
+         vax = bv.getAngleX();
+         vay = bv.getAngleY();
+         vaz = bv.getAngleZ();
+         if (due && TILE_DRAWN[tile] != 0L && TILE_SUN[tile] == sunStep && TILE_POSE[pq] == px && TILE_POSE[pq + 1] == py && TILE_POSE[pq + 2] == pz
+            && TILE_POSE[pq + 3] == vax && TILE_POSE[pq + 4] == vay && TILE_POSE[pq + 5] == vaz) {
+            due = false;
+            staticVehicleSkips++;
+         }
+      }
       int o = tile * 4;
       if (due) {
          // the draw happens at the end of this frame's world pass (ShadowAtlas.flush): its parameters wait in TILE_NEXT and
@@ -558,6 +574,12 @@ public final class CapsuleShadow {
          TILE_SCHED[tile] = stamp;
          TILE_DRAWN[tile] = stamp;
          TILE_SUN[tile] = sunStep;
+         TILE_POSE[pq] = px;
+         TILE_POSE[pq + 1] = py;
+         TILE_POSE[pq + 2] = pz;
+         TILE_POSE[pq + 3] = vax;
+         TILE_POSE[pq + 4] = vay;
+         TILE_POSE[pq + 5] = vaz;
          drawsNow++;
          meshDraws++;
          if (ch != null) {
@@ -588,6 +610,31 @@ public final class CapsuleShadow {
       d[c + 1] = py - f.oy + TILE_OFF[o + 1];
       d[c + 2] = pz + TILE_OFF[o + 2];
       d[c + 3] = 0F;
+   }
+
+   /**
+    * Game thread (pzopt.EntityShadow, at the start of the world render, before this frame's casters assign their tiles):
+    * the object's sun tile as the atlas holds it while this frame's models draw (drawn last frame): out = tile, half size,
+    * the content's centre from the object's position (x, y squares, z metric). False when it has none yet.
+    */
+   static boolean receiverTile(zombie.iso.IsoMovingObject o, float[] out) {
+      int tile;
+      if (o instanceof IsoGameCharacter ch) {
+         tile = ch.pzoptShadowTile;
+      } else {
+         float[] vs = VEHICLE_TILES.get(o);
+         tile = vs == null ? -1 : (int)vs[0];
+      }
+      if (tile < 0 || tile >= ShadowAtlas.MAX_TILES || TILE_OWNER[tile] != o || TILE_KIND[tile] != -1 || !TILE_HAS[tile] || stamp - TILE_SEEN[tile] > 1L) {
+         return false;
+      }
+      int q = tile * 4;
+      out[0] = tile;
+      out[1] = TILE_OFF[q + 3];
+      out[2] = TILE_OFF[q];
+      out[3] = TILE_OFF[q + 1];
+      out[4] = TILE_OFF[q + 2];
+      return true;
    }
 
    /** A tile nobody joined a pass with for 30 frames (its character left the screen), for chr; -1 when all are in use. */
@@ -1196,7 +1243,8 @@ public final class CapsuleShadow {
       }
       wallCollects++;
       float dx = -lx / lxy, dy = -ly / lxy; // along the shadow
-      float len = Math.min(Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH), lz > 1e-3F ? 2.6F * lxy / lz : 1e3F) + 1F;
+      // (at most 24 squares: the scan walks the band's squares; the far ends of a dusk shadow are wide and faint)
+      float len = Math.min(Math.min(24, Math.max(1, Config.SUN_SHADOW_CHARACTER_REACH)), lz > 1e-3F ? 2.6F * lxy / lz : 1e3F) + 1F;
       float px = sx + 0.5F, py = sy + 0.5F, ex = px + dx * len, ey = py + dy * len;
       int x0 = (int)Math.floor(Math.min(px, ex)) - band, x1 = (int)Math.floor(Math.max(px, ex)) + band;
       int y0 = (int)Math.floor(Math.min(py, ey)) - band, y1 = (int)Math.floor(Math.max(py, ey)) + band;

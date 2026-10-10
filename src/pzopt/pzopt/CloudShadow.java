@@ -6,6 +6,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL41;
 import zombie.GameTime;
 import zombie.core.SpriteRenderer;
 import zombie.core.textures.TextureDraw;
@@ -554,7 +555,8 @@ public final class CloudShadow {
    private static final java.util.HashMap<Integer, Integer> APPLIED = new java.util.HashMap<>();
    /** per program: the last per-draw term value set (-3: unknown) */
    private static final java.util.HashMap<Integer, float[]> LAST_TERM = new java.util.HashMap<>();
-   static final String[] UNIFORMS = {"pzCloudU", "pzCloudV", "pzCloudP", "pzCloudD", "pzCloudE", "pzCloudField", "pzCloudTerm"};
+   static final String[] UNIFORMS = {"pzCloudU", "pzCloudV", "pzCloudP", "pzCloudD", "pzCloudE", "pzCloudField", "pzCloudTerm", "pzStepFade", "pzStepOld",
+      "pzCloudTermLo", "pzCloudTermHi", "pzStepOldLo", "pzStepOldHi"}; // 9-12: cloudHandleInts, the handles as int halves
    private static long draws, drawsWithTerm, drawsBare, culled;
    private static final java.util.HashMap<Integer, long[]> LAST_HANDLE = new java.util.HashMap<>();
    private static long dummyHandle;
@@ -564,12 +566,135 @@ public final class CloudShadow {
       for (java.util.Map.Entry<Integer, long[]> en : LAST_HANDLE.entrySet()) {
          if (en.getValue()[0] == h) {
             int[] l = LOCATIONS.get(en.getKey());
-            if (l != null && l[6] >= 0 && dummy()) {
-               org.lwjgl.opengl.ARBBindlessTexture.glProgramUniformHandleui64ARB(en.getKey(), l[6], dummyHandle);
+            if (l != null && hasTerm(l) && dummy()) {
+               setHandle(en.getKey(), l, 6, dummyHandle);
             }
             en.getValue()[0] = dummyHandle;
          }
       }
+   }
+
+   /** per program: the step fade's last uniform values (amount, the old term's handle) */
+   private static final java.util.HashMap<Integer, double[]> LAST_FADE = new java.util.HashMap<>();
+   private static final long[] FADE = new long[2];
+
+   /** Render thread: a step fade's old term leaves residency; programs that hold it get the field's handle and no fade. */
+   static void stepOldReleased(long h) {
+      for (java.util.Map.Entry<Integer, double[]> en : LAST_FADE.entrySet()) {
+         if ((long)en.getValue()[1] == h) {
+            int[] l = LOCATIONS.get(en.getKey());
+            if (l != null && l[7] >= 0) {
+               GL41.glProgramUniform4f(en.getKey(), l[7], 0F, 0F, 0F, 0F); // the branch that samples it is off
+            }
+            en.getValue()[0] = 0.0;
+            en.getValue()[1] = 0.0;
+         }
+      }
+   }
+
+   /** sunStepSync: the composite can ease a sun step in (bindless kept terms in the patched composite). */
+   static boolean stepFadeSupported() {
+      return patched && bindless && !failed;
+   }
+
+   /**
+    * Per composite draw, before the cloud: while a sun step eases in (ChunkAo.stepFade), this texture's old term and the
+    * share of the change still to come; the kept (new) term's handle goes on pzCloudTerm too.
+    */
+   private static void stepFade(int prog, int[] l, TextureDraw texd) {
+      if (l[7] < 0 || !(handleInts ? l[11] >= 0 : l[8] >= 0)) {
+         return;
+      }
+      double[] lf = LAST_FADE.get(prog);
+      if (lf == null) {
+         LAST_FADE.put(prog, lf = new double[] {-1.0, 0.0});
+      }
+      int depthTex = texd.tex1 != null ? texd.tex1.getID() : -1;
+      float a = depthTex > 0 ? ChunkAo.stepFade(depthTex, FADE) : 0F;
+      if (a > 0F) {
+         long[] lh = LAST_HANDLE.get(prog);
+         if (lh == null) {
+            LAST_HANDLE.put(prog, lh = new long[1]);
+         }
+         if (lh[0] != FADE[1]) {
+            lh[0] = FADE[1];
+            setHandle(prog, l, 6, FADE[1]);
+         }
+         if ((long)lf[1] != FADE[0]) {
+            lf[1] = FADE[0];
+            if (!handleInts && Config.DEV_STEP_OLD_UNIT >= 0) {
+               GL20.glUniform1i(l[8], Config.DEV_STEP_OLD_UNIT); // dev: the old term's handle never set (the AMD / Windows black frames, 2026-10-08)
+            } else {
+               setHandle(prog, l, 8, FADE[0]);
+            }
+         }
+         fadeDraws++;
+      } else {
+         a = 0F;
+      }
+      if (lf[0] != a) {
+         lf[0] = a;
+         GL20.glUniform4f(l[7], a, 0F, 0F, 0F);
+      }
+   }
+
+   private static long fadeDraws;
+
+   /** the composite reads its kept terms from handles in int uniforms (cloudHandleInts; decided when the shader is patched) */
+   private static volatile boolean handleInts;
+
+   /** The program has the kept term's handle uniform (pzCloudTerm or its int halves). */
+   private static boolean hasTerm(int[] l) {
+      return handleInts ? l[9] >= 0 : l[6] >= 0;
+   }
+
+   /**
+    * A bindless handle into the program's sampler {@code which} (6: pzCloudTerm, 8: pzStepOld): two int uniforms the shader
+    * builds its sampler from (cloudHandleInts), else the bindless sampler uniform. No sampler uniform of ours in the game's
+    * composite program: on AMD's Windows driver the old term's handle never took (the screen black for the first ~0.4 s of
+    * every sun-step fade, then easing back; 2026-10-08, two Discord reports), see {@link #COMPOSITE_GLSL}.
+    */
+   private static void setHandle(int prog, int[] l, int which, long h) {
+      if (handleInts) {
+         int lo = which == 6 ? l[9] : l[11], hi = which == 6 ? l[10] : l[12];
+         GL41.glProgramUniform1i(prog, lo, (int)h);
+         GL41.glProgramUniform1i(prog, hi, (int)(h >>> 32));
+      } else {
+         org.lwjgl.opengl.ARBBindlessTexture.glProgramUniformHandleui64ARB(prog, l[which], h);
+      }
+   }
+
+   /**
+    * Game thread (pzopt.EntityShadow, once a frame): transmittanceAt's world mapping for the model shaders, false when no
+    * cloud shades. out: 1 / period, parA, parB, detail scale | base uv offset (u, v), detail uv offset (u, v) | 1 - cover,
+    * 1 / (cover edge), erosion, opacity / (1 - e^-3). The offsets are wrapped to one period (float precision).
+    */
+   static boolean entityMapping(float[] out) {
+      if (field == null || strength <= 0F || !enabled()) {
+         return false;
+      }
+      double period = N * SQUARES_PER_TEXEL * Config.CLOUD_SCALE_PCT / 100.0;
+      out[0] = (float)(1.0 / period);
+      out[1] = (float)parA;
+      out[2] = (float)parB;
+      out[3] = DETAIL_SCALE;
+      double u = (parX + driftX) / period, v = (parY + driftY) / period;
+      double ud = (parX + detailX) * DETAIL_SCALE / period, vd = (parY + detailY) * DETAIL_SCALE / period;
+      out[4] = (float)(u - Math.floor(u));
+      out[5] = (float)(v - Math.floor(v));
+      out[6] = (float)(ud - Math.floor(ud));
+      out[7] = (float)(vd - Math.floor(vd));
+      float c = cover;
+      out[8] = 1F - c;
+      out[9] = 1F / Math.max(0.02F, c * EDGE);
+      out[10] = EROSION;
+      out[11] = Config.CLOUD_OPACITY_PCT / 100F / 0.95021293F;
+      return true;
+   }
+
+   /** Render thread (pzopt.EntityShadow, bindless): the cloud field by its resident handle, 0 before it exists. */
+   static long fieldHandle() {
+      return dummy() ? dummyHandle : 0L;
    }
 
    private static boolean dummy() {
@@ -629,6 +754,9 @@ public final class CloudShadow {
          if (l[2] < 0) {
             return; // not a patched program
          }
+         if (bindless) {
+            stepFade(prog, l, texd);
+         }
          boolean on = f != null && f.strength > 0F && Config.DEV_CLOUD_VIEW != 2 ? ensureField() : f != null && Config.DEV_CLOUD_VIEW == 2;
          boolean share = Relief.wantsSunShare(); // relief's sun post-main reads the texture's direct-sun share too (clear sky: no cloud)
          Integer applied = APPLIED.get(prog);
@@ -648,8 +776,8 @@ public final class CloudShadow {
                if (l[6] >= 0 && !bindless) {
                   GL20.glUniform1i(l[6], TERM_UNIT);
                }
-               if (bindless && l[6] >= 0 && !LAST_HANDLE.containsKey(prog) && dummy()) {
-                  org.lwjgl.opengl.ARBBindlessTexture.glUniformHandleui64ARB(l[6], dummyHandle);
+               if (bindless && hasTerm(l) && !LAST_HANDLE.containsKey(prog) && dummy()) {
+                  setHandle(prog, l, 6, dummyHandle);
                   LAST_HANDLE.put(prog, new long[] {dummyHandle});
                }
             } else {
@@ -660,8 +788,8 @@ public final class CloudShadow {
                VP[3] = VPI[3];
                f.view.mapping(VP, MAP);
                uniforms(f, l);
-               if (bindless && l[6] >= 0 && !LAST_HANDLE.containsKey(prog) && dummy()) {
-                  org.lwjgl.opengl.ARBBindlessTexture.glUniformHandleui64ARB(l[6], dummyHandle);
+               if (bindless && hasTerm(l) && !LAST_HANDLE.containsKey(prog) && dummy()) {
+                  setHandle(prog, l, 6, dummyHandle);
                   LAST_HANDLE.put(prog, new long[] {dummyHandle});
                }
             }
@@ -693,7 +821,7 @@ public final class CloudShadow {
                }
                if (lh[0] != h) {
                   lh[0] = h;
-                  org.lwjgl.opengl.ARBBindlessTexture.glUniformHandleui64ARB(l[6], h);
+                  setHandle(prog, l, 6, h);
                }
                want = -1F;
             } else if (h == -1L) {
@@ -861,7 +989,7 @@ public final class CloudShadow {
    static String stats() {
       String s = String.format(java.util.Locale.ROOT, "clouds: %s cover %.2f wind %.0f kph strength %.2f, draws %d (term %d, bare %d), textures culled %d, programs patched %d%s%s",
          enabled() ? "on" : "off", cover, windKph, strength, draws, drawsWithTerm, drawsBare, culled, patchedPrograms,
-         bindless ? ", bindless handles " + ChunkAo.residentHandles : "", failed ? " FAILED" : "");
+         bindless ? ", bindless handles " + ChunkAo.residentHandles + ", step fade draws " + fadeDraws : "", failed ? " FAILED" : "");
       draws = drawsWithTerm = drawsBare = culled = 0L;
       return s;
    }
@@ -896,7 +1024,8 @@ public final class CloudShadow {
       String tex = stock ? "texture2D" : "texture";
       boolean bl = Config.CLOUD_BINDLESS && org.lwjgl.opengl.GL.getCapabilities().GL_ARB_bindless_texture;
       // bindless: GLSL 4.00+ (the stock 1.20 composite as 4.20 compatibility: varying, texture2D and gl_FragColor stay)
-      String head = bl ? (stock ? "#version 420 compatibility" : first) + "\n#extension GL_ARB_bindless_texture : require\n#define PZC_BINDLESS" : first;
+      String head = bl ? (stock ? "#version 420 compatibility" : first) + "\n#extension GL_ARB_bindless_texture : require\n#define PZC_BINDLESS"
+         + (Config.CLOUD_HANDLE_INTS ? "\n#define PZC_HANDLE_INTS" : "") : first;
       String c = head + "\n#define PZC_OUT " + out + "\n#define PZC_TEX " + tex + (Config.DEV_CLOUD_VIEW > 0 ? "\n#define PZC_VIEW " + Config.DEV_CLOUD_VIEW : "")
          + (Config.CLOUD_TERM_MIPS ? (stock && !bl ? "\n#define PZC_TERM(uv) texture2D(pzCloudTerm, uv, 1.0)" : "\n#define PZC_TERM(uv) textureLod(pzCloudTerm, uv, float(PZC_TERM_LOD))")
             : (stock && !bl ? "\n#define PZC_TERM(uv) texture2D(pzCloudTerm, uv, -8.0)" : "\n#define PZC_TERM(uv) textureLod(pzCloudTerm, uv, 0.0)"))
@@ -915,6 +1044,7 @@ public final class CloudShadow {
       }
       patched = true;
       bindless = bl;
+      handleInts = bl && Config.CLOUD_HANDLE_INTS;
       patchedPrograms++;
       Log.info("cloud shadows: patched into " + fileName + (bl ? " (kept terms bindless)" : ""));
       return c;
@@ -970,7 +1100,12 @@ public final class CloudShadow {
     */
    static final String COMPOSITE_GLSL = String.join("\n",
       "uniform sampler2D pzCloudField;", // FIELD_UNIT: R base shapes (equalised), G detail
-      "#ifdef PZC_BINDLESS",
+      "#if defined(PZC_BINDLESS) && defined(PZC_HANDLE_INTS)",
+      // cloudHandleInts: the handles as int halves, no sampler uniform of ours in the game's program (the game numbers its
+      // sampler2Ds itself and validates the program; on AMD / Windows the bindless sampler pzStepOld read the wrong texture)
+      "uniform int pzCloudTermLo, pzCloudTermHi;",
+      "#define pzCloudTerm sampler2D(uvec2(uint(pzCloudTermLo), uint(pzCloudTermHi)))",
+      "#elif defined(PZC_BINDLESS)",
       "layout(bindless_sampler) uniform sampler2D pzCloudTerm;", // the chunk texture's kept term by its handle, G the direct-sun share
       "#else",
       "uniform sampler2D pzCloudTerm;", // TERM_UNIT: the chunk texture's kept term, G the direct-sun share
@@ -980,8 +1115,24 @@ public final class CloudShadow {
       "uniform vec4 pzCloudP;", // x on, y 1 - cover, z 1 / (cover edge), w erosion
       "uniform vec4 pzCloudD;", // x detail scale, yz detail offset, w opacity / (1 - e^-3)
       "uniform vec4 pzCloudE;", // x the texture's direct-sun share (-1: read the kept term), y dev view, zw one texel of the chunk texture's uv
+      "uniform vec4 pzStepFade;", // x: the share of a sun step's change still to come (ChunkAo.stepFade; 0 none)
+      "#if defined(PZC_BINDLESS) && defined(PZC_HANDLE_INTS)",
+      "uniform int pzStepOldLo, pzStepOldHi;", // the kept term before the step (R: the factor on the colour)
+      "#define pzStepOld sampler2D(uvec2(uint(pzStepOldLo), uint(pzStepOldHi)))",
+      "#elif defined(PZC_BINDLESS)",
+      "layout(bindless_sampler) uniform sampler2D pzStepOld;", // the kept term before the step (R: the factor on the colour)
+      "#endif",
       "void main() {",
       "   pzCloudInner();",
+      // sunStepSync + sunStepFadeMs: the colour holds the new step; old / new of the kept terms, eased towards 1 (a long
+      // shadow at dusk changed in one frame, a pop of the whole picture)
+      "#ifdef PZC_BINDLESS",
+      "   if (pzStepFade.x > 0.0 && PZC_OUT.a >= 0.004) {",
+      "      float tn = textureLod(pzCloudTerm, texCoord.st, 0.0).r;",
+      "      float to = textureLod(pzStepOld, texCoord.st, 0.0).r;",
+      "      PZC_OUT.rgb *= mix(1.0, clamp(to / max(tn, 0.02), 0.0, 4.0), pzStepFade.x);",
+      "   }",
+      "#endif",
       "#ifdef PZC_VIEW",
       "   if (pzCloudE.y > 1.5) { float q0 = pzCloudE.x >= 0.0 ? pzCloudE.x : PZC_TERM(texCoord.st).g; PZC_OUT.rgb = vec3(q0) * PZC_OUT.a; return; }",
       "#endif",

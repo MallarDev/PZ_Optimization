@@ -1,0 +1,2 @@
+# cmd.exe wants CRLF: checked out that way on every OS (build.sh copies the working file into the release)
+*.cmd text eol=crlf

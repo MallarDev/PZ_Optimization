@@ -153,6 +153,12 @@ public final class MainScreenState extends GameState {
       }
 
       mainHasRan = true;
+      // pzopt: bootRepair, before any game code: an install built for another game revision (its stock paths crash on
+      // pzopt: the new jar) or one the uninstall helper left behind is removed / replaced, and the game started again
+      if (pzopt.BootRepair.run(args)) { // pzopt: bootRepair
+         System.exit(0); // pzopt: bootRepair (Restart's helper starts the game again once this process has ended)
+      } // pzopt: bootRepair
+
       System.setProperty("slf4j.provider", "zombie.core.logger.Slf4jBridge");
       Display.init();
       LocaleManager.initialise();
@@ -196,6 +202,7 @@ public final class MainScreenState extends GameState {
       SimpleDateFormat sdf = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
       System.out.println(sdf.format(Calendar.getInstance().getTime()));
       DebugType.DetailedInfo.trace("cachedir is \"" + ZomboidFileSystem.instance.getCacheDir() + "\"");
+      pzopt.UserOptions.checkCacheDir(ZomboidFileSystem.instance.getCacheDir()); // pzopt: Config read options.ini before -cachedir= was parsed; say which folder it used
       DebugType.DetailedInfo.trace("LogFileDir is \"" + LoggerManager.getLogsDir() + "\"");
       printSpecs();
       DebugType.General.debugln("-- listing properties --");

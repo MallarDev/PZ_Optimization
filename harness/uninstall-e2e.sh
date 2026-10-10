@@ -15,6 +15,11 @@
 #   C  installed again: the helper shows its installed note, the overrides load.
 #   D  (only when no real Workshop item 3805285544 is on the machine) the one-liner path: the item staged in the
 #      Steam library, uninstall, `cat install.sh | bash` with no --dir: the game found, the Workshop copy used.
+#   E-H the boot repair and the in-folder uninstaller (2026-10-07, docs/findings-uninstall-2026-10-07.md): E an in-game
+#      uninstall whose helper left its list (the game removes the files at the next start and restarts stock; the
+#      helper window says so); F a build for another game revision with the Workshop copy staged (replaced by the copy,
+#      restarted with the overrides); G the same without a copy (removed, restarted stock); H
+#      `bash <game>/uninstall-pz-optimization.bash`.
 #   Restore (EXIT trap): the previous install exactly (files, manifest, AOT folder, launcher JSON, pzopt.properties),
 #   options.ini, mods/default.txt, the helper mod and staged item removed, the restored manifest verified.
 # Refuses to start when a game runs or a harness flag file exists.
@@ -88,7 +93,8 @@ restore() {
   if [[ -f "$BACK/default.txt" ]]; then cp "$BACK/default.txt" "$ZOMBOID/mods/default.txt"; else rm -f "$ZOMBOID/mods/default.txt"; fi
   rm -rf "$LOCALMOD"; [[ -e "$BACK/localmod" ]] && mv "$BACK/localmod" "$LOCALMOD"
   if [[ $staged_item == 1 ]]; then rm -rf "$ITEM"; rmdir "$(dirname "$ITEM")" 2>/dev/null; fi
-  rm -f "$ZOMBOID/Lua/pzopt-e2e-helper.txt" "$ZOMBOID/Lua/pzopt-e2e-quit.txt"
+  rm -f "$ZOMBOID/Lua/pzopt-e2e-helper.txt" "$ZOMBOID/Lua/pzopt-e2e-quit.txt" "$ZOMBOID/Lua/pzopt-boot-repair.txt" \
+    "$ZOMBOID/pzopt/uninstall-files.txt" "$ZOMBOID/pzopt/uninstall-dirs.txt"
   python3 - "$G" <<'EOF'
 import hashlib, sys, os
 d = sys.argv[1]; m = os.path.join(d, "pzopt-installed.txt")
@@ -136,6 +142,20 @@ wait_line() { # pattern, timeout s; prints the matching line
   return 1
 }
 wait_exit() { local i; for i in $(seq 1 $(( $1 * 5 ))); do kill -0 "$GAME" 2>/dev/null || return 0; sleep 0.2; done; return 1; }
+# the boot repair ends the launched process and pzopt.Restart starts the game again: follow the new process (sets GAME)
+follow_relaunch() { # $1 = timeout s for the first process to end
+  local old="$GAME" i p
+  wait_exit "$1" || return 1
+  for i in $(seq 1 100); do
+    p=$(pgrep -n -f "$GAME_RE" || true)
+    [[ -n "$p" && "$p" != "$old" ]] && { GAME=$p; pids+=("$GAME"); echo "e2e: restarted game pid $GAME"; return 0; }
+    sleep 0.2
+  done
+  return 1
+}
+fake_revision() { # the installed build claims another game revision: what a game update does to an install
+  sed -i.e2e 's/^revision=.*/revision=0000000000/' "$G/pzopt/build-info.properties" && rm -f "$G/pzopt/build-info.properties.e2e"
+}
 shot() { # the game's own screenshot (the Lua drives call getCore():TakeFullScreenshot("pzopt-e2e-<name>.png"))
   local f="$ZOMBOID/Screenshots/pzopt-e2e-$1.png" i
   for i in $(seq 1 25); do [[ -s "$f" ]] && break; sleep 0.2; done
@@ -281,6 +301,107 @@ else
   [[ $rc == 0 ]] && grep -q 'found the Steam Workshop copy' "$OUT/D-install.txt" && check ok "D: game found, Workshop copy used" || check fail "D: exit $rc"
   r=$(manifest_ok); [[ "$r" == ok ]] && check ok "D: installed build = the build under test" || check fail "D: $r"
 fi
+
+REPAIR_LOG="$ZOMBOID/pzopt/boot-repair.log"
+reinstall() { # $1 = phase
+  [[ -f "$G/pzopt-installed.txt" || -f "$G/pzopt-files.txt" ]] && bash "$E2E/install.sh" --uninstall --dir "$G" >/dev/null 2>&1
+  bash "$E2E/install.sh" --from "$E2E/classes" --dir "$G" > "$OUT/install-$1.txt" 2>&1 || { check fail "$1: install"; return 1; }
+  printf 'updateCheck=false\nhdrAuto=false\n' > "$G/pzopt.properties"
+}
+repair_line() { tail -n +"$((${1:-0} + 1))" "$REPAIR_LOG" 2>/dev/null | grep -v 'the game is started again\|could not start' | tail -1; }
+
+# --- E: an in-game uninstall the helper did not finish ----------------------------------------------------------------
+echo "=== E: boot repair, pending uninstall"
+reinstall E
+cp "$G/pzopt-installed.txt" "$OUT/manifest-E.txt"
+( cd "$G" && grep -v '^#' pzopt-installed.txt | cut -d' ' -f1 | sed "s|^|$G/|" ) > "$ZOMBOID/pzopt/uninstall-files.txt"
+: > "$ZOMBOID/pzopt/uninstall-dirs.txt"
+age() { python3 -c 'import os, sys, time; t = time.time() - int(sys.argv[2]); os.utime(sys.argv[1], (t, t))' "$1" "$2"; }   # BSD touch has no -d
+age "$G/pzopt-installed.txt" 120; age "$ZOMBOID/pzopt/uninstall-files.txt" 60
+n0=$(wc -l < "$REPAIR_LOG" 2>/dev/null || echo 0)
+: > "$ZOMBOID/Lua/pzopt-e2e-helper.txt"; : > "$ZOMBOID/Lua/pzopt-e2e-quit.txt"
+launch "$OUT/E-stdout.txt"
+follow_relaunch 90 && check ok "E: the game ended and started again" || check fail "E: no restart after the repair"
+l=$(repair_line "$n0"); echo "  log: ${l:0:300}"
+[[ "$l" == *' uninstalled: '* ]] && check ok "E: boot-repair.log says uninstalled" || check fail "E: boot-repair.log: $l"
+l=$(wait_line '\[pzopt\] install helper: not installed' 150); echo "  ${l##*\] }" | cut -c1-200
+[[ "$l" == *'boot repair: uninstalled'* ]] && check ok "E: the restarted game is stock, the helper names the repair" || check fail "E: helper line: $l"
+wait_exit 120 || check fail "E: the restarted game quit"
+cp "$CONSOLE" "$OUT/E-console.txt"; no_lua_errors "$OUT/E-console.txt" E
+left=$(grep -v '^#' "$OUT/manifest-E.txt" | cut -d' ' -f1 | while IFS= read -r rel; do [[ -e "$G/$rel" ]] && echo "$rel"; done | wc -l | tr -d ' ')
+[[ "$left" == 0 && ! -e "$ZOMBOID/pzopt/uninstall-files.txt" ]] && check ok "E: every file and the list removed" || check fail "E: $left files left"
+r=$(json_clean); [[ "$r" == ok ]] && check ok "E: launcher JSON free of pzopt edits" || check fail "E: launcher JSON: $r"
+rm -f "$ZOMBOID/Lua/pzopt-e2e-helper.txt" "$ZOMBOID/Lua/pzopt-e2e-quit.txt"
+
+# --- F: a game update with a Workshop item in the library (the staged copy, or the machine's real subscription) -------
+# replaced by the copy when it is a complete build for this game revision whose stock classes match the jar, else removed
+if [[ -e "$ITEM" ]]; then
+  echo "=== F: boot repair, build mismatch, Workshop item present ($( [[ $staged_item == 1 ]] && echo staged || echo "the machine's own" ))"
+  reinstall F && fake_revision
+  cp "$G/pzopt-installed.txt" "$OUT/manifest-F.txt"
+  n0=$(wc -l < "$REPAIR_LOG" 2>/dev/null || echo 0)
+  : > "$ZOMBOID/Lua/pzopt-e2e-helper.txt"; : > "$ZOMBOID/Lua/pzopt-e2e-quit.txt"
+  launch "$OUT/F-stdout.txt"
+  follow_relaunch 90 && check ok "F: the game ended and started again" || check fail "F: no restart after the repair"
+  l=$(repair_line "$n0"); echo "  log: ${l:0:400}"
+  if [[ "$l" == *' updated: '* ]]; then
+    check ok "F: boot-repair.log says updated (the Workshop copy installed)"
+    wait_line '\[pzopt-e2e\] installed note shown' 150 >/dev/null && check ok "F: the restarted game has the overrides" || check fail "F: no installed note"
+    wait_exit 60 || check fail "F: the restarted game quit"
+    cp "$CONSOLE" "$OUT/F-console.txt"; no_lua_errors "$OUT/F-console.txt" F
+    n=$(grep -a -c 'loaded override' "$OUT/F-console.txt"); [[ $n -gt 0 ]] && check ok "F: $n overrides loaded" || check fail "F: no override loaded"
+    grep -a -q 'DISABLED: build mismatch' "$OUT/F-console.txt" && check fail "F: the installed copy is a mismatch too" || check ok "F: the copy matches the game"
+    head -1 "$G/pzopt-installed.txt" | grep -q 'boot repair' && check ok "F: manifest written by the boot repair" || check fail "F: manifest header $(head -1 "$G/pzopt-installed.txt")"
+    if [[ $staged_item == 1 ]]; then r=$(manifest_ok); [[ "$r" == ok ]] && check ok "F: installed = the staged copy, hashes match" || check fail "F: $r"; fi
+  elif [[ "$l" == *' removed: '* && $staged_item == 0 ]]; then
+    check ok "F: boot-repair.log says removed (the machine's Workshop item is not a build for this game)"
+    l=$(wait_line '\[pzopt\] install helper: not installed' 150)
+    [[ "$l" == *'boot repair: removed'* ]] && check ok "F: the restarted game is stock, the helper names the repair" || check fail "F: helper line: $l"
+    wait_exit 120 || check fail "F: the restarted game quit"
+    cp "$CONSOLE" "$OUT/F-console.txt"; no_lua_errors "$OUT/F-console.txt" F
+    left=$(grep -v '^#' "$OUT/manifest-F.txt" | cut -d' ' -f1 | while IFS= read -r rel; do [[ -e "$G/$rel" ]] && echo "$rel"; done | wc -l | tr -d ' ')
+    [[ "$left" == 0 ]] && check ok "F: every installed file removed" || check fail "F: $left files left"
+  else
+    check fail "F: boot-repair.log: $l"
+  fi
+  rm -f "$ZOMBOID/Lua/pzopt-e2e-helper.txt" "$ZOMBOID/Lua/pzopt-e2e-quit.txt"
+  if [[ $staged_item == 1 ]]; then rm -rf "$ITEM"; rmdir "$(dirname "$ITEM")" 2>/dev/null; staged_item=0; fi
+else
+  echo "=== F: skipped (no Workshop item in the library)"
+fi
+
+# --- G: a game update, no Workshop copy ------------------------------------------------------------------------------
+if [[ ! -e "$ITEM" ]]; then
+  echo "=== G: boot repair, build mismatch, no copy"
+  reinstall G && fake_revision
+  cp "$G/pzopt-installed.txt" "$OUT/manifest-G.txt"
+  n0=$(wc -l < "$REPAIR_LOG" 2>/dev/null || echo 0)
+  : > "$ZOMBOID/Lua/pzopt-e2e-helper.txt"; : > "$ZOMBOID/Lua/pzopt-e2e-quit.txt"
+  launch "$OUT/G-stdout.txt"
+  follow_relaunch 90 && check ok "G: the game ended and started again" || check fail "G: no restart after the repair"
+  l=$(repair_line "$n0"); echo "  log: ${l:0:300}"
+  [[ "$l" == *' removed: '* ]] && check ok "G: boot-repair.log says removed" || check fail "G: boot-repair.log: $l"
+  l=$(wait_line '\[pzopt-e2e\] helper shown' 150) && shot G-helper
+  l=$(grep -a -m1 '\[pzopt\] install helper: not installed' "$CONSOLE")
+  [[ "$l" == *'boot repair: removed'* ]] && check ok "G: the restarted game is stock, the helper names the repair" || check fail "G: helper line: $l"
+  wait_exit 120 || check fail "G: the restarted game quit"
+  cp "$CONSOLE" "$OUT/G-console.txt"; no_lua_errors "$OUT/G-console.txt" G
+  left=$(grep -v '^#' "$OUT/manifest-G.txt" | cut -d' ' -f1 | while IFS= read -r rel; do [[ -e "$G/$rel" ]] && echo "$rel"; done | wc -l | tr -d ' ')
+  [[ "$left" == 0 ]] && check ok "G: every installed file removed" || check fail "G: $left files left"
+  r=$(json_clean); [[ "$r" == ok ]] && check ok "G: launcher JSON free of pzopt edits" || check fail "G: launcher JSON: $r"
+  rm -f "$ZOMBOID/Lua/pzopt-e2e-helper.txt" "$ZOMBOID/Lua/pzopt-e2e-quit.txt"
+else
+  echo "=== G: skipped (a real Workshop item is on this machine)"
+fi
+
+# --- H: the uninstaller in the game folder ---------------------------------------------------------------------------
+echo "=== H: bash <game>/uninstall-pz-optimization.bash"
+reinstall H
+cp "$G/pzopt-installed.txt" "$OUT/manifest-H.txt"
+bash "$G/uninstall-pz-optimization.bash" > "$OUT/H-uninstall.txt" 2>&1; rc=$?
+sed 's/^/  /' "$OUT/H-uninstall.txt" | cut -c1-240
+left=$(grep -v '^#' "$OUT/manifest-H.txt" | cut -d' ' -f1 | while IFS= read -r rel; do [[ -e "$G/$rel" ]] && echo "$rel"; done | wc -l | tr -d ' ')
+[[ $rc == 0 && "$left" == 0 && ! -e "$G/uninstall-pz-optimization.bash" ]] && check ok "H: the folder's uninstaller removed everything" || check fail "H: exit $rc, $left files left"
 
 echo "e2e: $fails failure(s)"
 [[ $fails == 0 ]] && echo "e2e: PASS" || echo "e2e: FAIL"

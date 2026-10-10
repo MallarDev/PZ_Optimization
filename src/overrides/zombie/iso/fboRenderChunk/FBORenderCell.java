@@ -219,6 +219,7 @@ public final class FBORenderCell {
          }
       }
       int playerIndex = IsoCamera.frameState.playerIndex;
+      pzopt.EntityShadow.frameStart(playerIndex); // pzopt: entity shadows, the frame's light and probe bricks (its compute first in the frame: the pipeline has drained at the swap)
       if (pzopt.CharDraw.enabled()) {
          pzopt.CharDraw.walk(IsoWorld.instance.getCell().getObjectList(), this); // pzopt: charDrawPrep, the object walk on a worker from here
       }
@@ -1928,7 +1929,7 @@ public final class FBORenderCell {
       this.renderOpaqueObjectsEvent(playerIndex);
       SpriteRenderer.instance.beginProfile(movingObjectsProbe);
       if (!pzopt.ResumeShot.noMoving) { // pzopt: resumeShot's exit capture (below "full"): no vehicles or characters
-      pzopt.CarGlass.beforeMoving(playerIndex); /* pzopt: car glass, this frame's sky and the cars' snapshots before they draw */ long pzoptMoving = pzopt.GtAb.begin(); pzopt.GpuSections.begin(pzopt.CarGlass.section("moving")); /* pzopt: GPU section */ this.renderMovingObjects(); pzopt.GpuSections.end(pzopt.CarGlass.section("moving")); pzopt.GtAb.end(pzopt.GtAb.S_MOVING, pzoptMoving); // pzopt: devGtAlternate section timer
+      pzopt.CarGlass.beforeMoving(playerIndex); /* pzopt: car glass, this frame's sky and the cars' snapshots before they draw */ pzopt.EntityShadow.beforeMoving(playerIndex); /* pzopt: entity shadows, the worker's gather joined */ long pzoptMoving = pzopt.GtAb.begin(); pzopt.GpuSections.begin(pzopt.EntityShadow.section(pzopt.CarGlass.section("moving"))); /* pzopt: GPU section */ pzopt.EntityShadow.devStats(true); this.renderMovingObjects(); pzopt.EntityShadow.devStats(false); pzopt.GpuSections.end(pzopt.EntityShadow.section(pzopt.CarGlass.section("moving"))); pzopt.GtAb.end(pzopt.GtAb.S_MOVING, pzoptMoving); // pzopt: devGtAlternate section timer
       }
       pzopt.CapsuleShadow.afterMoving(playerIndex); // pzopt: sunShadowSilhouette, the casters' shadows from their drawn shapes (after they are drawn)
       pzopt.Mirrors.afterMoving(); // pzopt: mirrors, the characters / vehicles through the reflectors' planes into the model layer
@@ -2991,7 +2992,7 @@ public final class FBORenderCell {
                   this.pzoptBakeTrees(c, playerIndex, zoom);
                   pzopt.GpuSections.end("bake.trees"); // pzopt: GPU sub-section
                }
-               if (pzopt.Config.GOD_RAYS && renderLevels.isDirty(level, FBORenderChunk.DIRTY_OBJECT_ADD | FBORenderChunk.DIRTY_OBJECT_REMOVE | FBORenderChunk.DIRTY_OBJECT_MODIFY, zoom)) pzopt.GodRays.chunkChanged(c); // pzopt: god rays, a door / window / wall changed: the chunk's occupancy again
+               if ((pzopt.Config.GOD_RAYS || pzopt.EntityShadow.wantsOccupancy()) && renderLevels.isDirty(level, FBORenderChunk.DIRTY_OBJECT_ADD | FBORenderChunk.DIRTY_OBJECT_REMOVE | FBORenderChunk.DIRTY_OBJECT_MODIFY, zoom)) pzopt.GodRays.chunkChanged(c); // pzopt: god rays, a door / window / wall changed: the chunk's occupancy again
                if (pzopt.ChunkAo.enabled() && FBORenderChunkManager.instance.renderChunk != null && FBORenderChunkManager.instance.renderChunk.isTopLevel(level)) { // pzopt: ambient occlusion baked into the texture
                   pzopt.ChunkAo.bakeEnd(FBORenderChunkManager.instance.renderChunk, c, playerIndex, zoom, pzopt.ChunkAo.geometryDirty(renderLevels, level, zoom)); // pzopt
                } // pzopt
@@ -5525,11 +5526,14 @@ public final class FBORenderCell {
          return; // pzopt
       } // pzopt
       if (pzopt.Config.INSTRUMENT && (pzoptTlFrames & 15) == 0 && !pzopt.DrawRecorder.recording) pzoptCountTranslucent(object); // pzopt: dev counter, one frame in 16 (it was 1.7 % of a harness run's game thread); not while units record (its tileset map is not thread-safe)
-      boolean pzoptMirror = pzopt.Mirrors.beginCapture(object); // pzopt: mirrors, a window / mirror tile: its quad is captured as it draws
+      boolean pzoptMirror = !pzopt.DrawRecorder.onRecordingThread() && pzopt.Mirrors.beginCapture(object); // pzopt: mirrors, a window / mirror tile: its quad is captured as it draws (on the game thread: a recorder defers those objects)
+      boolean pzoptDepth = pzopt.Props.writesDepth(object.getSprite()); // pzopt: an opaque reflective prop drawn per frame writes its depth as its baked self did
+      if (pzoptDepth) IndieGL.glDepthMask(true); // pzopt
       try { // pzopt
          this.pzoptRenderTranslucent(object); // pzopt
       } finally { // pzopt
          if (pzoptMirror) pzopt.Mirrors.endCapture(); // pzopt
+         if (pzoptDepth) IndieGL.glDepthMask(false); // pzopt
       } // pzopt
    } // pzopt
 
@@ -6359,7 +6363,8 @@ public final class FBORenderCell {
             if (renderLevels.isOnScreen(z) && renderLevels.isDirty(z, zoom)) {
                // pzopt: bakeScheduler, a held level re-bakes in a later frame; the occluders only change with the levels
                // granted now (the rebuild ran every frame while any re-bake waited: 7 % of late game steps, run td-prof4)
-               if (this.pzoptSchedPlanned && pzopt.Config.OCCLUSION_GRANTED_ONLY && !pzopt.BakeScheduler.get(playerIndex).peek(c, renderLevels.getMinLevel(z))) {
+               if (this.pzoptSchedPlanned && pzopt.Config.OCCLUSION_GRANTED_ONLY && !pzopt.BakeScheduler.get(playerIndex).peek(c, renderLevels.getMinLevel(z))
+                     && !renderLevels.isDirty(z, 2048L | 16384L, zoom)) { // pzopt: a held cutaway / collapse change still rebuilds the grid (see prepareChunksForUpdating)
                   continue;
                }
                if (renderLevels.isDirty(z, ~32L, zoom)) {
@@ -6608,10 +6613,18 @@ public final class FBORenderCell {
                   continue; // pzopt: zoomRetain, prepared in the frame the plan bakes it (a zoom-out dirties ~200 levels at once)
                }
                if (this.pzoptSchedPlanned && !pzopt.BakeScheduler.get(playerIndex).peek(c, z) && renderLevels.getFBOForLevel(z, zoom) != null
-                     && !renderLevels.isDirty(z, 512L, zoom)) {
+                     && !renderLevels.isDirty(z, 512L, zoom) && !renderLevels.isDirty(z, 2048L | 16384L, zoom)) { // pzopt
                   // pzopt: bakeScheduler, a held level keeps its texture and the square flags of its last preparation (they
                   // match what is on screen); a never-textured level is always prepared: the occlusion count reads these
-                  // flags, and one never prepared counted 0 squares, was skipped as occluded and never baked (holes, td-combo6r)
+                  // flags, and one never prepared counted 0 squares, was skipped as occluded and never baked (holes, td-combo6r).
+                  // A held cutaway / collapse change (2048 / 16384) is prepared anyway: walking into a building marks every
+                  // level of its chunks at once and the grants spread them over several frames; the levels still waiting
+                  // kept the flags of the roof squares, the occlusion grid went on counting that roof as cover over the
+                  // garage floor below, the already prepared garage level counted 0 rendered squares, was freed as hidden
+                  // and came back a few frames later: black chunk-shaped holes in the floor for 2-3 frames at every entry
+                  // (fire department, 2026-10-01, runs ghost-south-*; census ghost-south-census: "hidden" re-creations
+                  // 5 frames after the burst). With the flags fresh the hidden levels above cull at once and the floor
+                  // below keeps its texture; only the bake itself waits for its grant.
                   continue; // pzopt
                }
                this.prepareChunkForUpdating(playerIndex, c, z);

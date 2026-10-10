@@ -127,6 +127,9 @@ public final class TextureDraw {
    public Texture tex;
    public Texture tex1;
    public Texture tex2;
+   public boolean pzoptVD; // pzopt: tileVertexDepth, glDraw: carries the tile's depth pair (pzopt.TileBatch)
+   public boolean pzoptVDStart; // pzopt: tileVertexDepth, StartShader: a merged tile-depth start (the program reads the pair)
+   public float pzoptVDFront, pzoptVDFar; // pzopt: tileVertexDepth
    public byte useAttribArray;
    public float tex1U0;
    public float tex1U1;
@@ -410,6 +413,7 @@ public final class TextureDraw {
    public static void StartShader(TextureDraw texd, int iD) {
       texd.type = TextureDraw.Type.StartShader;
       texd.a = iD;
+      texd.pzoptVDStart = false; // pzopt: tileVertexDepth (TileBatch sets it on its own starts)
       if (pzopt.Sway.frameOn) { // pzopt: foliage sway, a patched bake program gets its sway uniform
          ShaderUniformSetter pzoptU = pzopt.Sway.startShader(texd, iD, null); // pzopt
          if (pzoptU != null) texd.drawer = pzoptU; // pzopt
@@ -419,6 +423,7 @@ public final class TextureDraw {
    public static void StartShader(TextureDraw texd, int iD, ShaderUniformSetter uniforms) {
       texd.type = TextureDraw.Type.StartShader;
       texd.a = iD;
+      texd.pzoptVDStart = false; // pzopt: tileVertexDepth (TileBatch sets it on its own starts)
       texd.drawer = pzopt.Sway.frameOn ? pzopt.Sway.startShader(texd, iD, uniforms) : uniforms; // pzopt: foliage sway, a patched bake program gets its sway uniform
       if (!pzopt.Sway.frameOn) texd.c = 0; // pzopt
    }
@@ -594,7 +599,7 @@ public final class TextureDraw {
             IndieGL.glTexParameteriActual(this.a, this.b, this.c);
             break;
          case StartShader:
-            int pzoptProgram = pzopt.Sway.remap(pzopt.SpriteFilter.remap(this.a), this); // pzopt: sprite filter, the chunk composite runs this frame's zoom variant; foliage sway, its variant for a texture with swaying plants
+            int pzoptProgram = pzopt.PixelLight.remap(pzopt.Sway.remap(pzopt.SpriteFilter.remap(this.a), this), this); // pzopt: pplRemap, pixelLight's variant for this chunk bound in place of the full program // pzopt: sprite filter, the chunk composite runs this frame's zoom variant; foliage sway, its variant for a texture with swaying plants
             if (pzopt.DrawStats.ON) pzopt.DrawStats.shaderStart(pzoptProgram); // pzopt: instrumented runs, draw-call census
             ShaderHelper.glUseProgramObjectARB(pzoptProgram); // pzopt: sprite filter
             pzopt.Sway.onProgram(pzoptProgram, this); // pzopt: foliage sway, both draw buffers while a patched program bakes into a texture with sway attributes
@@ -620,6 +625,7 @@ public final class TextureDraw {
                   uniforms.invokeAll();
                } // pzopt
             }
+            if (pzopt.TileBatch.ON) pzopt.TileBatch.onStart(pzoptProgram, this.pzoptVDStart); // pzopt: tileVertexDepth, the program reads the depth pair or its uniforms
             break;
          case glLoadIdentity:
             GL11.glLoadIdentity();
@@ -663,6 +669,9 @@ public final class TextureDraw {
                   break; // pzopt
                } // pzopt
                int pzoptMotionId = this.b > 0 && pzopt.RenderScale.inWorldPass() ? this.b : 0; // pzopt: upscaler, object motion vectors
+               if (pzoptMotionId == 0 && pzopt.Ssr.stencilMoving()) { // pzopt: reflections, the moving-object scatter reads only the pixels the models drew
+                  pzoptMotionId = pzopt.ObjectMotion.MOVING_ID; // pzopt
+               } // pzopt
                if (pzoptMotionId > 0) {
                   pzopt.ObjectMotion.beginStencil(pzoptMotionId);
                }
@@ -1081,6 +1090,7 @@ public final class TextureDraw {
 
       Create(texd, tex, x0, y0, x1, y1, x2, y2, x3, y3, col0, col0, col0, col0, u0, v0, u1, v1, u2, v2, u3, v3, texdModifier);
       pzoptTakeDepth(texd); // pzopt: tileRecordParallel, a recording thread's depth comes from its own scratch
+      pzopt.TileBatch.stamp(texd); // pzopt: tileVertexDepth, a tile drawn under the merged tile-depth start carries its depth pair
       return texd;
    }
 
@@ -1258,10 +1268,11 @@ public final class TextureDraw {
          texd.singleCol = texd.col0 == texd.col1 && texd.col0 == texd.col2 && texd.col0 == texd.col3;
       }
 
-      if (pzopt.Mirrors.capturingNow) { // pzopt: mirrors, a window / mirror tile drawing: its quad and texture
+      if (pzopt.Mirrors.capturingNow && !pzopt.DrawRecorder.onRecordingThread()) { // pzopt: mirrors, a window / mirror tile drawing: its quad and texture (the game thread's; a recorder's draws never)
          pzopt.Mirrors.captured(texd); // pzopt
       } // pzopt
       pzoptTakeDepth(texd); // pzopt: tileRecordParallel, a recording thread's depth comes from its own scratch
+      pzopt.TileBatch.stamp(texd); // pzopt: tileVertexDepth, a tile drawn under the merged tile-depth start carries its depth pair
       return texd;
    }
 
@@ -1309,6 +1320,7 @@ public final class TextureDraw {
          this.probe = o.probe; // pzopt
          this.tex = o.tex; // pzopt
          this.tex1 = o.tex1; // pzopt
+         this.pzoptVDStart = o.pzoptVDStart; // pzopt: tileVertexDepth
          return; // pzopt
       } // pzopt
       this.pzoptOutline = o.pzoptOutline; // pzopt
@@ -1374,6 +1386,9 @@ public final class TextureDraw {
       this.tex2V1 = o.tex2V1; // pzopt
       this.tex2V2 = o.tex2V2; // pzopt
       this.tex2V3 = o.tex2V3; // pzopt
+      this.pzoptVD = o.pzoptVD; // pzopt: tileVertexDepth
+      this.pzoptVDFront = o.pzoptVDFront; // pzopt
+      this.pzoptVDFar = o.pzoptVDFar; // pzopt
       this.singleCol = o.singleCol; // pzopt
       this.imDrawData = o.imDrawData; // pzopt
       this.probe = o.probe; // pzopt

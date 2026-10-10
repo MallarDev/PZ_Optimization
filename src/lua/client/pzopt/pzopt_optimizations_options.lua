@@ -687,6 +687,8 @@ local SECTIONS = {
               tip = "Lot headers, vehicle zones and room ids resolve once per cell instead of repeatedly; identical results." },
             { key = "shaderCache", label = "Reuse model shaders",
               tip = "A model takes a shader an earlier model already created instead of waiting one loading-screen frame for the render thread." },
+            { key = "shaderWarmup", label = "Build shaders ahead of play",
+              tip = "Shaders that were built the first time something needed them, in the middle of play, are built ahead: every model shader the game's scripts name during the loading screen (the first car of a session stopped the game for up to half a second), and the Visuals' own programs (foliage sway, god rays, wet blood) as the world appears. Matters most on the first launch after an update, when the graphics driver has none of them cached. Applies on the next launch." },
             { key = "mipmapArrays", label = "Row-based texture mipmaps",
               tip = "Texture mipmaps and alpha premultiply build row by row on byte arrays; same pixels as stock." },
             { key = "texCompress", label = "Texture compression: who compresses",
@@ -899,6 +901,24 @@ local ENHANCEMENT_SECTIONS = {
               tip = "How often the true-shape shadow of a character, animal or vehicle takes its new pose. Every frame: the shadow is drawn in the same frame as the character, so arms and legs move in step with it. 15 times a second: each pose is kept for several frames and shown a frame late, which reads as a slightly choppy shadow next to a smoothly animated character; the shadow still follows the character's position every frame. With 40 characters on screen every frame cost about 0.09 ms a frame on an RTX 4090 against 0.03 ms for 15 a second; in big crowds at most 32 are renewed a frame (your own every frame), the rest in turns." },
             { key = "sunShadowAnimals", label = "Sun shadows: animals",
               tip = "Farm and wild animals cast sun shadows too." },
+            { key = "entityShadows", label = "Shadows on characters and vehicles",
+              tip = "The player, zombies, animals and cars take the shadows of buildings, walls, roofs and trees where they stand, part by part: a zombie half behind a wall has its legs in the shade and its head in the sun, a car under a porch roof is dark under the roof only. With Sun shadows turned on during a game, part by part from the next launch (one shade for a whole character until then). Off: one shade for a whole character, none for cars." },
+            { key = "entityShadowFormPct", label = "Shadows on characters: sunlit side (%)",
+              choices = { "0", "25", "50", "75", "100" }, note = { ["50"] = "default" },
+              tip = "How much the side of a body facing the sun is brighter and the far side darker. The overall brightness stays the same. 0: flat, as the game draws them." },
+            { key = "entityShadowCasters", label = "Shadows on characters: from other characters and cars",
+              tip = "Characters and cars also shade each other: a zombie standing in a car's shadow, the player in a crowd's. Cheap with few characters; in a dense crowd at a shadow's edge about 0.02 ms a frame on an RTX 4090." },
+            { key = "entityShadowSelf", label = "Shadows on characters: their own shadow",
+              tip = "A character's or a car's own body shades itself: an arm on the chest, a hat brim on the face, the cabin on the hood. For the 16 nearest characters, when zoomed in enough to see it." },
+            { key = "entityShadowImpostors", label = "Shadows on characters: far zombies",
+              tip = "Zombies drawn as flat pictures (far away, big hordes) take the shade of where they stand too, one shade for the whole body." },
+            { key = "entityShadowTorches", label = "Shadows on characters: torches and headlights",
+              tip = "At night (and in dark places), a character standing in another character's or a car's shadow from a torch or headlights is shaded too, as the ground there: a zombie behind another in your torch beam stays dark. With \"Shadows from torches and headlights\" this matches the shadows on the ground. Costs nothing measurable." },
+            { key = "entityShadowAoPct", label = "Shadows on characters: from the bodies next to them (%)",
+              choices = { "0", "30", "60", "100" }, note = { ["60"] = "default", ["0"] = "off" },
+              tip = "Characters standing close together, or against a car, hide part of the surrounding light from each other: the sides that face each other are a little darker, so a packed crowd has depth instead of every body lit the same. About 0.01 ms a frame in a dense crowd on an RTX 4090." },
+            { key = "entityShadowClouds", label = "Shadows on characters: clouds",
+              tip = "With cloud shadows on, a cloud's soft shadow crosses characters and cars as it crosses the ground: a car half under a cloud's edge is half shaded, and a character's head can be in the sun while their feet are not (the shadow falls along the sun). Off: one cloud value for each character or car. Costs nothing measurable." },
             { key = "sunShadowVehicles", label = "Sun shadows: vehicles",
               tip = "Cars and trucks outdoors cast a sun shadow of their body." },
             { key = "sunShadowTreeCards", label = "Sun shadows: the true shape of trees",
@@ -991,10 +1011,17 @@ local ENHANCEMENT_SECTIONS = {
             { key = "mirrors", label = "Mirror and window reflections",
               tip = "Wall mirrors, mirrored medicine cabinets and dressers, and window panes reflect what stands in front of them: the floor and the room, the street, and you, the zombies and the cars as their real other side (the game's own models drawn once more through the mirror's plane, lit as they are lit), so a mirror shows your face, not your back. From the game's high camera a wall mirror shows the floor and whoever stands within a couple of squares of it; a window upstairs shows the street below. Someone inside a room seen through a window keeps the reflection over them, as glass does; a closed curtain stops it. The room part of each pane's reflection is worked out once and kept while nothing changes (the camera's pan does not change it), panes hidden under a roof or behind a building are skipped, and the people in it are redrawn at most 120 times a second: a few hundredths of a millisecond a frame for a street of windows on a fast GPU, nothing when no mirror or window is on screen. Applies on the next launch (mirror tiles are drawn on their own instead of into the chunk pictures)." },
             { key = "mirrorsWindows", label = "Mirrors: windows reflect too",
-              tip = "On: window panes reflect as well (subtly, as glass does). Off: only wall mirrors. Applies on the next launch." },
+              tip = "On: window panes reflect as well (subtly, as glass does). Off: no window reflects (wall mirrors and glass props keep theirs). Applies on the next launch." },
+            { key = "mirrorsWallMirrors", label = "Mirrors: wall mirrors reflect too",
+              tip = "On: wall mirrors, mirrored medicine cabinets and dressers, and the gym's wall mirrors reflect the room in front of them and the people in it. Off: they look as in the game (a plain mirror texture), and only the windows and glass props reflect: for window reflections without the mirrors. Applies on the next launch." },
             { key = "mirrorsWindowPct", label = "Mirrors: window reflection strength (%)",
               choices = { "15", "30", "50", "70" }, note = { ["30"] = "default" },
               tip = "How much of a window pane is its reflection. Real glass reflects a few percent head-on, more where the room behind it is dark; higher reads more like a shop window by day. Applies on the next launch." },
+            { key = "mirrorsProps", label = "Mirrors: glass, screens and steel reflect too",
+              tip = "On: the things in a room that are not mirrors or windows reflect as well: glass doors, shop fronts and railings, shower screens, display counters and cases, glass-door fridges, the glass table, switched-off televisions and monitors, the gym's wall mirrors, steel counters, sinks and appliances, toilets. Each surface reflects the way it faces: a glass top shows what stands behind it, a door or a pane what stands in front, faintly as glass does; steel, ceramic and dark screens keep their own look and show the people and cars passing in front as a soft sheen. Their shape comes from the game's own depth maps, so nothing is guessed per object. Reflections fade where you cannot see (out of your sight the prop is dark, so is its reflection). Costs about a tenth of a millisecond on a handheld with a room full of them, a few hundredths on a fast GPU; worked out once per prop and kept while nothing changes. Applies on the next launch (with Mirror and window reflections on)." },
+            { key = "mirrorsPropGlassPct", label = "Mirrors: glass prop reflection strength (%)",
+              choices = { "15", "25", "40", "60" }, note = { ["25"] = "default" },
+              tip = "How much of a glass door, counter or case is its reflection. Real glass reflects a few percent head-on and more at a grazing angle (a glass top more than an upright pane: the game's camera sees tops at 60 degrees). Applies on the next launch." },
             { key = "mirrorsGeometry", label = "Mirrors: the room behind the glass",
               tip = "On: a wall mirror's room is rebuilt behind the glass from the game's own tiles, so the mirror shows what the camera can never see: the far side of the bathtub or the bed in front of it (the furniture's other facing, as the game draws it when you turn it), the floor behind it, and the wall across the room. Off: the reflection is made of what the camera sees, and where that is hidden (behind a table, a bathtub) the floor seen last stands in. Built once when a mirror comes on screen and kept; costs nothing while it stands. Applies on the next launch." },
             { key = "mirrorsCutawayHoldMs", label = "Mirrors: steady walls by a room corner (ms)",
@@ -1167,7 +1194,8 @@ local NEXT_LAUNCH_ONLY = { hdr = true, hdrAuto = true, carOccupant = true, carOc
     -- car glass: the vehicle shaders are patched when the game loads them (only then); its strengths apply at once
     carGlass = true,
     -- mirrors: mirror tiles leave the chunk pictures at start-up; the settings are read once
-    mirrors = true, mirrorsWindows = true, mirrorsWindowPct = true, mirrorsModels = true, mirrorsGeometry = true, mirrorsViewLateralPct = true, mirrorsViewDropPct = true,
+    mirrors = true, mirrorsWindows = true, mirrorsWallMirrors = true, mirrorsWindowPct = true, mirrorsModels = true, mirrorsGeometry = true, mirrorsViewLateralPct = true, mirrorsViewDropPct = true,
+    mirrorsProps = true, mirrorsPropGlassPct = true,
     -- relief: compiled into the chunk composite programs when the game loads them
     relief = true, reliefDepthPct = true, reliefSunPct = true, reliefTorchShadowSteps = true }
 for _, section in ipairs(ENHANCEMENT_SECTIONS) do
@@ -1386,6 +1414,26 @@ local function tooltipFor(entry, pinnedBy)
         t = t .. " Off at this launch for mod compatibility: " .. reason .. ". Choosing a value here overrides that."
     end
     return t
+end
+
+-- What a row's control says (its option's pzoptCurrent). A row whose controls are not built yet (they are built when a
+-- page first shows them) has never been touched: what its toUI would show, in the same strings, for tick boxes and
+-- combos (the one colour and the one curve row are built with the tab).
+local function rowCurrent(row)
+    if row.option then return row.option:pzoptCurrent() end
+    local entry, p = row.entry, perf()
+    if entry.choices then
+        local saved = p:getPzoptOptionSaved(entry.key)
+        local v = p:getPzoptOptionPinnedBy(entry.key) ~= "" and p:getPzoptOption(entry.key) or saved
+        if v ~= "" then
+            if v == saved then return v end
+            for _, c in ipairs(entry.choices) do
+                if c == v then return v end
+            end
+        end
+        return p:getPzoptOptionDefault(entry.key) .. " (default)"
+    end
+    return nextValue(entry) == "true" and "true" or "false"
 end
 
 -- The Java classes that read a key: PzoptOptionClasses from pzopt_optimizations_classes.lua, generated by
@@ -1689,7 +1737,10 @@ local EFFECTS = {
     carGlass = { gpu = 1 },
     mirrors = { gpu = 1, vram = 1, render = 1 },
     mirrorsWindows = { gpu = 1 },
+    mirrorsWallMirrors = { gpu = 1 },
     mirrorsWindowPct = {},
+    mirrorsProps = { gpu = 1, render = 1 },
+    mirrorsPropGlassPct = {},
     mirrorsViewLateralPct = {},
     mirrorsViewDropPct = {},
     mirrorsModels = { gpu = 1, render = 1 },
@@ -1844,6 +1895,7 @@ local EFFECTS = {
     parallelDepthMaps = { load = -1, cores = 1 },
     loaderCpuFixes = { load = -1, cpu = -1 },
     shaderCache = { load = -3, render = -1 },
+    shaderWarmup = { render = -1 },
     mipmapArrays = { cores = -1 },
     texCompress = { render = -3, load = -1, cores = 1, gpu = 1 },
     noLoadFade = { load = -1 },
@@ -1920,15 +1972,38 @@ function PzoptPreview:new(x, y, w, h, panel, rows)
     o.fontM = UIFont.Medium
     o.hS = getTextManager():getFontHeight(UIFont.Small)
     o.hM = getTextManager():getFontHeight(UIFont.Medium)
-    -- every controller-focusable element of a row (the curve sliders are several lines) -> the row
+    -- every controller-focusable element of a built row (the curve sliders are several lines) -> the row (addRow)
     o.byControl = {}
-    for _, row in ipairs(rows) do
-        for _, line in ipairs(row.option.pzoptJoyLines or { { row.option.control } }) do
-            for _, el in ipairs(line) do o.byControl[el] = row end
-        end
-    end
-    o:layoutSlots()
     return o
+end
+
+function PzoptPreview:addRow(row)
+    for _, line in ipairs(row.option.pzoptJoyLines or { { row.option.control } }) do
+        for _, el in ipairs(line) do self.byControl[el] = row end
+    end
+end
+
+function PzoptPreview:columnWidth()
+    return math.min(self.width - 2 * self.pad, 2 * CLIP_W * 3 + self.pad)
+end
+
+-- The description slot is as tall as the longest description wrapped at the column's width. Wrapping all ~400 took
+-- 18 ms of the tab's first build (2026-10-10), so the tab's idle builder measures one per call; layoutSlots (the
+-- first draw) finishes the count if the builder has not.
+function PzoptPreview:measureStep()
+    local cw = self:columnWidth()
+    local m = self.measure
+    if not m or m.cw ~= cw then
+        m = { cw = cw, next = 1, lines = 1 }
+        self.measure = m
+    end
+    local row = self.rows[m.next]
+    if not row then return true end
+    m.next = m.next + 1
+    local n = 0
+    for _ in string.gmatch(getTextManager():WrapText(self.fontS, row.entry.tip, cw), "[^\n]+") do n = n + 1 end
+    if n > m.lines then m.lines = n end
+    return false
 end
 
 -- Every part of the panel has a fixed place, so nothing moves when the mouse crosses to another row: the
@@ -1937,16 +2012,11 @@ end
 -- that is left (up to 3x their 512 px source), the bars and the legend sit under the description.
 function PzoptPreview:layoutSlots()
     local pad, gap = self.pad, self.pad
-    local cw = math.min(self.width - 2 * pad, 2 * CLIP_W * 3 + gap)
+    local cw = self:columnWidth()
     self.colX = math.floor((self.width - cw) / 2)
     self.colW = cw
-    local lines = 1
-    local function count(tip)
-        local n = 0
-        for _ in string.gmatch(getTextManager():WrapText(self.fontS, tip, cw), "[^\n]+") do n = n + 1 end
-        if n > lines then lines = n end
-    end
-    for _, row in ipairs(self.rows) do count(row.entry.tip) end
+    while not self:measureStep() do end
+    local lines = self.measure.lines
     self.descLines = lines
     self.clips = clipsOn()
     self.clipsGen = CLIPS.gen
@@ -2111,8 +2181,8 @@ function PzoptPreview:prerender()
     y = y + self.hM + 2
     local pinnedBy = p:getPzoptOptionPinnedBy(entry.key)
     local values = entry.live
-        and ("Key " .. entry.key .. "   now: " .. p:getPzoptOption(entry.key) .. "   after Apply: " .. row.option:pzoptCurrent())
-        or ("Key " .. entry.key .. "   since this boot: " .. p:getPzoptOption(entry.key) .. "   next launch: " .. row.option:pzoptCurrent())
+        and ("Key " .. entry.key .. "   now: " .. p:getPzoptOption(entry.key) .. "   after Apply: " .. rowCurrent(row))
+        or ("Key " .. entry.key .. "   since this boot: " .. p:getPzoptOption(entry.key) .. "   next launch: " .. rowCurrent(row))
     if pinnedBy ~= "" then values = values .. "   (pinned by " .. pinnedBy .. ")" end
     local reason = compatReason(entry.key)
     if reason ~= "" then values = values .. "   (off for mod compatibility: " .. reason .. ")" end
@@ -2173,18 +2243,31 @@ local function parts(word)
     return out
 end
 
+-- A word's index terms, kept for the session: the descriptions repeat most of their words, and splitting each one again
+-- with Kahlua's patterns was most of the index's 236 ms (2026-10-10).
+local WORD_TERMS = {}
+local function wordTerms(word)
+    local m = WORD_TERMS[word]
+    if not m then
+        local ps = parts(word)
+        local whole = string.lower((string.gsub((string.gsub(word, "^pzopt%.", "")), "%.", "")))
+        m = { parts = ps, whole = (#ps > 1 and whole ~= "") and whole or nil }
+        WORD_TERMS[word] = m
+    end
+    return m
+end
+
 -- Adds the terms of a text to tf with a weight: every part, and the whole word (dots dropped) when it had several.
 local function addTerms(tf, text, weight)
     local n = 0
     for word in string.gmatch(tostring(text or ""), "[%w%.]+") do
-        local ps = parts(word)
-        for _, t in ipairs(ps) do
+        local m = wordTerms(word)
+        for _, t in ipairs(m.parts) do
             tf[t] = (tf[t] or 0) + weight
             n = n + weight
         end
-        local whole = string.lower((string.gsub((string.gsub(word, "^pzopt%.", "")), "%.", "")))
-        if #ps > 1 and whole ~= "" then
-            tf[whole] = (tf[whole] or 0) + weight
+        if m.whole then
+            tf[m.whole] = (tf[m.whole] or 0) + weight
             n = n + weight
         end
     end
@@ -2212,11 +2295,17 @@ local function editDistance(a, b, limit)
     return prev[lb]
 end
 
--- The index over the tab's rows: one document per setting.
-local function buildIndex(rows, sectionOf)
-    local index = { docs = {}, df = {}, vocab = {}, expand = {}, avgdl = 1 }
-    local total = 0
-    for _, row in ipairs(rows) do
+-- The index over the tab's rows: one document per setting, added one per indexStep by the tab's idle builder in the
+-- frames after the tab opened; a search that comes sooner finishes it first (indexReady).
+local function indexNew(rows)
+    return { rows = rows, next = 1, total = 0, docs = {}, df = {}, vocab = {}, expand = {}, avgdl = 1, idf = {} }
+end
+
+-- Adds the next row; true once every row is in (and the averages are set).
+local function indexStep(index)
+    local row = index.rows[index.next]
+    if row then
+        index.next = index.next + 1
         local entry, tf, len = row.entry, {}, 0
         len = len + addTerms(tf, entry.label, W_LABEL)
         len = len + addTerms(tf, entry.key, W_KEY)
@@ -2224,7 +2313,7 @@ local function buildIndex(rows, sectionOf)
         if entry.note then
             for _, v in pairs(entry.note) do len = len + addTerms(tf, v, W_TIP) end
         end
-        len = len + addTerms(tf, sectionOf[row] and sectionOf[row].title, W_SECTION)
+        len = len + addTerms(tf, row.section.title .. " " .. row.cat.title .. " " .. row.sub.title, W_SECTION)
         local fx = EFFECTS[entry.key] or {}
         for _, axis in ipairs(AXES) do
             if fx[axis.id] and fx[axis.id] ~= 0 then
@@ -2235,18 +2324,26 @@ local function buildIndex(rows, sectionOf)
             len = len + addTerms(tf, name, W_CLASS)
         end
         table.insert(index.docs, { row = row, tf = tf, len = len })
-        total = total + len
+        index.total = index.total + len
         for t in pairs(tf) do
             if not index.df[t] then table.insert(index.vocab, t) end
             index.df[t] = (index.df[t] or 0) + 1
         end
+        return false
     end
-    local n = #index.docs
-    if n > 0 then index.avgdl = total / n end
-    index.idf = {}
-    for t, df in pairs(index.df) do
-        index.idf[t] = math.log(1 + (n - df + 0.5) / (df + 0.5))
+    if not index.ready then
+        local n = #index.docs
+        if n > 0 then index.avgdl = index.total / n end
+        for t, df in pairs(index.df) do
+            index.idf[t] = math.log(1 + (n - df + 0.5) / (df + 0.5))
+        end
+        index.ready = true
     end
+    return true
+end
+
+local function indexReady(index)
+    while not indexStep(index) do end
     return index
 end
 
@@ -2794,7 +2891,15 @@ end
 -- "Enable all": master on, every other control back to the build's default. "Disable all (stock)":
 -- master off, the other controls untouched (they are ignored while the master is off). Neither writes
 -- anything: the controls are marked changed and Apply / Accept saves them through the options above.
+-- The controls of every row: the bulk actions below set them all (rows are built when a page first shows them, the
+-- rest by the tab's idle builder; this finishes it).
+local function allRows(self)
+    local S = self.pzoptSearch
+    if S and S.finishRows then S.finishRows() end
+end
+
 local function setAll(self, enable)
+    allRows(self)
     local master = self.pzoptMaster
     if master and master.control.enable then
         master.control:setSelected(1, enable)
@@ -2814,11 +2919,27 @@ end
 -- core on four cores), trees baked into chunk textures only while walking, and on the Display page lighting
 -- updates 10/s and the UI redrawn 30/s. The stock Display-page combos go by GameOption name -> combo index
 -- (MainOptions.lua lists): lightingFPS {5, 10, 15, 20, 25, 30, 45, 60}, UIRenderFPS {120, 60, 30, 25, 20, 15, 10}.
-local LOW_END_VALUES = { workers = "1", loadWorkers = "2", treeBakeMaxChunksPerSec = "24" }
+-- The locked-60 pass (2026-10-07, same laptop, docs/findings-low-end-mode-2026-10-07.md) added a 9-chunk render distance:
+-- the native lighting thread, the chunk bakes and every chunk hand-off scale with the grid's area, and they were what
+-- broke 60 on four cores (a 9-chunk grid is what vanilla itself picks for a ~960x540 window and still covers a 1080p
+-- screen at the widest zoom).
+local LOW_END_VALUES = { workers = "1", loadWorkers = "2", treeBakeMaxChunksPerSec = "24", chunkGridWidth = "9" }
 -- Plus texture compression (2026-09-23, same laptop: with uncompressed textures the 4 GB card was full, 4034 MiB, the
 -- driver spilled into system RAM and the machine swapped 34k pages in a 40 s walk; compressed, 2372 MiB and 1.2k swap-ins,
 -- 51 -> 54 fps, frames over 50 ms 34 -> 22 a minute, worst frame 292 -> 120 ms). Tick boxes go by name -> true / false.
-local LOW_END_STOCK = { lightingFPS = 2, UIRenderFPS = 3, texcompress = true }
+-- And vsync with the frame limit at 60 (2026-10-07): a lock is one new frame every refresh of a 60 Hz panel; combos whose
+-- entries move (the frame limit has an "Uncapped" entry only on some builds, and pzopt adds caps) go by label in stockLabels.
+local LOW_END_STOCK = { lightingFPS = 2, UIRenderFPS = 3, texcompress = true, vsync = true }
+local LOW_END_LABELS = { framerate = "60" }
+-- The Visuals the 4-core laptop keeps at a locked 60 (2026-10-07, one walk and one 60 km/h drive per setting on top of the
+-- low-end set, then the set together): a profile with an enhancements table sets every Visuals control (the unlisted ones
+-- back to the build's default, off) and turns that page's master switch on.
+-- Each was within the run-to-run noise alone, and the five together stay there (repeated refreshes: town walk 2.1 % vs
+-- 1.3 % without, night 1.8 vs 1.5-1.8, storm 4.1 vs 3.9, 60 km/h drive 6.7 / 8.3 vs 6.3 / 6.8). Left out: water and puddle
+-- reflections (alone free, but with the others the drive's render thread went 27 -> 34 % and the repeats 6.5 -> 8.5 %),
+-- ambient occlusion (the drive's chunk bakes took the GPU 45 -> 79 %, repeats 14.4 %), sun shadows, per-pixel light and
+-- zombie outlines (walking 4-5.6 %), foliage sway, relief and wet blood (~+2 points on the drive each).
+local LOW_END_LOOK = { colorGrading = "true", godRays = "true", memoryTint = "true", mirrors = "true", spriteFilter = "sharp" }
 local function withValues(base, extra)
     local t = {}
     for k, v in pairs(base) do t[k] = v end
@@ -2828,17 +2949,32 @@ end
 local PROFILES = {
     {
         button = "Low-end hardware (4 cores or less)",
-        tip = "Turns the master switch on and picks the settings measured on a 4-core CPU with an old GPU "
-           .. "(Core i5-6300HQ / GTX 960M, 2026-09-21): no chunk worker pool (its threads took the game thread's core), "
-           .. "trees baked only while walking (while driving a chunk texture lives seconds, and baking its trees cost "
-           .. "more than drawing them per frame), and on the Display page lighting updates 10/s and the UI redrawn 30 "
-           .. "times a second (the lighting thread and the Lua UI were the next biggest users of the four cores). "
-           .. "Everything else goes back to the build's default. 120 km/h drive 44 -> 68 fps, walking 49 -> 81 "
-           .. "(p99 80 -> 40 ms / 69 -> 30 ms). It also turns on texture compression (Display page), which kept a 4 GB "
-           .. "graphics card from filling up and the machine from swapping (worst frame 292 -> 120 ms, 2026-09-23). The G1 "
-           .. "collector these numbers need is now the default (gcMode). See docs/archive/2026-09-24/results.md.",
+        tip = "A locked 60 fps on a 4-core CPU with an old GPU (Core i5-6300HQ / GTX 960M, 1920x1080, 2026-10-07): turns the "
+           .. "master switch on, a render distance of 9 chunks (what the game itself picks for a small window: the native "
+           .. "lighting thread, the chunk bakes and every arriving chunk's setup grow with it, and they were what broke 60 on "
+           .. "four cores), no chunk worker pool (its threads took the game thread's core), trees baked only while walking, and "
+           .. "on the Display page vsync on with the frame limit at 60, lighting updates 10/s, the UI redrawn 30 times a second "
+           .. "and texture compression (keeps a 4 GB card from spilling into system memory). Everything else goes back to the "
+           .. "build's default. Walking through town 1.3 % of the screen's refreshes repeat a frame (stock 29.9 %), a 60 km/h "
+           .. "drive 6.3-6.8 % (stock 36.8 %). Zombies, cars and sounds are simulated 36 tiles around you instead of 76. "
+           .. "See docs/findings-low-end-mode-2026-10-07.md.",
         values = LOW_END_VALUES,
         stock = LOW_END_STOCK,
+        stockLabels = LOW_END_LABELS,
+    },
+    {
+        button = "Low-end hardware + best look at 60",
+        tip = "The Low-end hardware set above plus the Visuals that cost nothing on that laptop, measured one by one walking "
+           .. "and driving at the locked 60, then together: sharp sprite filtering, colour grading, god rays, remembered places "
+           .. "tinted, and mirrors and windows that reflect (town walk: 2.1 % of the screen's refreshes repeat a frame, 1.3 % "
+           .. "without them). Every other Visuals setting goes back to off: ambient occlusion doubled the missed frames while "
+           .. "driving (it is baked into every arriving chunk), water reflections cost the render thread while driving, sun "
+           .. "shadows, per-pixel light and zombie outlines cost the lock while walking. Mirrors apply on the next launch. "
+           .. "See docs/findings-low-end-mode-2026-10-07.md.",
+        values = LOW_END_VALUES,
+        enhancements = LOW_END_LOOK,
+        stock = LOW_END_STOCK,
+        stockLabels = LOW_END_LABELS,
     },
     {
         button = "Low-end hardware + FSR 1.0 upscaling",
@@ -2850,6 +2986,7 @@ local PROFILES = {
            .. "collector these numbers need is now the default (gcMode).",
         values = withValues(LOW_END_VALUES, { upscaler = "fsr1", upscalerQuality = "quality" }),
         stock = LOW_END_STOCK,
+        stockLabels = LOW_END_LABELS,
     },
 }
 
@@ -2859,6 +2996,7 @@ local ensurePageBuilt
 local PAGES
 
 local function applyProfile(self, profile)
+    allRows(self)
     local master = self.pzoptMaster
     if master and master.control.enable then
         master.control:setSelected(1, true)
@@ -2872,7 +3010,7 @@ local function applyProfile(self, profile)
     -- (a profile that picks an upscaler also turns that tab's master switch on)
     ensurePageBuilt(self, ENHANCEMENTS_TAB)
     local enhancements = self.pzoptEnhancementMaster
-    if profile.values.upscaler and enhancements and enhancements.control.enable then
+    if (profile.values.upscaler or profile.enhancements) and enhancements and enhancements.control.enable then
         enhancements.control:setSelected(1, true)
         enhancements:invokeOnChangeEvent()
     end
@@ -2880,6 +3018,27 @@ local function applyProfile(self, profile)
         if option.pzoptProfile then
             option:pzoptSet(profile.values[option.pzoptKey])
             option:invokeOnChangeEvent()
+        elseif profile.enhancements then
+            -- a profile with a Visuals set: its keys as listed, every other Visuals control back to the default
+            option:pzoptSet(profile.enhancements[option.pzoptKey])
+            option:invokeOnChangeEvent()
+        end
+    end
+    for name, label in pairs(profile.stockLabels or {}) do
+        local option = self.gameOptions:get(name)
+        local box = option and option.control
+        local found = false
+        for i, text in ipairs(box and box.options or {}) do
+            local t = type(text) == "table" and (text.text or text[1]) or text
+            if tostring(t) == label then
+                box.selected = i
+                option:invokeOnChangeEvent()
+                found = true
+                break
+            end
+        end
+        if not found then
+            print("[pzopt] options tab: profile could not pick " .. label .. " in stock option " .. name)
         end
     end
     for name, index in pairs(profile.stock or {}) do
@@ -3067,6 +3226,7 @@ end
 -- A page's controls, its master switch first; every page is built first (the import sets them all).
 local function pageOptions(self, page)
     ensurePageBuilt(self, page.tab)
+    allRows(self)
     local t = {}
     if self[page.masterField] then table.insert(t, self[page.masterField]) end
     for _, option in ipairs(self[page.options] or {}) do table.insert(t, option) end
@@ -3380,7 +3540,7 @@ end
 
 -- the control says something other than the build's default
 local function rowChanged(row)
-    local ok, v = pcall(function() return row.option:pzoptCurrent() end)
+    local ok, v = pcall(rowCurrent, row)
     if not ok or not v then return false end
     if string.sub(v, -10) == " (default)" then return false end
     return v ~= perf():getPzoptOptionDefault(row.entry.key)
@@ -3399,7 +3559,7 @@ local function catStatus(cat)
     for _, row in ipairs(cat.rows) do
         if rowChanged(row) then
             changed = changed + 1
-            if row.option.pzoptBool and row.option:pzoptCurrent() == "true" then on = on + 1 end
+            if not row.entry.choices and not row.entry.colour and not row.entry.bezier and rowCurrent(row) == "true" then on = on + 1 end
         end
     end
     local status, c
@@ -3605,7 +3765,7 @@ end
 local function runSearch(S, text)
     local hits, n = nil, 0
     if text and string.match(text, "%w") then
-        hits, n = search(S.index, text)
+        hits, n = search(indexReady(S.index), text)
     end
     S.hits, S.hitCount, S.query = hits, n, text
     if hits then
@@ -3813,6 +3973,7 @@ relayout = function(S)
         if #l > 0 then table.insert(joy, l) end
     end
     local function rowAt(row, y, dx)
+        if row.entry and not row.option then S.buildRow(row) end -- a setting this session has not shown yet
         placeRow(row, y, dx)
         shown[row] = true
         for _, l in ipairs(row.option and (row.option.pzoptJoyLines or { { row.option.control } }) or row.joy or {}) do
@@ -4380,6 +4541,7 @@ function pageBuild.decorations(B)
             local page = PAGES[g.page]
             g.reset = buttonItem("Reset " .. g.title .. " to defaults", "Puts every " .. g.title .. " setting back to the "
                 .. "build's default, the master switch on. Only the controls change; Apply or Accept saves them.", function()
+                allRows(self)
                 resetOptions(self[page.options] or {}, self[page.masterField])
             end)
         end
@@ -4492,7 +4654,7 @@ function pageBuild.decorations(B)
             o:drawText(clipText(UIFont.Small, problem.cause, o.width - 24), 12, 8 + hM, C_GREY.r, C_GREY.g, C_GREY.b, 1, UIFont.Small)
             local on = 0
             for _, row in ipairs(problem.rows) do
-                local v = row.option:pzoptCurrent()
+                local v = rowCurrent(row)
                 if v ~= "false" and v ~= "off" and v ~= "0" and v ~= "off (default)" and v ~= "false (default)" then on = on + 1 end
             end
             local c = on == #problem.rows and C_OPT or C_AMBER
@@ -4501,10 +4663,49 @@ function pageBuild.decorations(B)
     end
 end
 
+-- The tab's idle builder: S.idle's jobs in order, one step at a time, until 3 ms of this frame are used (a step is one
+-- row's controls, one description measured or one row indexed: well under a millisecond each). Logs the totals once done.
+local function idleWork(S)
+    local jobs = S.idle
+    if not jobs or #jobs == 0 then return end
+    local start = getTimestampMs()
+    local deadline = start + 3
+    S.idleFrames = S.idleFrames + 1
+    local now = start
+    repeat
+        local job = jobs[1]
+        local done = job.step()
+        local t = getTimestampMs()
+        S.idleMs[job.name] = (S.idleMs[job.name] or 0) + (t - now)
+        now = t
+        if done then table.remove(jobs, 1) end
+    until #jobs == 0 or now >= deadline
+    if #jobs == 0 then
+        PzoptLogInfo("[pzopt] options tab " .. TAB .. ": background build done over " .. S.idleFrames .. " frames (preview "
+            .. (S.idleMs.preview or 0) .. " ms, rows " .. (S.idleMs.rows or 0) .. " ms, search index " .. (S.idleMs.index or 0) .. " ms)")
+    end
+end
+
+-- buildPage's phases for the log line (ms; makeRow's parts summed over the rows built with the tab). One table: the file
+-- is near the 200 locals a -debug game compiles.
+local buildPhases = { order = {}, ms = {} }
+function buildPhases.mark(name, since)
+    local now = getTimestampMs()
+    if not buildPhases.ms[name] then table.insert(buildPhases.order, name) end
+    buildPhases.ms[name] = (buildPhases.ms[name] or 0) + (now - since)
+    return now
+end
+function buildPhases.text()
+    local t = {}
+    for _, name in ipairs(buildPhases.order) do table.insert(t, name .. " " .. buildPhases.ms[name]) end
+    return table.concat(t, ", ")
+end
+
 local function buildPage(self)
     local t0 = getTimestampMs()
+    buildPhases.order, buildPhases.ms = {}, {}
+    local tp = t0
     local savedPanel, savedAddY = self.mainPanel, self.addY
-    local firstOption = #self.gameOptions.options + 1
     local wasChanged = self.gameOptions.changed
     local style = MainOptions.style
     local BH, SP = style.buttonHeight, style.borderSpacing
@@ -4534,17 +4735,18 @@ local function buildPage(self)
     local S = { panel = panel, G = G, items = {}, keyRows = {}, searchRows = {}, self = self, hitCount = 0 }
     self.pzoptSearch = S
 
-    -- every element added while `sink` is set belongs to the item being built
+    -- every element added while `sink` is set belongs to the item being built (kept on the panel: rows are built later too)
     local sink
     panel.addChild = function(o, child)
         if sink then table.insert(sink, child) end
         return ISPanelJoypad.addChild(o, child)
     end
-    local function capture(fn)
+    local function capture(fn, into)
         local top = self.addY
         sink = {}
         local result = fn()
-        local item = { elems = {}, step = self.addY - top }
+        local item = into or {}
+        item.elems, item.step = {}, self.addY - top
         for _, el in ipairs(sink) do table.insert(item.elems, { el = el, dy = el:getY() - top, x0 = el:getX() }) end
         sink = nil
         table.insert(S.items, item)
@@ -4576,9 +4778,12 @@ local function buildPage(self)
     end
 
     local B = { self = self, S = S, G = G, p = p, single = single, button = button, buttonItem = buttonItem, label = label }
+    S.idle, S.idleMs, S.idleFrames = {}, {}, 0
+    tp = buildPhases.mark("setup", tp)
     pageBuild.header(B)
-
+    tp = buildPhases.mark("header", tp)
     pageBuild.home(B)
+    tp = buildPhases.mark("home", tp)
 
     -- category pages: heading, footer
     S.catHead = single(drawPanel(function(o)
@@ -4606,7 +4811,7 @@ local function buildPage(self)
         local cat = S.tree.catById[NAV.cat]
         if not cat then return end
         local list = {}
-        for _, row in ipairs(cat.rows) do table.insert(list, row.option) end
+        for _, row in ipairs(cat.rows) do table.insert(list, S.buildRow(row).option) end
         resetOptions(list)
     end)
     S.catNote = single(drawPanel(function(o)
@@ -4636,24 +4841,40 @@ local function buildPage(self)
         o:drawText(clipText(UIFont.Medium, o.text or "", o.width), 0, 0, 1, 1, 1, 1, UIFont.Medium)
     end))
 
-    -- the settings: master switches first, then every section's entries (in tab order)
+    -- the settings: master switches first, then every section's entries (in tab order). Every setting is a row record
+    -- from the start (its entry, tier, place in the tree); its controls are built the first time a page shows it
+    -- (relayout's rowAt, through S.buildRow) or by the idle builder in the frames after the tab opened, never all in the
+    -- frame the tab is first shown (2026-10-10: the eager build of ~400 rows' controls was ~45 ms of the first open).
     local rows = {}
     local masterRows = {}
-    local optionLists = { {}, {}, {} }
-    local function makeRow(entry, pageIndex, section, isMaster)
-        local item, option, top = capture(function()
+    local function rowInit(row, entry, pageIndex, section, isMaster)
+        row.entry, row.page, row.section, row.isMaster = entry, pageIndex, section, isMaster
+        row.key = entry.key
+        row.tier = isMaster and 1 or tierOf(entry.key)
+        row.clip = isMaster and PAGES[pageIndex].masterClip or (KEY_CLIP[entry.key] or section.clip or "drive")
+        row.controlDy = 0
+        row.elems, row.step, row.h, row.hidden = {}, 0, 0, true
+        table.insert(S.keyRows, row)
+        row.index = #S.keyRows
+        return row
+    end
+    local function makeRow(row)
+        local entry, section = row.entry, row.section
+        local tr = getTimestampMs()
+        local _, option, top = capture(function()
             if entry.bezier then return addBezierOption(self, entry, split, 0, G.ctrlW, BH) end
             if entry.colour then return addColourOption(self, entry, split, 0) end
             if entry.choices then return addIntOption(self, entry, split, 0, G.ctrlW) end
             return addBoolOption(self, entry, split, 0, BH)
-        end)
+        end, row)
+        tr = buildPhases.mark("row controls", tr)
         -- the labels the stock helpers right-align left of the control go to its right, left-aligned; a setting's name
         -- too long for the column (a 1920 x 1080 window) wraps: its first line stays the label, the rest goes on the
         -- line(s) under it, above the tags (PzoptRowInfo)
         local maxLab = 0
         local more = {}
         local titled = false
-        for _, e in ipairs(item.elems) do
+        for _, e in ipairs(row.elems) do
             local el = e.el
             if el.Type == "ISLabel" and el:getX() < G.contentX - 1 then
                 local font = el.font or UIFont.Small
@@ -4677,7 +4898,7 @@ local function buildPage(self)
                 e.x0 = el:getX()
             end
         end
-        for _, e in ipairs(item.elems) do
+        for _, e in ipairs(row.elems) do
             if e.el.Type ~= "ISLabel" and e.el:getX() < G.contentX - 1 then -- the curve plot, smaller when the column is narrow
                 local px = G.labelX + maxLab + 16
                 local size = math.max(40, math.min(e.el:getWidth(), G.contentR - px))
@@ -4687,12 +4908,8 @@ local function buildPage(self)
                 e.x0 = px
             end
         end
-        local row = item
-        row.entry, row.option, row.page, row.section = entry, option, pageIndex, section
-        row.key = entry.key
-        row.tier = isMaster and 1 or tierOf(entry.key)
-        row.clip = isMaster and PAGES[pageIndex].masterClip or (KEY_CLIP[entry.key] or section.clip or "drive")
-        row.controlDy = 0
+        tr = buildPhases.mark("row labels", tr)
+        row.option = option
         -- the line under the label (after the rest of a wrapped name)
         row.labelMore = more
         local infoH = (hS + 2) * (1 + #more)
@@ -4704,20 +4921,52 @@ local function buildPage(self)
         row.step = self.addY - top
         row.h = row.step
         option.pzoptProfile = section and section.profiles
-        if not isMaster then table.insert(optionLists[pageIndex], option) end
-        table.insert(S.keyRows, row)
-        row.index = #S.keyRows
+        buildPhases.mark("row info", tr)
+    end
+    -- Builds a row's controls (once), shows the saved value, leaves it hidden for relayout to place. The screen's
+    -- mainPanel / addY, its "changed" flag and the panel's controller rows (the stock helpers append a line each) are
+    -- put back, so a row built in the background changes nothing else.
+    S.buildRow = function(row)
+        if row.option then return row end
+        local savedPanel2, savedAddY2, changed = self.mainPanel, self.addY, self.gameOptions.changed
+        local jy, ja, jb = panel.joypadButtonsY or {}, panel.allJoypadButtons or {}, panel.joypadButtons
+        local nY, nA = #jy, #ja
+        self.mainPanel, self.addY = panel, 0
+        makeRow(row)
+        row.option:toUI()
+        row.option:storeCurrentValue()
+        hideItem(row)
+        for i = #jy, nY + 1, -1 do table.remove(jy, i) end
+        for i = #ja, nA + 1, -1 do table.remove(ja, i) end
+        panel.joypadButtons = jb
+        self.mainPanel, self.addY, self.gameOptions.changed = savedPanel2, savedAddY2, changed
+        if S.preview then S.preview:addRow(row) end
+        S.rowsBuilt = S.rowsBuilt + 1
         return row
     end
+    S.rowsBuilt = 0
+    -- the option lists of the three groups (profiles, export / import, resets and the harness read them), in tab order
+    S.syncOptions = function()
+        local lists = { {}, {}, {} }
+        for _, row in ipairs(S.searchRows) do
+            if row.option then table.insert(lists[row.page], row.option) end
+        end
+        for pi, page in ipairs(PAGES) do self[page.options] = lists[pi] end
+    end
+    S.finishRows = function()
+        if S.rowsBuilt < #S.keyRows then
+            for _, row in ipairs(S.keyRows) do S.buildRow(row) end
+        end
+        S.syncOptions()
+    end
+    tp = buildPhases.mark("page parts", tp)
     for pi, page in ipairs(PAGES) do
         if page.master and p:isPzoptOptionKnown(page.master.key) then
-            local row = makeRow(page.master, pi, nil, true)
-            row.isMaster = true
+            local row = S.buildRow(rowInit({}, page.master, pi, nil, true))
             masterRows[pi] = row
             self[page.masterField] = row.option
         end
     end
-    -- the Visuals cards are built before the rows inside them, so the rows draw over them
     for pi, page in ipairs(PAGES) do
         for _, section in ipairs(page.sections) do
             for _, entry in ipairs(section.entries) do
@@ -4729,20 +4978,29 @@ local function buildPage(self)
             end
         end
     end
-    -- the tree needs the rows' keys and sections only; build it on stand-ins, then make the cards, then the real rows
+    -- the tree needs the rows' keys and sections only; build it on stand-ins, then make the cards (the Visuals cards
+    -- are made before the controls inside them, so the controls draw over them), then the row records
+    tp = buildPhases.mark("masters + keys", tp)
     local stand = {}
     for _, r in ipairs(rows) do table.insert(stand, { entry = r.entry, page = r.page, section = r.section, stand = r }) end
     local tree = buildTree(stand, masterRows)
     S.tree = tree
+    tp = buildPhases.mark("tree", tp)
     pageBuild.decorations(B)
-    -- the real rows, in the tree's order (stand-ins swapped for them)
+    tp = buildPhases.mark("decorations", tp)
+    -- the row records, in the tree's order (stand-ins swapped for them)
     local real = {}
     for _, st in ipairs(stand) do
-        local row = makeRow(st.entry, st.page, st.section, false)
+        local row = rowInit({}, st.entry, st.page, st.section, false)
         row.cat, row.sub, row.group = st.cat, st.sub, st.group
         real[st] = row
         table.insert(S.searchRows, row)
     end
+    -- the colour and the curve rows: their values come from their controls (rowCurrent covers the rest)
+    for _, row in ipairs(S.searchRows) do
+        if row.entry.colour or row.entry.bezier then S.buildRow(row) end
+    end
+    tp = buildPhases.mark("rows", tp)
     for _, g in ipairs(tree.groups) do
         for _, cat in ipairs(g.cats) do
             for i, r in ipairs(cat.rows) do cat.rows[i] = real[r] end
@@ -4763,15 +5021,11 @@ local function buildPage(self)
     for _, pr in ipairs(tree.problems) do
         for i, r in ipairs(pr.rows) do pr.rows[i] = real[r] end
     end
-    for pi, page in ipairs(PAGES) do self[page.options] = optionLists[pi] end
-    panel.addChild = nil -- back to the class method
+    S.syncOptions()
+    tp = buildPhases.mark("swap + dlss", tp)
 
-    -- search over every setting (the masters are on the home page)
-    local sectionOf = {}
-    for _, row in ipairs(S.searchRows) do
-        sectionOf[row] = { title = row.section.title .. " " .. row.cat.title .. " " .. row.sub.title }
-    end
-    S.index = buildIndex(S.searchRows, sectionOf)
+    -- search over every setting (the masters are on the home page), indexed by the idle builder
+    S.index = indexNew(S.searchRows)
 
     -- the fixed parts: the sidebar on the left, the preview on the right (both added last: they draw on top)
     local sidebar = PzoptSidebar:new(G.m, G.m, G.sideW, H - 2 * G.m, S)
@@ -4783,6 +5037,7 @@ local function buildPage(self)
     panel:addChild(sidebar)
     S.sidebar = sidebar
     sidebar:build(self)
+    tp = buildPhases.mark("sidebar", tp)
     -- The controller between the page and the sidebar: Left / Right cross (the stock spatial search finds the entry or the
     -- control at that height), Up / Down stay on their side (at the ends of a list the stock fallback steps to the next
     -- row, which would jump between the two), Right from the sidebar into an empty stretch of the page goes to the page's
@@ -4813,6 +5068,7 @@ local function buildPage(self)
             o:ensureVisible()
         end
     end
+    tp = buildPhases.mark("joypad hooks", tp)
     local preview = PzoptPreview:new(G.prevX, G.m, G.prevW, H - 2 * G.m, panel, S.keyRows)
     preview:initialise()
     preview:instantiate()
@@ -4821,30 +5077,49 @@ local function buildPage(self)
     preview:setAnchorBottom(true)
     preview.minX = G.contentX
     panel:addChild(preview)
+    for _, row in ipairs(S.keyRows) do
+        if row.option then preview:addRow(row) end
+    end
     if S.keyRows[1] then preview:select(S.keyRows[1]) end
     self.pzoptPreview = preview
     S.preview = preview
+    tp = buildPhases.mark("preview", tp)
 
-    -- the page's prerender runs before its children draw: cull for this frame's scroll first
+    -- What the first page does not need, a slice a frame while the tab is shown (idleWork): the preview's description
+    -- slot, the rows' controls (a page shows its own at once), the search index (a search finishes it first).
+    S.idle = {
+        { name = "preview", step = function() return preview:measureStep() end },
+        { name = "rows", step = function()
+            local row = S.keyRows[S.idleRow or 1]
+            if not row then
+                S.syncOptions()
+                return true
+            end
+            S.idleRow = (S.idleRow or 1) + 1
+            S.buildRow(row)
+            return false
+        end },
+        { name = "index", step = function() return indexStep(S.index) end },
+    }
+    -- the page's prerender runs before its children draw: the idle slice, then cull for this frame's scroll
     local pagePrerender = panel.prerender
     panel.prerender = function(o, ...)
+        idleWork(S)
         cullRows(S)
         return pagePrerender(o, ...)
     end
     relayout(S)
-    -- the screen's toUI ran before this tab existed: show the saved values and remember them as the current ones
-    for i = firstOption, #self.gameOptions.options do
-        local option = self.gameOptions.options[i]
-        option:toUI()
-        option:storeCurrentValue()
-    end
+    tp = buildPhases.mark("relayout", tp)
+    -- (each row shows its saved value when its controls are built: S.buildRow)
     self.gameOptions.changed = wasChanged
     self.mainPanel, self.addY = savedPanel, savedAddY
+    buildPhases.mark("toUI", tp)
     local tiers = { 0, 0, 0 }
     for _, row in ipairs(S.searchRows) do tiers[row.tier] = tiers[row.tier] + 1 end
     PzoptLogInfo("[pzopt] options tab " .. TAB .. ": " .. #S.keyRows .. " settings (simple " .. tiers[1] .. ", advanced "
         .. tiers[2] .. ", expert " .. tiers[3] .. "), " .. #S.items .. " items, layout "
-        .. G.sideW .. " / " .. (G.contentR - G.contentX) .. " / " .. G.prevW .. " px, built in " .. (getTimestampMs() - t0) .. " ms")
+        .. G.sideW .. " / " .. (G.contentR - G.contentX) .. " / " .. G.prevW .. " px, built in " .. (getTimestampMs() - t0) .. " ms ("
+        .. buildPhases.text() .. "), " .. S.rowsBuilt .. " rows' controls built, the rest in the background")
 end
 
 -- The tab is added with the others (after Display) but built the first time it is shown: the in-game menu builds the
@@ -4929,11 +5204,20 @@ local function install()
         if lazy and MainOptions.create == ourCreate and not self.pzoptCreated and not self:getIsVisible() then
             local reload = MainOptions.loadKeys()
             if reload then
+                -- Stock writes MainOptions.keyText, which only its addKeybindingPanel fills (one entry per
+                -- MainOptions.keys row, plus mod binds it skips here). Unbuilt, keyText is empty at boot and stale in
+                -- game, and writing it wiped every binding from keysB42.ini (2026-10-06). The same entries, made
+                -- from the rows loadKeys just read, through stock's writeKey:
                 local fileOutput = getFileWriter("keysB42.ini", true, false)
                 fileOutput:write("VERSION=" .. tostring(MainOptions.KEYS_VERSION) .. "\r\n")
-                for _, v in ipairs(MainOptions.keyText) do
-                    if not v.isModBind then
-                        MainOptions.writeKey(v, fileOutput)
+                for _, v in ipairs(MainOptions.keys) do
+                    if luautils.stringStarts(v.value, "[") then
+                        MainOptions.writeKey({ value = v.value }, fileOutput)
+                    else
+                        local name = v.value
+                        MainOptions.writeKey({ txt = { getName = function() return name end },
+                            keyCode = tonumber(v.key) or 0, altCode = tonumber(v.altCode) or 0,
+                            shift = v.shift, ctrl = v.ctrl, alt = v.alt }, fileOutput)
                     end
                 end
                 fileOutput:close()

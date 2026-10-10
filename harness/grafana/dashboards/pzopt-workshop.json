@@ -1,0 +1,1675 @@
+{
+ "uid": "pzopt-workshop",
+ "title": "PZ Workshop page",
+ "description": "How the Steam Workshop page converts: visitors, subscriptions, engagement, GitHub, Discord; before / after a page change",
+ "tags": [
+  "pzopt"
+ ],
+ "timezone": "browser",
+ "editable": false,
+ "graphTooltip": 1,
+ "schemaVersion": 41,
+ "version": 1,
+ "refresh": "",
+ "liveNow": false,
+ "time": {
+  "from": "now-30d",
+  "to": "now"
+ },
+ "timepicker": {
+  "refresh_intervals": [
+   "1s",
+   "2s",
+   "5s",
+   "10s",
+   "30s",
+   "1m",
+   "5m"
+  ]
+ },
+ "templating": {
+  "list": [
+   {
+    "type": "query",
+    "name": "change",
+    "label": "page change",
+    "datasource": {
+     "type": "grafana-postgresql-datasource",
+     "uid": "pzopt-pg"
+    },
+    "definition": "SELECT label || ' \u00b7 ' || to_char(t AT TIME ZONE 'UTC', 'MM-DD HH24:MI') || ' UTC' AS __text,\n  to_char(t AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS __value FROM workshop_page_changes ORDER BY (kind = 'restyle') DESC, t DESC",
+    "query": "SELECT label || ' \u00b7 ' || to_char(t AT TIME ZONE 'UTC', 'MM-DD HH24:MI') || ' UTC' AS __text,\n  to_char(t AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS __value FROM workshop_page_changes ORDER BY (kind = 'restyle') DESC, t DESC",
+    "refresh": 2,
+    "multi": false,
+    "includeAll": false,
+    "sort": 0,
+    "hide": 0,
+    "options": []
+   },
+   {
+    "type": "custom",
+    "name": "days",
+    "label": "days each side",
+    "query": "3,5,7",
+    "multi": false,
+    "includeAll": false,
+    "hide": 0,
+    "current": {
+     "text": "3",
+     "value": "3"
+    },
+    "options": [
+     {
+      "text": "3",
+      "value": "3",
+      "selected": true
+     },
+     {
+      "text": "5",
+      "value": "5",
+      "selected": false
+     },
+     {
+      "text": "7",
+      "value": "7",
+      "selected": false
+     }
+    ]
+   },
+   {
+    "type": "custom",
+    "name": "trend",
+    "label": "trend days",
+    "query": "8,14",
+    "multi": false,
+    "includeAll": false,
+    "hide": 0,
+    "current": {
+     "text": "8",
+     "value": "8"
+    },
+    "options": [
+     {
+      "text": "8",
+      "value": "8",
+      "selected": true
+     },
+     {
+      "text": "14",
+      "value": "14",
+      "selected": false
+     }
+    ]
+   }
+  ]
+ },
+ "annotations": {
+  "list": [
+   {
+    "builtIn": 1,
+    "datasource": {
+     "type": "grafana",
+     "uid": "-- Grafana --"
+    },
+    "enable": true,
+    "hide": true,
+    "iconColor": "rgba(0, 211, 255, 1)",
+    "name": "Annotations & Alerts",
+    "type": "dashboard"
+   },
+   {
+    "name": "page changes",
+    "datasource": {
+     "type": "grafana-postgresql-datasource",
+     "uid": "pzopt-pg"
+    },
+    "enable": true,
+    "hide": false,
+    "iconColor": "#FF9830",
+    "target": {
+     "refId": "Anno",
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "table",
+     "rawSql": "SELECT t AS time, kind || ': ' || label AS text FROM workshop_page_changes\nWHERE kind IN ('restyle', 'mark') AND $__timeFilter(t)"
+    }
+   },
+   {
+    "name": "description changes",
+    "datasource": {
+     "type": "grafana-postgresql-datasource",
+     "uid": "pzopt-pg"
+    },
+    "enable": true,
+    "hide": false,
+    "iconColor": "#F2CC0C",
+    "target": {
+     "refId": "Anno",
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "table",
+     "rawSql": "SELECT t AS time, label AS text FROM workshop_page_changes WHERE kind = 'description' AND $__timeFilter(t)"
+    }
+   },
+   {
+    "name": "releases",
+    "datasource": {
+     "type": "grafana-postgresql-datasource",
+     "uid": "pzopt-pg"
+    },
+    "enable": false,
+    "hide": false,
+    "iconColor": "rgba(196, 196, 196, 0.5)",
+    "target": {
+     "refId": "Anno",
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "table",
+     "rawSql": "SELECT t AS time, tag AS text FROM workshop_releases WHERE $__timeFilter(t)"
+    }
+   }
+  ]
+ },
+ "links": [
+  {
+   "title": "PZ Optimization",
+   "type": "dashboards",
+   "tags": [
+    "pzopt"
+   ],
+   "asDropdown": false,
+   "includeVars": false
+  },
+  {
+   "title": "Steam Workshop page",
+   "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3805285544",
+   "targetBlank": true
+  }
+ ],
+ "panels": [
+  {
+   "type": "row",
+   "title": "Now",
+   "collapsed": false,
+   "panels": [],
+   "id": 1,
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "type": "stat",
+   "title": "Subscribers",
+   "description": "Current subscribers (Steam Web API, every 30 min).",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "SELECT t AS time, subscribers AS subscribers FROM workshop_stats WHERE $__timeFilter(t) ORDER BY t",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "locale",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "#66c0f4",
+        "value": null
+       }
+      ]
+     },
+     "noValue": "\u2013",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "values": false,
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": ""
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "text": {
+     "titleSize": 12,
+     "valueSize": 36
+    }
+   },
+   "links": [
+    {
+     "title": "Steam Workshop page",
+     "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3805285544",
+     "targetBlank": true
+    }
+   ],
+   "id": 2,
+   "gridPos": {
+    "x": 0,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   }
+  },
+  {
+   "type": "stat",
+   "title": "Unique visitors",
+   "description": "Unique visitors of the Workshop page since it was published (each Steam account once).",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "SELECT t AS time, visitors AS visitors FROM workshop_stats WHERE $__timeFilter(t) ORDER BY t",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "locale",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "#66c0f4",
+        "value": null
+       }
+      ]
+     },
+     "noValue": "\u2013",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "values": false,
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": ""
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "text": {
+     "titleSize": 12,
+     "valueSize": 36
+    }
+   },
+   "links": [
+    {
+     "title": "Steam Workshop page",
+     "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3805285544",
+     "targetBlank": true
+    }
+   ],
+   "id": 3,
+   "gridPos": {
+    "x": 4,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   }
+  },
+  {
+   "type": "stat",
+   "title": "Ratings",
+   "description": "Players who rated the item (item page; NULL while Steam rate-limits it).",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "SELECT t AS time, ratings AS ratings FROM workshop_stats WHERE ratings IS NOT NULL AND $__timeFilter(t) ORDER BY t",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "locale",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "#F2CC0C",
+        "value": null
+       }
+      ]
+     },
+     "noValue": "\u2013",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "values": false,
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": ""
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "text": {
+     "titleSize": 12,
+     "valueSize": 36
+    }
+   },
+   "links": [
+    {
+     "title": "Steam Workshop page",
+     "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3805285544",
+     "targetBlank": true
+    }
+   ],
+   "id": 4,
+   "gridPos": {
+    "x": 8,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   }
+  },
+  {
+   "type": "stat",
+   "title": "Comments",
+   "description": "Comments on the item page, from every comment's own timestamp.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "SELECT t AS time, sum(n) OVER (ORDER BY t) AS comments FROM workshop_comments ORDER BY t",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "locale",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "#8AB8FF",
+        "value": null
+       }
+      ]
+     },
+     "noValue": "\u2013",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "values": false,
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": ""
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "text": {
+     "titleSize": 12,
+     "valueSize": 36
+    }
+   },
+   "links": [
+    {
+     "title": "Steam Workshop page",
+     "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3805285544",
+     "targetBlank": true
+    }
+   ],
+   "id": 5,
+   "gridPos": {
+    "x": 12,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   }
+  },
+  {
+   "type": "stat",
+   "title": "Discord members",
+   "description": "Approximate members of the project's Discord server (its invite's counts).",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "SELECT t AS time, discord_members AS members FROM workshop_extra WHERE $__timeFilter(t) ORDER BY t",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "locale",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "#5865F2",
+        "value": null
+       }
+      ]
+     },
+     "noValue": "\u2013",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "values": false,
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": ""
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "text": {
+     "titleSize": 12,
+     "valueSize": 36
+    }
+   },
+   "links": [
+    {
+     "title": "Steam Workshop page",
+     "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3805285544",
+     "targetBlank": true
+    }
+   ],
+   "id": 6,
+   "gridPos": {
+    "x": 16,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   }
+  },
+  {
+   "type": "stat",
+   "title": "GitHub stars",
+   "description": "Stars of github.com/xD3I/PZ_Optimization.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "SELECT t AS time, github_stars AS stars FROM workshop_extra WHERE $__timeFilter(t) ORDER BY t",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "locale",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "#C4C4C4",
+        "value": null
+       }
+      ]
+     },
+     "noValue": "\u2013",
+     "decimals": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "values": false,
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": ""
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "text": {
+     "titleSize": 12,
+     "valueSize": 36
+    }
+   },
+   "links": [
+    {
+     "title": "Steam Workshop page",
+     "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3805285544",
+     "targetBlank": true
+    }
+   ],
+   "id": 7,
+   "gridPos": {
+    "x": 20,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   }
+  },
+  {
+   "type": "row",
+   "title": "Per day (UTC)",
+   "collapsed": false,
+   "panels": [],
+   "id": 8,
+   "gridPos": {
+    "x": 0,
+    "y": 5,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Visitors and subscriptions",
+   "description": "New unique visitors, new subscriptions and unsubscriptions per day (Steam's counters, each day's last snapshot minus the day before's). Whole UTC days; today is left out.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "WITH s AS (\n  SELECT (t AT TIME ZONE 'UTC')::date AS day,\n    (array_agg(visitors ORDER BY t DESC))[1] AS visitors,\n    (array_agg(lifetime_subscribers ORDER BY t DESC))[1] AS lsubs,\n    (array_agg(subscribers ORDER BY t DESC))[1] AS subs,\n    (array_agg(lifetime_favorites ORDER BY t DESC))[1] AS lfavs,\n    (array_agg(ratings ORDER BY t DESC) FILTER (WHERE ratings IS NOT NULL))[1] AS ratings\n  FROM workshop_stats GROUP BY 1),\nsd AS (\n  SELECT day, visitors - lag(visitors) OVER w AS visitors, lsubs - lag(lsubs) OVER w AS new_subs,\n    subs - lag(subs) OVER w AS net_subs, lfavs - lag(lfavs) OVER w AS new_favs, ratings - lag(ratings) OVER w AS ratings,\n    day - lag(day) OVER w AS gap\n  FROM s WINDOW w AS (ORDER BY day)),\nst AS (SELECT * FROM sd WHERE gap = 1),\ncm AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, sum(n)::float AS n FROM workshop_comments GROUP BY 1),\nrl AS (SELECT t, coalesce(lead(t) OVER (ORDER BY t), now()) AS t2, installer, zip FROM workshop_releases WHERE t IS NOT NULL),\nrd AS (\n  SELECT (d AT TIME ZONE 'UTC')::date AS day,\n    sum(rl.installer * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS installer,\n    sum(rl.zip * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS zip\n  FROM rl, generate_series(((rl.t AT TIME ZONE 'UTC')::date)::timestamp AT TIME ZONE 'UTC', rl.t2, interval '1 day') d\n  WHERE rl.t2 > rl.t AND d < rl.t2 GROUP BY 1),\nrc AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, count(*)::float AS n FROM workshop_releases GROUP BY 1),\ndaily_all(day, metric, value) AS (\n  SELECT day, 'visitors', visitors::float FROM st UNION ALL\n  SELECT day, 'new subs', new_subs FROM st UNION ALL\n  SELECT day, 'unsubscribes', new_subs - net_subs FROM st UNION ALL\n  SELECT day, 'net subs', net_subs FROM st UNION ALL\n  SELECT day, 'subs per 100 visitors', 100.0 * new_subs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'unsubs per 100 subs', 100.0 * (new_subs - net_subs) / nullif(new_subs, 0) FROM st UNION ALL\n  SELECT day, 'favourites per 100 visitors', 100.0 * new_favs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'new favourites', new_favs FROM st UNION ALL\n  SELECT day, 'ratings', ratings FROM st WHERE ratings IS NOT NULL UNION ALL\n  SELECT day, 'comments', n FROM cm UNION ALL\n  SELECT st.day, 'comments per 1k visitors', 1000.0 * cm.n / nullif(st.visitors, 0) FROM st JOIN cm USING (day) UNION ALL\n  SELECT day, 'one-liner downloads', installer FROM rd UNION ALL\n  SELECT day, 'zip downloads', zip FROM rd UNION ALL\n  SELECT day, 'releases', n FROM rc UNION ALL\n  SELECT day, 'github views', views FROM workshop_github_views UNION ALL\n  SELECT day, 'github visitors', uniques FROM workshop_github_views),\ndaily AS (SELECT * FROM daily_all WHERE day < (now() AT TIME ZONE 'UTC')::date AND value IS NOT NULL)\nSELECT (day::timestamp AT TIME ZONE 'UTC') + interval '12 hours' AS time, metric, value FROM daily\nWHERE metric IN ('visitors', 'new subs', 'unsubscribes') AND $__timeFilter(day::timestamp AT TIME ZONE 'UTC') ORDER BY 1",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "pointSize": 6,
+      "showPoints": "always",
+      "fillOpacity": 0,
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "gradientMode": "none",
+      "axisSoftMin": 0,
+      "insertNulls": false
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "min": 0,
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "visitors"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#66c0f4"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "new subs"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#73BF69"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "unsubscribes"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#F2495C"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "id": 9,
+   "gridPos": {
+    "x": 0,
+    "y": 6,
+    "w": 12,
+    "h": 8
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Conversion",
+   "description": "New subscriptions per 100 new visitors (a subscribe needs no page visit: collections, the in-game browser, so it can pass 100), unsubscribes per 100 new subscriptions, new favourites per 100 new visitors. Whole UTC days; today is left out.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "WITH s AS (\n  SELECT (t AT TIME ZONE 'UTC')::date AS day,\n    (array_agg(visitors ORDER BY t DESC))[1] AS visitors,\n    (array_agg(lifetime_subscribers ORDER BY t DESC))[1] AS lsubs,\n    (array_agg(subscribers ORDER BY t DESC))[1] AS subs,\n    (array_agg(lifetime_favorites ORDER BY t DESC))[1] AS lfavs,\n    (array_agg(ratings ORDER BY t DESC) FILTER (WHERE ratings IS NOT NULL))[1] AS ratings\n  FROM workshop_stats GROUP BY 1),\nsd AS (\n  SELECT day, visitors - lag(visitors) OVER w AS visitors, lsubs - lag(lsubs) OVER w AS new_subs,\n    subs - lag(subs) OVER w AS net_subs, lfavs - lag(lfavs) OVER w AS new_favs, ratings - lag(ratings) OVER w AS ratings,\n    day - lag(day) OVER w AS gap\n  FROM s WINDOW w AS (ORDER BY day)),\nst AS (SELECT * FROM sd WHERE gap = 1),\ncm AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, sum(n)::float AS n FROM workshop_comments GROUP BY 1),\nrl AS (SELECT t, coalesce(lead(t) OVER (ORDER BY t), now()) AS t2, installer, zip FROM workshop_releases WHERE t IS NOT NULL),\nrd AS (\n  SELECT (d AT TIME ZONE 'UTC')::date AS day,\n    sum(rl.installer * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS installer,\n    sum(rl.zip * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS zip\n  FROM rl, generate_series(((rl.t AT TIME ZONE 'UTC')::date)::timestamp AT TIME ZONE 'UTC', rl.t2, interval '1 day') d\n  WHERE rl.t2 > rl.t AND d < rl.t2 GROUP BY 1),\nrc AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, count(*)::float AS n FROM workshop_releases GROUP BY 1),\ndaily_all(day, metric, value) AS (\n  SELECT day, 'visitors', visitors::float FROM st UNION ALL\n  SELECT day, 'new subs', new_subs FROM st UNION ALL\n  SELECT day, 'unsubscribes', new_subs - net_subs FROM st UNION ALL\n  SELECT day, 'net subs', net_subs FROM st UNION ALL\n  SELECT day, 'subs per 100 visitors', 100.0 * new_subs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'unsubs per 100 subs', 100.0 * (new_subs - net_subs) / nullif(new_subs, 0) FROM st UNION ALL\n  SELECT day, 'favourites per 100 visitors', 100.0 * new_favs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'new favourites', new_favs FROM st UNION ALL\n  SELECT day, 'ratings', ratings FROM st WHERE ratings IS NOT NULL UNION ALL\n  SELECT day, 'comments', n FROM cm UNION ALL\n  SELECT st.day, 'comments per 1k visitors', 1000.0 * cm.n / nullif(st.visitors, 0) FROM st JOIN cm USING (day) UNION ALL\n  SELECT day, 'one-liner downloads', installer FROM rd UNION ALL\n  SELECT day, 'zip downloads', zip FROM rd UNION ALL\n  SELECT day, 'releases', n FROM rc UNION ALL\n  SELECT day, 'github views', views FROM workshop_github_views UNION ALL\n  SELECT day, 'github visitors', uniques FROM workshop_github_views),\ndaily AS (SELECT * FROM daily_all WHERE day < (now() AT TIME ZONE 'UTC')::date AND value IS NOT NULL)\nSELECT (day::timestamp AT TIME ZONE 'UTC') + interval '12 hours' AS time, metric, value FROM daily\nWHERE metric IN ('subs per 100 visitors', 'unsubs per 100 subs', 'favourites per 100 visitors') AND $__timeFilter(day::timestamp AT TIME ZONE 'UTC') ORDER BY 1",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "pointSize": 6,
+      "showPoints": "always",
+      "fillOpacity": 0,
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "gradientMode": "none",
+      "axisSoftMin": 0,
+      "insertNulls": false
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "min": 0,
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "subs per 100 visitors"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#73BF69"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "unsubs per 100 subs"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#F2495C"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "favourites per 100 visitors"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#F2CC0C"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "id": 10,
+   "gridPos": {
+    "x": 12,
+    "y": 6,
+    "w": 12,
+    "h": 8
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Comments and ratings",
+   "description": "Comments posted and new ratings per day. Whole UTC days; today is left out.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "WITH s AS (\n  SELECT (t AT TIME ZONE 'UTC')::date AS day,\n    (array_agg(visitors ORDER BY t DESC))[1] AS visitors,\n    (array_agg(lifetime_subscribers ORDER BY t DESC))[1] AS lsubs,\n    (array_agg(subscribers ORDER BY t DESC))[1] AS subs,\n    (array_agg(lifetime_favorites ORDER BY t DESC))[1] AS lfavs,\n    (array_agg(ratings ORDER BY t DESC) FILTER (WHERE ratings IS NOT NULL))[1] AS ratings\n  FROM workshop_stats GROUP BY 1),\nsd AS (\n  SELECT day, visitors - lag(visitors) OVER w AS visitors, lsubs - lag(lsubs) OVER w AS new_subs,\n    subs - lag(subs) OVER w AS net_subs, lfavs - lag(lfavs) OVER w AS new_favs, ratings - lag(ratings) OVER w AS ratings,\n    day - lag(day) OVER w AS gap\n  FROM s WINDOW w AS (ORDER BY day)),\nst AS (SELECT * FROM sd WHERE gap = 1),\ncm AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, sum(n)::float AS n FROM workshop_comments GROUP BY 1),\nrl AS (SELECT t, coalesce(lead(t) OVER (ORDER BY t), now()) AS t2, installer, zip FROM workshop_releases WHERE t IS NOT NULL),\nrd AS (\n  SELECT (d AT TIME ZONE 'UTC')::date AS day,\n    sum(rl.installer * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS installer,\n    sum(rl.zip * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS zip\n  FROM rl, generate_series(((rl.t AT TIME ZONE 'UTC')::date)::timestamp AT TIME ZONE 'UTC', rl.t2, interval '1 day') d\n  WHERE rl.t2 > rl.t AND d < rl.t2 GROUP BY 1),\nrc AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, count(*)::float AS n FROM workshop_releases GROUP BY 1),\ndaily_all(day, metric, value) AS (\n  SELECT day, 'visitors', visitors::float FROM st UNION ALL\n  SELECT day, 'new subs', new_subs FROM st UNION ALL\n  SELECT day, 'unsubscribes', new_subs - net_subs FROM st UNION ALL\n  SELECT day, 'net subs', net_subs FROM st UNION ALL\n  SELECT day, 'subs per 100 visitors', 100.0 * new_subs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'unsubs per 100 subs', 100.0 * (new_subs - net_subs) / nullif(new_subs, 0) FROM st UNION ALL\n  SELECT day, 'favourites per 100 visitors', 100.0 * new_favs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'new favourites', new_favs FROM st UNION ALL\n  SELECT day, 'ratings', ratings FROM st WHERE ratings IS NOT NULL UNION ALL\n  SELECT day, 'comments', n FROM cm UNION ALL\n  SELECT st.day, 'comments per 1k visitors', 1000.0 * cm.n / nullif(st.visitors, 0) FROM st JOIN cm USING (day) UNION ALL\n  SELECT day, 'one-liner downloads', installer FROM rd UNION ALL\n  SELECT day, 'zip downloads', zip FROM rd UNION ALL\n  SELECT day, 'releases', n FROM rc UNION ALL\n  SELECT day, 'github views', views FROM workshop_github_views UNION ALL\n  SELECT day, 'github visitors', uniques FROM workshop_github_views),\ndaily AS (SELECT * FROM daily_all WHERE day < (now() AT TIME ZONE 'UTC')::date AND value IS NOT NULL)\nSELECT (day::timestamp AT TIME ZONE 'UTC') + interval '12 hours' AS time, metric, value FROM daily\nWHERE metric IN ('comments', 'ratings') AND $__timeFilter(day::timestamp AT TIME ZONE 'UTC') ORDER BY 1",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "pointSize": 6,
+      "showPoints": "always",
+      "fillOpacity": 0,
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "gradientMode": "none",
+      "axisSoftMin": 0,
+      "insertNulls": false
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "min": 0,
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "comments"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8AB8FF"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ratings"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#F2CC0C"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "id": 11,
+   "gridPos": {
+    "x": 0,
+    "y": 14,
+    "w": 8,
+    "h": 8
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "GitHub downloads",
+   "description": "Each release's downloads spread over the hours it was the latest. Installs themselves are invisible: the page's main path (the helper window) and the by-hand copy install from the Workshop item's own files, so the one-liner counts only the page's \"No window?\" fallback; zips are mostly the in-game updater. Releases: published that day (right axis). Whole UTC days; today is left out.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "WITH s AS (\n  SELECT (t AT TIME ZONE 'UTC')::date AS day,\n    (array_agg(visitors ORDER BY t DESC))[1] AS visitors,\n    (array_agg(lifetime_subscribers ORDER BY t DESC))[1] AS lsubs,\n    (array_agg(subscribers ORDER BY t DESC))[1] AS subs,\n    (array_agg(lifetime_favorites ORDER BY t DESC))[1] AS lfavs,\n    (array_agg(ratings ORDER BY t DESC) FILTER (WHERE ratings IS NOT NULL))[1] AS ratings\n  FROM workshop_stats GROUP BY 1),\nsd AS (\n  SELECT day, visitors - lag(visitors) OVER w AS visitors, lsubs - lag(lsubs) OVER w AS new_subs,\n    subs - lag(subs) OVER w AS net_subs, lfavs - lag(lfavs) OVER w AS new_favs, ratings - lag(ratings) OVER w AS ratings,\n    day - lag(day) OVER w AS gap\n  FROM s WINDOW w AS (ORDER BY day)),\nst AS (SELECT * FROM sd WHERE gap = 1),\ncm AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, sum(n)::float AS n FROM workshop_comments GROUP BY 1),\nrl AS (SELECT t, coalesce(lead(t) OVER (ORDER BY t), now()) AS t2, installer, zip FROM workshop_releases WHERE t IS NOT NULL),\nrd AS (\n  SELECT (d AT TIME ZONE 'UTC')::date AS day,\n    sum(rl.installer * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS installer,\n    sum(rl.zip * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS zip\n  FROM rl, generate_series(((rl.t AT TIME ZONE 'UTC')::date)::timestamp AT TIME ZONE 'UTC', rl.t2, interval '1 day') d\n  WHERE rl.t2 > rl.t AND d < rl.t2 GROUP BY 1),\nrc AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, count(*)::float AS n FROM workshop_releases GROUP BY 1),\ndaily_all(day, metric, value) AS (\n  SELECT day, 'visitors', visitors::float FROM st UNION ALL\n  SELECT day, 'new subs', new_subs FROM st UNION ALL\n  SELECT day, 'unsubscribes', new_subs - net_subs FROM st UNION ALL\n  SELECT day, 'net subs', net_subs FROM st UNION ALL\n  SELECT day, 'subs per 100 visitors', 100.0 * new_subs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'unsubs per 100 subs', 100.0 * (new_subs - net_subs) / nullif(new_subs, 0) FROM st UNION ALL\n  SELECT day, 'favourites per 100 visitors', 100.0 * new_favs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'new favourites', new_favs FROM st UNION ALL\n  SELECT day, 'ratings', ratings FROM st WHERE ratings IS NOT NULL UNION ALL\n  SELECT day, 'comments', n FROM cm UNION ALL\n  SELECT st.day, 'comments per 1k visitors', 1000.0 * cm.n / nullif(st.visitors, 0) FROM st JOIN cm USING (day) UNION ALL\n  SELECT day, 'one-liner downloads', installer FROM rd UNION ALL\n  SELECT day, 'zip downloads', zip FROM rd UNION ALL\n  SELECT day, 'releases', n FROM rc UNION ALL\n  SELECT day, 'github views', views FROM workshop_github_views UNION ALL\n  SELECT day, 'github visitors', uniques FROM workshop_github_views),\ndaily AS (SELECT * FROM daily_all WHERE day < (now() AT TIME ZONE 'UTC')::date AND value IS NOT NULL)\nSELECT (day::timestamp AT TIME ZONE 'UTC') + interval '12 hours' AS time, metric, value FROM daily\nWHERE metric IN ('one-liner downloads', 'zip downloads', 'releases') AND $__timeFilter(day::timestamp AT TIME ZONE 'UTC') ORDER BY 1",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "pointSize": 6,
+      "showPoints": "always",
+      "fillOpacity": 0,
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "gradientMode": "none",
+      "axisSoftMin": 0,
+      "insertNulls": false
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "min": 0,
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "one-liner downloads"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#FF9830"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "zip downloads"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#B877D9"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "releases"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#C4C4C4"
+        }
+       },
+       {
+        "id": "custom.axisPlacement",
+        "value": "right"
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "id": 12,
+   "gridPos": {
+    "x": 8,
+    "y": 14,
+    "w": 8,
+    "h": 8
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "GitHub repository visits",
+   "description": "Views and unique visitors of the GitHub repository pages (GitHub's traffic API, owner-only: kept in the local database only). Whole UTC days; today is left out.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "WITH s AS (\n  SELECT (t AT TIME ZONE 'UTC')::date AS day,\n    (array_agg(visitors ORDER BY t DESC))[1] AS visitors,\n    (array_agg(lifetime_subscribers ORDER BY t DESC))[1] AS lsubs,\n    (array_agg(subscribers ORDER BY t DESC))[1] AS subs,\n    (array_agg(lifetime_favorites ORDER BY t DESC))[1] AS lfavs,\n    (array_agg(ratings ORDER BY t DESC) FILTER (WHERE ratings IS NOT NULL))[1] AS ratings\n  FROM workshop_stats GROUP BY 1),\nsd AS (\n  SELECT day, visitors - lag(visitors) OVER w AS visitors, lsubs - lag(lsubs) OVER w AS new_subs,\n    subs - lag(subs) OVER w AS net_subs, lfavs - lag(lfavs) OVER w AS new_favs, ratings - lag(ratings) OVER w AS ratings,\n    day - lag(day) OVER w AS gap\n  FROM s WINDOW w AS (ORDER BY day)),\nst AS (SELECT * FROM sd WHERE gap = 1),\ncm AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, sum(n)::float AS n FROM workshop_comments GROUP BY 1),\nrl AS (SELECT t, coalesce(lead(t) OVER (ORDER BY t), now()) AS t2, installer, zip FROM workshop_releases WHERE t IS NOT NULL),\nrd AS (\n  SELECT (d AT TIME ZONE 'UTC')::date AS day,\n    sum(rl.installer * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS installer,\n    sum(rl.zip * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS zip\n  FROM rl, generate_series(((rl.t AT TIME ZONE 'UTC')::date)::timestamp AT TIME ZONE 'UTC', rl.t2, interval '1 day') d\n  WHERE rl.t2 > rl.t AND d < rl.t2 GROUP BY 1),\nrc AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, count(*)::float AS n FROM workshop_releases GROUP BY 1),\ndaily_all(day, metric, value) AS (\n  SELECT day, 'visitors', visitors::float FROM st UNION ALL\n  SELECT day, 'new subs', new_subs FROM st UNION ALL\n  SELECT day, 'unsubscribes', new_subs - net_subs FROM st UNION ALL\n  SELECT day, 'net subs', net_subs FROM st UNION ALL\n  SELECT day, 'subs per 100 visitors', 100.0 * new_subs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'unsubs per 100 subs', 100.0 * (new_subs - net_subs) / nullif(new_subs, 0) FROM st UNION ALL\n  SELECT day, 'favourites per 100 visitors', 100.0 * new_favs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'new favourites', new_favs FROM st UNION ALL\n  SELECT day, 'ratings', ratings FROM st WHERE ratings IS NOT NULL UNION ALL\n  SELECT day, 'comments', n FROM cm UNION ALL\n  SELECT st.day, 'comments per 1k visitors', 1000.0 * cm.n / nullif(st.visitors, 0) FROM st JOIN cm USING (day) UNION ALL\n  SELECT day, 'one-liner downloads', installer FROM rd UNION ALL\n  SELECT day, 'zip downloads', zip FROM rd UNION ALL\n  SELECT day, 'releases', n FROM rc UNION ALL\n  SELECT day, 'github views', views FROM workshop_github_views UNION ALL\n  SELECT day, 'github visitors', uniques FROM workshop_github_views),\ndaily AS (SELECT * FROM daily_all WHERE day < (now() AT TIME ZONE 'UTC')::date AND value IS NOT NULL)\nSELECT (day::timestamp AT TIME ZONE 'UTC') + interval '12 hours' AS time, metric, value FROM daily\nWHERE metric IN ('github views', 'github visitors') AND $__timeFilter(day::timestamp AT TIME ZONE 'UTC') ORDER BY 1",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "pointSize": 6,
+      "showPoints": "always",
+      "fillOpacity": 0,
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "gradientMode": "none",
+      "axisSoftMin": 0,
+      "insertNulls": false
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "min": 0,
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "github views"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#C4C4C4"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "github visitors"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#8AB8FF"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "id": 13,
+   "gridPos": {
+    "x": 16,
+    "y": 14,
+    "w": 8,
+    "h": 8
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Conversion, 6-hour windows",
+   "description": "The same ratios over 6-hour windows of the 30-min snapshots, to see a step at a page change (annotations) inside a day. Noisy: a window holds ~600 visitors.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "time_series",
+     "rawSql": "WITH b AS (SELECT to_timestamp(floor(extract(epoch FROM t) / 21600) * 21600) AS w, max(visitors) AS v, max(lifetime_subscribers) AS ls,\n  max(subscribers) AS s FROM workshop_stats GROUP BY 1),\nd AS (SELECT w, v - lag(v) OVER o AS dv, ls - lag(ls) OVER o AS dls, s - lag(s) OVER o AS ds FROM b WINDOW o AS (ORDER BY w))\nSELECT w + interval '3 hours' AS time, 100.0 * dls / nullif(dv, 0) AS \"subs per 100 visitors\",\n  100.0 * (dls - ds) / nullif(dls, 0) AS \"unsubs per 100 subs\" FROM d WHERE dv > 0 AND $__timeFilter(w) ORDER BY 1",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "pointSize": 6,
+      "showPoints": "always",
+      "fillOpacity": 0,
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "gradientMode": "none",
+      "axisSoftMin": 0,
+      "insertNulls": false
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "min": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "subs per 100 visitors"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#73BF69"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "unsubs per 100 subs"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#F2495C"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "id": 14,
+   "gridPos": {
+    "x": 0,
+    "y": 22,
+    "w": 24,
+    "h": 8
+   }
+  },
+  {
+   "type": "row",
+   "title": "Before / after a page change",
+   "collapsed": false,
+   "panels": [],
+   "id": 15,
+   "gridPos": {
+    "x": 0,
+    "y": 30,
+    "w": 24,
+    "h": 1
+   }
+  },
+  {
+   "type": "table",
+   "title": "Before / after the selected page change",
+   "description": "Mean of the chosen number of whole UTC days before the change day and after it (the change day left out), the range of the days before (an after mean outside it is more than the day-to-day noise), and the after days against the log-linear trend fitted to the trend days before: the counts were still settling after the 2026-09-20 launch, so a plain before / after reads a falling series as a loss. Releases, weekdays and other page changes in the window confound both.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "table",
+     "rawSql": "WITH s AS (\n  SELECT (t AT TIME ZONE 'UTC')::date AS day,\n    (array_agg(visitors ORDER BY t DESC))[1] AS visitors,\n    (array_agg(lifetime_subscribers ORDER BY t DESC))[1] AS lsubs,\n    (array_agg(subscribers ORDER BY t DESC))[1] AS subs,\n    (array_agg(lifetime_favorites ORDER BY t DESC))[1] AS lfavs,\n    (array_agg(ratings ORDER BY t DESC) FILTER (WHERE ratings IS NOT NULL))[1] AS ratings\n  FROM workshop_stats GROUP BY 1),\nsd AS (\n  SELECT day, visitors - lag(visitors) OVER w AS visitors, lsubs - lag(lsubs) OVER w AS new_subs,\n    subs - lag(subs) OVER w AS net_subs, lfavs - lag(lfavs) OVER w AS new_favs, ratings - lag(ratings) OVER w AS ratings,\n    day - lag(day) OVER w AS gap\n  FROM s WINDOW w AS (ORDER BY day)),\nst AS (SELECT * FROM sd WHERE gap = 1),\ncm AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, sum(n)::float AS n FROM workshop_comments GROUP BY 1),\nrl AS (SELECT t, coalesce(lead(t) OVER (ORDER BY t), now()) AS t2, installer, zip FROM workshop_releases WHERE t IS NOT NULL),\nrd AS (\n  SELECT (d AT TIME ZONE 'UTC')::date AS day,\n    sum(rl.installer * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS installer,\n    sum(rl.zip * extract(epoch FROM least(rl.t2, d + interval '1 day') - greatest(rl.t, d)) / extract(epoch FROM rl.t2 - rl.t)) AS zip\n  FROM rl, generate_series(((rl.t AT TIME ZONE 'UTC')::date)::timestamp AT TIME ZONE 'UTC', rl.t2, interval '1 day') d\n  WHERE rl.t2 > rl.t AND d < rl.t2 GROUP BY 1),\nrc AS (SELECT (t AT TIME ZONE 'UTC')::date AS day, count(*)::float AS n FROM workshop_releases GROUP BY 1),\ndaily_all(day, metric, value) AS (\n  SELECT day, 'visitors', visitors::float FROM st UNION ALL\n  SELECT day, 'new subs', new_subs FROM st UNION ALL\n  SELECT day, 'unsubscribes', new_subs - net_subs FROM st UNION ALL\n  SELECT day, 'net subs', net_subs FROM st UNION ALL\n  SELECT day, 'subs per 100 visitors', 100.0 * new_subs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'unsubs per 100 subs', 100.0 * (new_subs - net_subs) / nullif(new_subs, 0) FROM st UNION ALL\n  SELECT day, 'favourites per 100 visitors', 100.0 * new_favs / nullif(visitors, 0) FROM st UNION ALL\n  SELECT day, 'new favourites', new_favs FROM st UNION ALL\n  SELECT day, 'ratings', ratings FROM st WHERE ratings IS NOT NULL UNION ALL\n  SELECT day, 'comments', n FROM cm UNION ALL\n  SELECT st.day, 'comments per 1k visitors', 1000.0 * cm.n / nullif(st.visitors, 0) FROM st JOIN cm USING (day) UNION ALL\n  SELECT day, 'one-liner downloads', installer FROM rd UNION ALL\n  SELECT day, 'zip downloads', zip FROM rd UNION ALL\n  SELECT day, 'releases', n FROM rc UNION ALL\n  SELECT day, 'github views', views FROM workshop_github_views UNION ALL\n  SELECT day, 'github visitors', uniques FROM workshop_github_views),\ndaily AS (SELECT * FROM daily_all WHERE day < (now() AT TIME ZONE 'UTC')::date AND value IS NOT NULL),\ncd AS (SELECT (('${change}'::timestamptz) AT TIME ZONE 'UTC')::date AS d),\nx AS (SELECT daily.metric, daily.value, (daily.day - cd.d) AS x FROM daily, cd\n      WHERE daily.day <> cd.d AND daily.day >= cd.d - ${trend} AND daily.day <= cd.d + ${days}),\nf AS (\n  SELECT metric,\n    avg(value) FILTER (WHERE x < 0 AND x >= -${days}) AS before,\n    min(value) FILTER (WHERE x < 0 AND x >= -${days}) AS lo,\n    max(value) FILTER (WHERE x < 0 AND x >= -${days}) AS hi,\n    avg(value) FILTER (WHERE x > 0) AS after,\n    count(*) FILTER (WHERE x > 0) AS days_after,\n    count(*) FILTER (WHERE x < 0 AND value > 0) AS n_fit,\n    regr_slope(ln(value), x) FILTER (WHERE x < 0 AND value > 0) AS b,\n    regr_intercept(ln(value), x) FILTER (WHERE x < 0 AND value > 0) AS a\n  FROM x GROUP BY metric),\ne AS (SELECT x.metric, avg(exp(f.a + f.b * x.x)) AS expected FROM x JOIN f USING (metric)\n      WHERE x.x > 0 AND f.n_fit >= 3 GROUP BY 1),\no AS (SELECT 0 AS o, 'visitors' AS metric, 'new unique visitors of the Workshop page (Steam counts each account once, ever)' AS what UNION ALL SELECT 1 AS o, 'new subs' AS metric, 'new subscriptions (lifetime count)' AS what UNION ALL SELECT 2 AS o, 'unsubscribes' AS metric, 'new subscriptions minus the change of current subscribers' AS what UNION ALL SELECT 3 AS o, 'net subs' AS metric, 'change of current subscribers' AS what UNION ALL SELECT 4 AS o, 'subs per 100 visitors' AS metric, 'new subscriptions per 100 new unique visitors (subscribes need no page visit, so it can pass 100)' AS what UNION ALL SELECT 5 AS o, 'unsubs per 100 subs' AS metric, 'unsubscribes per 100 new subscriptions' AS what UNION ALL SELECT 6 AS o, 'favourites per 100 visitors' AS metric, 'new favourites (lifetime count) per 100 new unique visitors' AS what UNION ALL SELECT 7 AS o, 'new favourites' AS metric, 'new favourites (lifetime count)' AS what UNION ALL SELECT 8 AS o, 'ratings' AS metric, 'new ratings' AS what UNION ALL SELECT 9 AS o, 'comments' AS metric, 'comments posted that day (timestamps of every comment)' AS what UNION ALL SELECT 10 AS o, 'comments per 1k visitors' AS metric, 'comments per 1,000 new unique visitors' AS what UNION ALL SELECT 11 AS o, 'one-liner downloads' AS metric, 'GitHub install.ps1 + install.sh downloads: the page''s \"No window?\" one-liner only (the helper window and the by-hand copy install from the Workshop item''s own files)' AS what UNION ALL SELECT 12 AS o, 'zip downloads' AS metric, 'GitHub release zip downloads: mostly the in-game updater and players without a Workshop copy' AS what UNION ALL SELECT 13 AS o, 'releases' AS metric, 'releases published that day (each one is a Workshop update too)' AS what UNION ALL SELECT 14 AS o, 'github views' AS metric, 'views of the GitHub repository pages (owner-only traffic data)' AS what UNION ALL SELECT 15 AS o, 'github visitors' AS metric, 'unique visitors of the GitHub repository pages' AS what)\nSELECT o.metric, f.before AS \"before\", f.lo AS \"before low\", f.hi AS \"before high\", f.after AS \"after\",\n  100.0 * (f.after / nullif(f.before, 0) - 1) AS \"after vs before %\",\n  e.expected AS \"trend expected\", 100.0 * (f.after / nullif(e.expected, 0) - 1) AS \"after vs trend %\",\n  100.0 * (exp(f.b) - 1) AS \"trend before %/day\", f.days_after AS \"days after\", o.what AS \"what it counts\"\nFROM o JOIN f USING (metric) LEFT JOIN e USING (metric) ORDER BY o.o",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "cellOptions": {
+       "type": "auto"
+      },
+      "filterable": false,
+      "inspect": true,
+      "wrapHeaderText": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "before"
+      },
+      "properties": [
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "before low"
+      },
+      "properties": [
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "before high"
+      },
+      "properties": [
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "after"
+      },
+      "properties": [
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "trend expected"
+      },
+      "properties": [
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "after vs before %"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "after vs trend %"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "trend before %/day"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "metric"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 200
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "what it counts"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "auto",
+         "wrapText": true
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "transformations": [],
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "fields": ""
+    },
+    "sortBy": []
+   },
+   "id": 16,
+   "gridPos": {
+    "x": 0,
+    "y": 31,
+    "w": 24,
+    "h": 14
+   }
+  },
+  {
+   "type": "table",
+   "title": "Page changes",
+   "description": "Restyles and marks (workshop_stats.py --mark, after an upload) and description changes found by the 30-min snapshot (release build lines ignored).",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "table",
+     "rawSql": "SELECT t AS \"time\", kind, label FROM workshop_page_changes ORDER BY t DESC",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "cellOptions": {
+       "type": "auto"
+      },
+      "filterable": false,
+      "inspect": true,
+      "wrapHeaderText": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "time"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dateTimeAsIso"
+       },
+       {
+        "id": "custom.width",
+        "value": 170
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "kind"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 100
+       }
+      ]
+     }
+    ]
+   },
+   "transformations": [],
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "fields": ""
+    },
+    "sortBy": []
+   },
+   "id": 17,
+   "gridPos": {
+    "x": 0,
+    "y": 45,
+    "w": 12,
+    "h": 8
+   }
+  },
+  {
+   "type": "table",
+   "title": "Releases (each is a Workshop update)",
+   "description": "Every GitHub release with its downloads so far.",
+   "datasource": {
+    "type": "grafana-postgresql-datasource",
+    "uid": "pzopt-pg"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-postgresql-datasource",
+      "uid": "pzopt-pg"
+     },
+     "rawQuery": true,
+     "editorMode": "code",
+     "format": "table",
+     "rawSql": "SELECT t AS \"time\", tag, installer AS \"one-liner downloads\", zip AS \"zip downloads\",\n  uninstaller AS \"uninstaller downloads\" FROM workshop_releases ORDER BY t DESC",
+     "hide": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "cellOptions": {
+       "type": "auto"
+      },
+      "filterable": false,
+      "inspect": true,
+      "wrapHeaderText": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "time"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dateTimeAsIso"
+       },
+       {
+        "id": "custom.width",
+        "value": 170
+       }
+      ]
+     }
+    ]
+   },
+   "transformations": [],
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "fields": ""
+    },
+    "sortBy": []
+   },
+   "id": 18,
+   "gridPos": {
+    "x": 12,
+    "y": 45,
+    "w": 12,
+    "h": 8
+   }
+  }
+ ]
+}

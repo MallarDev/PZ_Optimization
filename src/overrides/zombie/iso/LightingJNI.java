@@ -1936,7 +1936,8 @@ public final class LightingJNI {
                         } // pzopt
                         if (pzopt.PixelLight.ACTIVE) { // pzopt: pixelLight, the chunk texture is unlit: a light change updates the lattice, a visibility change re-bakes
                            pzopt.PixelLight.lightChanged(this.square); // pzopt
-                           if (pzoptWasVis != this.vis && !DebugOptions.instance.fboRenderChunk.nolighting.getValue()) { // pzopt
+                           if (pzoptWasVis != this.vis && !DebugOptions.instance.fboRenderChunk.nolighting.getValue() // pzopt
+                              && pzopt.PixelLight.visRebake(this.square, pzoptWasVis, this.vis)) { // pzopt: pplVisRebakeFilter, only a square whose bake reads the bits
                               this.pzoptInvalidate(pzoptDefer, renderLevels); // pzopt
                            } // pzopt
                         } else // pzopt

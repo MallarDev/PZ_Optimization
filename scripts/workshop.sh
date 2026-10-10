@@ -91,14 +91,14 @@ cp -r src/workshop/42/. "$MOD/"
   echo "modversion=${commit:-$rev}"
   echo "versionMin=${version:-42.20.0}"
   echo "author=xD3I"
-  # the Mods screen draws poster 0 next to the description and the rest as thumbnails (hover = large): the three
-  # steps first, then the five walkthrough pictures (harness/install-walkthrough.py --posters, src/workshop/42/),
+  # the Mods screen draws poster 0 next to the description and the rest as thumbnails (hover = large): the five
+  # steps first, then the five walkthrough pictures (harness/install-anim.py --posters, src/workshop/42/),
   # then the showcase square
   for p in poster-install.png poster-step1.png poster-step2.png poster-step3.png poster-step4.png poster-step5.png; do
     [[ -f "$MOD/$p" ]] && echo "poster=$p"
   done
   echo "poster=poster.png"
-  echo "description=Class files for the game folder, not a Lua mod: enable this mod once and the main menu shows the install command for your computer with a Copy button; after installing, disable it again. <LINE> Or run install.ps1 (Windows) or install.bash (Linux, macOS) from this item's folder under steamapps/workshop/content/108600/. <LINE> To remove it: Options > Optimizations > Uninstall PZ Optimization, before you unsubscribe. <LINE> Built for game revision $rev${version:+ (Build $version)}. Source and releases: github.com/xD3I/PZ_Optimization"
+  echo "description=Class files for the game folder, not a Lua mod: enable this mod once and the main menu shows the install command for your computer with a Copy button; after installing, disable it again. <LINE> Or run install.ps1 (Windows) or install.bash (Linux, macOS) from this item's folder under steamapps/workshop/content/108600/. <LINE> To remove it: Options > PZ Optimization > Uninstall PZ Optimization, or double-click Uninstall-PZ-Optimization.cmd in the game folder or in this item's folder (unsubscribing leaves the installed files). <LINE> Built for game revision $rev${version:+ (Build $version)}. Source and releases: github.com/xD3I/PZ_Optimization"
 } > "$MOD/mod.info"
 
 # images: preview.png for the Workshop page (square, <= 1 MB), poster.png for the mod list
@@ -111,9 +111,11 @@ else
   echo "warning: no $src_img or no ffmpeg; put a square preview.png in $out and poster.png in $MOD" >&2
 fi
 
-# the animated preview (harness/showcase-thumbnail-gif.py); workshop-upload.py sends it when it is
-# <= 1,000,000 bytes (the in-game uploader could only send preview.png)
-[[ -f docs/workshop/images/00-showcase-thumbnail.gif ]] && cp docs/workshop/images/00-showcase-thumbnail.gif "$out/preview.gif"
+# the animated preview: its own GIF since 2026-10-06 (00-preview.gif: harness/efficiency-anim.py --single ... --header
+# --align left at 630, its first 5 s scaled to 268 px = the item page's size, gifski 25 fps quality 70), the page's headline
+# is the 60 fps AVIF 00-headline-stock-enhanced.avif (the same --single render with the left strip); workshop-upload.py sends the preview
+# when it is <= 1,000,000 bytes (the in-game uploader could only send preview.png)
+[[ -f docs/workshop/images/00-preview.gif ]] && cp docs/workshop/images/00-preview.gif "$out/preview.gif"
 
 # workshop.txt: keep the id= of an earlier upload (the game writes it back after the first one)
 id=""

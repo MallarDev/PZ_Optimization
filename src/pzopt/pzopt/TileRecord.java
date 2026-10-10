@@ -53,7 +53,7 @@ public final class TileRecord {
    /** Whether this frame's translucent pass goes through the recorders. */
    public static boolean active() {
       return (Config.TILE_RECORD_PARALLEL || Config.DEV_TILE_RECORD_SERIAL) && !failed && Overrides.enabled() && GtAb.on(GtAb.TILE_RECORD)
-         && !Config.MIRRORS && !PixelLight.ACTIVE && !Sway.frameOn && zombie.characters.IsoPlayer.numPlayers == 1;
+         && (Config.TILE_RECORD_VISUALS || !Config.MIRRORS && !PixelLight.ACTIVE && !Sway.frameOn) && zombie.characters.IsoPlayer.numPlayers == 1;
    }
 
    /**
@@ -66,7 +66,7 @@ public final class TileRecord {
       return deferReason(o) < 0;
    }
 
-   static final String[] REASONS = {"deferAll", "class", "noSprite", "lightOn", "roof", "model", "clock", "floorPath", "wallPath", "fascia", "attached", "cold"};
+   static final String[] REASONS = {"deferAll", "class", "noSprite", "lightOn", "roof", "model", "clock", "floorPath", "wallPath", "fascia", "attached", "cold", "mirror"};
 
    static final java.util.concurrent.atomic.AtomicLongArray reasons = new java.util.concurrent.atomic.AtomicLongArray(REASONS.length);
    static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.LongAdder> deferClasses = new java.util.concurrent.ConcurrentHashMap<>();
@@ -84,6 +84,9 @@ public final class TileRecord {
    static int deferReason(IsoObject o) {
       if (Config.DEV_TILE_RECORD_DEFER_ALL) {
          return 0;
+      }
+      if (Config.MIRRORS && Mirrors.capturable(o)) {
+         return 12; // mirrors capture a window / mirror / reflective prop's quad as it draws (game-thread state)
       }
       Class<?> c = o.getClass();
       boolean window = c == zombie.iso.objects.IsoWindow.class;

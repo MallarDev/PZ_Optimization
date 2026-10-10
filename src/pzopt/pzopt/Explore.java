@@ -177,6 +177,13 @@ public final class Explore {
       if (stairs) StairsWalk.routeStart(p);
       if (circleJev) CircleWalk.routeStart(p);
       if (mirror) MirrorWalk.routeStart(p);
+      if (circle && !circleJev && (circleX != p.getX() || circleY != p.getY())) {
+         // the centre is where the player stands when the route starts: a start= teleport lands after worldReady
+         // (2026-10-01, the broken-glass puddle rig circles the street beside the Rosewood store front)
+         circleX = p.getX();
+         circleY = p.getY();
+         Log.info(String.format(Locale.ROOT, "harness: explore=circle re-centred on %.1f,%.1f (start= teleport)", circleX, circleY));
+      }
       circleLastAngle = (float)Math.atan2(p.getY() - circleY, p.getX() - circleX);
    }
 

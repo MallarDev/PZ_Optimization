@@ -78,6 +78,8 @@ final class MirrorGeometry {
    }
 
    static long panes, instances, turned, turnMisses;
+   private static final java.util.IdentityHashMap<Object, Long> DEV_GEO = new java.util.IdentityHashMap<>();
+   private static int devGeoLogs;
    private static final java.util.Set<Object> DEV_SEEN = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()); // dev: panes logged once
    private static final String[] DEV_NAMES = new String[MAXG]; // dev: what each instance is (devMirrorsLog)
 
@@ -128,6 +130,21 @@ final class MirrorGeometry {
       }
       farWall(k, cell, room, msq, la, lb, dmax);
       int added = b.n - start;
+      if (Config.DEV_MIRRORS_LOG) {
+         // the pane's geometry from march to march: a tile count or a light that jumps while the player moves is the flicker
+         float lsum = 0F;
+         for (int i = start; i < b.n; i++) {
+            int q = i * GT * 4;
+            lsum += b.data[q + 24] + b.data[q + 25] + b.data[q + 26];
+         }
+         long state = added * 100000L + Math.round(lsum * 10F);
+         Long last = DEV_GEO.put(r.key, state);
+         if (last != null && last != state && devGeoLogs < 300) {
+            devGeoLogs++;
+            Log.info(String.format(java.util.Locale.ROOT, "mirrors: dev geometry change %d,%d,%d: tiles %d -> %d, light sum %.1f -> %.1f epoch_ms=%d", msq.x, msq.y, z, last / 100000L, added, (last % 100000L) / 10F, lsum,
+                  System.currentTimeMillis()));
+         }
+      }
       if (Config.DEV_MIRRORS_LOG && added > 0 && DEV_SEEN.add(r.key) && DEV_SEEN.size() < 16) {
          StringBuilder sb = new StringBuilder(String.format(java.util.Locale.ROOT, "mirrors: dev room geometry of %s at %d,%d,%d (axis %d, c %.2f, lateral %.2f..%.2f, reach %.2f): %d tiles:", r.key instanceof IsoObject ko && ko.getSprite() != null ? ko.getSprite().getName() : "?", msq.x, msq.y, z, r.axis, c, lo, hi, dmax, added));
          for (int i = start; i < b.n && i < start + 40; i++) {
@@ -149,21 +166,101 @@ final class MirrorGeometry {
       return added;
    }
 
+   static long unseenSquares;
+
+   /**
+    * What a mirror pane's reflection is made of, as one number: the room squares its rays can reach (as collect walks them),
+    * their objects, light (sixteenths), seen state and cutaway flags, and the pane's own light. Mirrors re-marches a pane
+    * when this changes instead of every mirrorsStaticReuse frames: every re-march resampled the frame at the camera's new
+    * sub-pixel offset, and the stand-ins (the floor seen last where the landing is hidden) and the jagged edge of the
+    * hidden area jumped each time while the player walked (2026-10-08). 0: no room (a window, a mirror outdoors), the age
+    * refresh applies.
+    */
+   static final long[] SIG = new long[2]; // signature's soft part (light, cutaway): the hard part is the return value
+
+   static long signature(Mirrors.Refl r) {
+      SIG[1] = 0L;
+      if (!r.mirror || !(r.key instanceof IsoObject o) || o.square == null) {
+         return 0L;
+      }
+      IsoGridSquare msq = o.square;
+      IsoRoom room = msq.getRoom();
+      IsoCell cell = IsoWorld.instance == null ? null : IsoWorld.instance.getCell();
+      if (room == null || cell == null) {
+         return 0L;
+      }
+      Mirrors.paneExtent(r, EXT);
+      int z = msq.z, pi = IsoCamera.frameState.playerIndex;
+      float zhi = EXT[3] - z, dmax = Math.min(Config.MIRRORS_REACH, 3F * zhi + 1.5F);
+      int pa = (int)Math.floor(r.c), pb = (int)Math.floor(r.c + dmax) + 1;
+      int la = (int)Math.floor(EXT[0] - dmax) - 1, lb = (int)Math.floor(EXT[1]) + 1;
+      long now = System.currentTimeMillis();
+      long h = 1469598103934665603L, soft = 1099511628211L + Math.round(r.light * 16F);
+      for (int p = pa; p <= pb; p++) {
+         for (int l = la; l <= lb; l++) {
+            IsoGridSquare sq = r.axis == 0 ? cell.getGridSquare(l, p, z) : cell.getGridSquare(p, l, z);
+            if (sq == null || sq.getRoom() != room) {
+               h = h * 31L + 7L;
+               continue;
+            }
+            boolean seen = sq.isSeen(pi);
+            h = h * 31L + (seen ? 1L : 2L);
+            soft = soft * 31L + sq.getPlayerCutawayFlag(pi, now);
+            h = h * 31L + sq.getObjects().size();
+            for (int i = 0, n = sq.getObjects().size(); i < n; i++) {
+               IsoObject obj = sq.getObjects().get(i);
+               h = h * 31L + (obj == null || obj.getSprite() == null ? 0 : System.identityHashCode(obj.getSprite()));
+            }
+            if (seen) {
+               ColorInfo c = sq.getLightInfo(pi); // (the frame's cache: enough to see a change, no lighting refresh per square)
+               if (c != null) {
+                  soft = soft * 31L + Math.round(c.r * 16F) * 289L + Math.round(c.g * 16F) * 17L + Math.round(c.b * 16F);
+               }
+            }
+         }
+      }
+      SIG[1] = soft == 0L ? 1L : soft;
+      return h == 0L ? 1L : h;
+   }
+
+   /**
+    * A room square's light for its mirrored tiles, null when the player never saw it. Until 2026-10-08 this was the square's
+    * per-frame light cache (getLightInfo), filled only for the squares the renderer drew that frame: a square off screen,
+    * cut away or behind the player kept a stale value or none, and none was drawn white; as the player moved the rebuilt
+    * room's tiles jumped between fresh, stale and white light (the reflection flickered), and a room never drawn (not yet
+    * discovered) showed in the mirror fully lit. Now the square's lighting is read as it is (lightInfo() refreshes it) and an
+    * unseen square is left out. (dev skip bit 16777216: the old cache)
+    */
+   static ColorInfo lightOf(IsoGridSquare sq, int playerIndex) {
+      if ((Mirrors.skipNow() & 16777216) != 0) {
+         ColorInfo l = sq.getLightInfo(playerIndex);
+         return l == null ? WHITE : l;
+      }
+      if (!sq.isSeen(playerIndex)) {
+         unseenSquares++;
+         return null;
+      }
+      IsoGridSquare.ILighting lt = sq.lighting[playerIndex];
+      ColorInfo l = lt == null ? null : lt.lightInfo();
+      return l != null ? l : sq.getLightInfo(playerIndex) != null ? sq.getLightInfo(playerIndex) : WHITE;
+   }
+
    private static final class Ctx {
       Batch b;
       Mirrors.Refl r;
       Mirrors.Tile tl;
       int axis, z, playerIndex;
       float c;
+      boolean furniture; // the next add() is furniture standing in the room (not a floor, wall or edge piece)
    }
 
    private static final Ctx CTX = new Ctx();
 
    /** A room square's objects, mirrored. */
    private static void square(Ctx k, IsoGridSquare sq, IsoObject mirror) {
-      ColorInfo light = sq.getLightInfo(k.playerIndex);
+      ColorInfo light = lightOf(sq, k.playerIndex);
       if (light == null) {
-         light = WHITE;
+         return; // never seen: the game draws it black, the mirror shows none of it
       }
       // the plane's image of this square: its north corner (continuous: the plane stands off the wall)
       float mx = k.axis == 1 ? 2F * k.c - sq.x - 1F : sq.x, my = k.axis == 0 ? 2F * k.c - sq.y - 1F : sq.y;
@@ -215,6 +312,7 @@ final class MirrorGeometry {
             add(k, s, depthOf(s, k.axis == 1 ? TileDepthMapManager.TileDepthPreset.NWall : TileDepthMapManager.TileDepthPreset.WWall), mx, my, ryo, false, light, Float.NaN);
             continue;
          }
+         k.furniture = true;
          if (t != null) {
             turned++;
             add(k, t, depthOf(t, null), mx, my, ryo, true, light, Float.NaN);
@@ -227,6 +325,7 @@ final class MirrorGeometry {
             }
             add(k, s, depthOf(s, null), mx, my, ryo, false, light, Float.NaN);
          }
+         k.furniture = false;
       }
    }
 
@@ -289,9 +388,9 @@ final class MirrorGeometry {
             }
             float dist = p + 1 - k.c;
             if (kind == 1 && dist > 0F && dist <= dmax + 1F) {
-               ColorInfo light = sq.getLightInfo(k.playerIndex);
+               ColorInfo light = lightOf(sq, k.playerIndex);
                if (light == null) {
-                  light = WHITE;
+                  break; // never seen: drawn black by the game
                }
                float wx = k.axis == 1 ? 2F * k.c - (p + 1) : l, wy = k.axis == 0 ? 2F * k.c - (p + 1) : l;
                add(k, paint, null, wx, wy, paintObj.getRenderYOffset(), false, light, dist);
@@ -308,9 +407,9 @@ final class MirrorGeometry {
             if (kind == 2 && dist > 0F && dist <= dmax + 1F) {
                // a door frame / window in the far wall: its own frame, a closed door and a window as they are (both
                // sides of a door look alike; the window's glass texels are translucent and leave the march its view)
-               ColorInfo light = sq.getLightInfo(k.playerIndex);
+               ColorInfo light = lightOf(sq, k.playerIndex);
                if (light == null) {
-                  light = WHITE;
+                  break; // never seen: drawn black by the game
                }
                float wx = k.axis == 1 ? 2F * k.c - (p + 1) : l, wy = k.axis == 0 ? 2F * k.c - (p + 1) : l;
                boolean framed = false;
@@ -534,7 +633,7 @@ final class MirrorGeometry {
       d[o + 24] = light.r;
       d[o + 25] = light.g;
       d[o + 26] = light.b;
-      d[o + 27] = 0F;
+      d[o + 27] = k.furniture ? 1F : 0F; // furniture: its texels carry the code's odd bit (Mirrors.withGeom / losGeom)
       d[o + 28] = tl.x;
       d[o + 29] = tl.y;
       d[o + 30] = tl.x + tl.w;
@@ -748,10 +847,12 @@ final class MirrorGeometry {
          "   if (t < 0.0 || t > params.x) discard;", // behind the glass, or past the longest ray
          "   gl_FragDepth = t / params.x;",
          "   vec3 col = c.rgb / max(c.a, 0.001) * li.rgb;", // (the game's textures are premultiplied)
-         "   fragColor = vec4(col, floor(clamp(t / params.x, 0.0, 0.99) * 126.0 + 0.5) * 2.0 / 255.0);", // the static atlas' code: distance, no stand-in bit
+         // the static atlas' code: distance; the odd bit (a stand-in in the march's codes) marks furniture here, cleared by
+         // Mirrors.withGeom before the code reaches the atlas
+         "   fragColor = vec4(col, (floor(clamp(t / params.x, 0.0, 0.99) * 126.0 + 0.5) * 2.0 + (li.w > 0.5 ? 1.0 : 0.0)) / 255.0);",
          "}");
 
    static String stats() {
-      return "room geometry: " + panes + " pane marches with geometry, " + instances + " tiles drawn (" + turned + " turned, " + turnMisses + " without their turned facing)" + (broken ? ", broken" : "");
+      return "room geometry: " + panes + " pane marches with geometry, " + instances + " tiles drawn (" + turned + " turned, " + turnMisses + " without their turned facing), " + unseenSquares + " unseen squares left out" + (broken ? ", broken" : "");
    }
 }

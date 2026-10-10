@@ -3244,6 +3244,17 @@ it later gets the stock build. Flip (flip-lazymenu-*): main menu build 654 -> 41
 same key bindings with the screen deferred, and opening it builds the 119 stock options (28 ms) then the Optimizations
 tab on activation. `--prop lazyOptionsScreen=false` restores the eager build.
 
+Fixed 2026-10-06: the deferred path's `keysB42.ini` rewrite wiped every key binding. Stock writes the file from
+`MainOptions.keyText`, which only `addKeybindingPanel` fills, so on the unbuilt screen the list was empty (at boot) or
+left from another screen (in game), and the file kept only its `VERSION=2` line: the next load had every binding at its
+default. `loadKeys` asks for the rewrite on the first launch with a new `options.ini` (`updateSneakButton`) and while Toggle
+Health Panel and Vehicle Horn share a key. The deferred path now builds the same entries from `MainOptions.keys` (the rows
+`loadKeys` just read; `addKeybindingPanel` makes one `keyText` entry per row, and the mod bindings it adds are the ones
+stock skips) and writes them through stock's `MainOptions.writeKey`. Rig `harness/.../pzopt_harness_keybind.lua` with
+`--option updateSneakButton=true` and `Map=key:66` seeded: before, 1 line left and Map back on M (`keywipe-before`); after,
+96 lines / 84 bindings and Map on F8 (`keywipe-after`), byte-identical to the file stock's eager build writes
+(`keywipe-stockref`, `--prop lazyOptionsScreen=false`).
+
 Dropped (2026-09-23): building the main menu's other screens (server settings, sandbox options, character creation,
 multiplayer, credits, spawn select) on first use. A `lua_wrap` profile had put them at ~600 ms, but that rig's per-call
 overhead inflated them; without it the whole main menu builds in 378 ms eager vs 348 ms lazy on the flip
@@ -6034,6 +6045,62 @@ test that returns at once.
 - `sunShadowLampMeshNearPct` / `FarPct` (100 / 300): a character's lamp-view shadow (torch / headlight) fades into the
   capsules' soft shadow from 1 to 3 squares from the caster; a low headlight's leg shadows no longer run as thin torn strands.
 
+## pzopt.BakeScheduler (2026-10-01): chunk reuse off the game thread
+
+`BakeScheduler.chunkReused` is called from `IsoChunk.resetForStore`, which the world streamer and reuser threads run
+(`WorldReuserThread`, `WorldStreamer`, `WorldGenerate`) when a chunk object is handed to another position. It removed the
+chunk from the scheduler's `dirtySince` / `arrivalGrant` `IdentityHashMap`s while the game thread's `begin` pruned them
+(`removeIf` every 256 frames) or `offer` wrote them: the maintainer's 2026-10-01 console had three
+`java.util.ConcurrentModificationException` out of `FBORenderCell.pzoptRenderInternal` (frames 262912, 311808, 318464),
+each one frame with no world composite (`docs/findings-burn-in-ghost-2026-10-01.md`; the ghost image of that report is
+not this). The reuse now goes into a `ConcurrentLinkedQueue` and `begin` removes the queued chunks from every player's
+maps on the game thread before the prune.
+
+## zombie.iso.fboRenderChunk.FBORenderCell (edit of 2026-10-01, held cutaway levels keep their square flags fresh)
+
+Walking into a building (the Riverside fire department garage from the street, runs `ghost-south-*`) showed, for 2-3
+frames at 60 fps, fragments of the roof still drawn over the garage next to chunk-shaped black holes in the floor; the
+stock control (`enabled=false`, run `ghost-south-stock`) switches in one frame. The per-frame bake census
+(`--prop instrument=true`, run `ghost-south-census`) had the building's cutaway / collapse re-bakes (flags 2048 / 16384)
+spread by the bake scheduler over eight game frames, and in the last three of them five garage chunk levels re-created
+"without prior dirt" (`BakeLog.hidden`): a held level kept the square flags of its last preparation (the comment in
+`prepareChunksForUpdating`: they match the texture on screen), so the occlusion grid went on counting the neighbours'
+roof squares as cover over the garage floor, the garage level already prepared counted 0 rendered squares, took the
+occlusion return (`clearDirty` + `freeFBOsForLevel`) and came back a few frames later as a creation, black until granted.
+
+Edit (`// pzopt` lines): `prepareChunksForUpdating` prepares a held level anyway when its dirt includes 2048 or 16384
+(flags only; the bake still waits for its grant), and `pzoptOcclusionGridChanged` no longer skips such a level under
+`occlusionGrantedOnly`, so the grid is rebuilt from flags of one state. Hidden levels above cull at once (their count is
+0), the floor below keeps its texture. Run `ghost-south-fix2`: census shows no hidden re-creations after the settle, the
+recording switches roof -> garage in one frame (12 fps crop), the flash counter's worst cell 708 px vs 930-1,016 px in
+five cells before.
+
+Found on the way and not ours: the façade wall lamp standing in the middle of the garage for ~1 s after the entry,
+fading. Stock does the same (the cut-away object's alpha fades at `IsoObject.updateAlpha`'s rate, `alphaStep / 14`
+per frame on game time, ~1 s at any frame rate); while the game is paused the fade stands still.
+
+## Reflections: the moving-object scatter marks its pixels (2026-10-01, pzopt.Ssr, `devSsrNoStencil`)
+
+Report (maintainer, 2026-10-01): puddle reflections flicker where broken glass lies in the puddle, while the character
+walks and when the glass is next to a window. Code reading: the moving-object box pass (`Ssr.Moving`, run after the water
+for the next frame's epoch) scattered **every** pixel of the object's screen box whose world depth fell into the object's
+own band, not only the object's: a broken-glass decal at the character's feet (a `MinusFloor` sprite without
+`solidfloor`, baked with standing depth) and the wall or window right behind the character are in that band too, and
+their copy written at this frame's camera position for the next frame sat beside the composite's fresh key of the same
+surface once the camera had moved (same epoch, `atomicMax` per texel): a per-frame alternation between two copies of
+the shards' reflection. Now the models' pixels carry a stencil mark and the pass draws with `glStencilFunc(GL_NOTEQUAL,
+0, 0x7F)`, so only what the moving objects drew is scattered; static sources stay the composite's alone.
+
+Rig and what the captures showed: `harness/CLAUDE.md` (`glass=` flags, `glass-flicker.py`), runs `glass-*`. The
+teleport walk's one-frame redraws of the interior behind a smashed window happen in stock too (whole-tile teleports);
+the puddle itself did not flicker with the camera still. The real-walk A/B of the fix: runs `glass-circ-*`.
+
+### zombie.core.textures.TextureDraw
+- The DrawModel case (render thread), where the upscaler's motion id selects `ObjectMotion.beginStencil`: with no motion id
+  and `Ssr.stencilMoving()` true (reflections on, pixel-projected, the moving pass not skipped, the world framebuffer bound)
+  the draw is wrapped the same way with `ObjectMotion.MOVING_ID` (126; the motion ids now stop at 125). Nothing else changes.
+  Atlas (far) zombies are drawn as sprite quads, carry no mark and are therefore no longer reflected by the moving pass.
+
 ## Key binding label: the overlay binding's text (2026-10-05, Discord bug report; PerformanceSettings)
 
 ### zombie.core.PerformanceSettings
@@ -6068,6 +6135,31 @@ Rig: `--source-save Sandbox/2026-09-26_03-37-09 --flag zombies=off --flag route=
 --shot-at 3`, crops of `shot-desktop.png`; `--prop devPplDumpAt=8` (the square dump now lists object alphas and `pcf=`).
 Left: the porch gutter's top reads darker than stock with the player's settings (pixelLight, aoEdgeShade and the HDR /
 grading tone each add to it; defaults match stock).
+
+## Egg-crate tent roofs with AO + sun shadows (`aoRoofSkip` follow-up, 2026-10-07; `pzopt.ChunkAo`)
+
+Discord 2026-10-06 (tegustopesca): the Louisville checkpoint's military tents (~12460-12500 x 4210-4250) had a quilted,
+egg-crate roof with Ambient Occlusion + Sun Shadows on; vanilla, AO off, AO alone and sun shadows alone are flat. Two causes:
+- **`aoRoofSkip` never ran with sun shadows on.** The kernel has two programs (with / without the sun code); the sun one's
+  uniform locations are looked up one by one and stopped at `plantPar`, so `uAo[23]` (`roofLv`) stayed 0 and the roof squares
+  went to location 0: every roof kept its staircase AO while the sun was up (the 2026-10-05 fix was checked with AO alone).
+  Found by dumping the tent chunk's compute: 55k texels on marked roof squares, the shader saw none.
+- **The tents' roof tiles are not roofs to the test.** `location_military_tent_01` (also `location_trailer_01/02`,
+  `industry_bunker_01`, `location_community_church_small_01`) types its roof tiles WestRoofB / M / T without a RoofGroup or a
+  `roofs_` name. `roofSprite` takes those tile types too, minus movables (`walls_decoration_01` wall objects carry WestRoofT).
+Rig: `--mode bench --launcher direct --vmarg -Dpzopt.userOptionsFile=<empty> --flag start=12488,4230 --flag zombies=off
+--flag route=S:1 --flag speed=0.1 --shot-at 4 --flag time_of_day=15 --prop ambientOcclusion=true --prop sunShadows=true
+--prop cloudShadows=false`, base `--prop aoRoofSkip=false`, reference `--prop ambientOcclusion=false`;
+`harness/tiledepth/region-judge.py` over three roof boxes + grass / wall controls: Jev fixed_by_change 0.99 (roofs 25-98 % of
+pixels 25+ darker than the reference before, 0.5-1.2 % after; controls moved ~4 levels). Ordinary roofs now lose their AO with
+the sun up as intended. Steam-launched runs that day showed the egg-crate even with `enabled=false` (not explained): compare
+against a direct launch or a vanilla install.
+God rays (`pzopt.GodRays`) had the same blind spot: its occupancy volume's `B_ROOF` (a sun ray inside a roof's slope stops)
+and the roof rule's `covers` knew only RoofGroup / `roofs_`, so the morning sun passed through the tents' roofs into the haze.
+Both now take `ChunkAo.roofSprite` / `ownSheetRoof`. Occupancy at the checkpoint: 20 -> 1,484 roof cells, none removed;
+09:00 with `--prop godRays=true` (runs `gi9-before` = the AO fix alone, `gi9-after`): the haze on a tent's sun-away side
+7.9 levels darker, controls 0.4-1.6; Jev fixed 0.85 (`tents_now_block_sun` 0.93). 15:00: 0.1 % of the frame moved.
+Video: `harness/stitch-tent-roofs.sh` -> `docs/media/tent-roofs-ao-before-vs-fix.mp4` (walk, roof close-up, god rays).
 
 ## Louisville 120 fps pass (2026-10-05; branch `lou120`, docs/findings-louisville-120-2026-10-05.md)
 
@@ -6131,15 +6223,12 @@ the maintainer's decision). With every key off the edited methods run the stock 
   model and every clothing model) stop after that much time; the rest stay flat sprites for the frame (their model slot goes
   to the next zombie in score order). Section timers `sceneCull`, `atlases`, `cellRender`.
 
-- 2026-10-06 scene-cull census: `sceneCullZombies` records `cull_classify`, `cull_sort` and `cull_commit`
-  under `devGtAlternate`.
-- `sceneCullParallel` (experimental, default off): the visibility / with-model classification is copied to
+- Fork experiment `sceneCullParallel` (default off): the visibility / with-model classification is copied to
   `pzopt.SceneCullBatch` and run on the shared `FrameBatch` workers. The game thread still builds both zombie lists in
   the original order, runs the existing relevance sort, and performs every model / `sceneCulled` / blending mutation.
   Zombies in `ClimbThroughWindowState` stay serial because `couldSeeHeadSquare` can read animation bones.
-  `devSceneCullCheck` recomputes every worker answer through the same stock-expression copy on the game thread; a
-  disagreement uses the serial answer and disables the batch for subsequent frames. With the key off the original
-  classification body remains in place.
+  `devSceneCullCheck` recomputes every worker answer on the game thread; a disagreement uses the serial answer and
+  disables the batch for subsequent frames. The experiment is maintained only in the MallarDev fork.
 
 ### zombie.iso.worldgen.WorldGenUtils (new override)
 - `worldgenPatternCache`: `canPlace` keeps each placement glob's compiled `Pattern` (same rewrite as stock) instead of
@@ -6339,3 +6428,105 @@ the render thread) it uses the stock static, so with the key off nothing changes
   game thread may refresh a square a worker refreshes). `LightingDefer.applyOne` runs one unit's lazy-lighting effects at
   its splice. `FrameBatch.Worker.drawRecorder`. New classes `pzopt.DrawRecorder`, `pzopt.TileRecord`,
   `pzopt.RenderScratch`.
+
+### zombie.gameStates.MainScreenState (third edit, `-cachedir=`) and `pzopt.UserOptions`
+
+A player reported (2026-10-06) that with Steam's `-cachedir=E:/Zomboid` the game used `E:\Zomboid` while pzopt's tab
+settings, the export and the mod-compat files stayed in `C:\Users\<user>\Zomboid\pzopt\`. `Config` reads `options.ini`
+in this class's static initializer (the marker initializes `Overrides`, whose master switch reads `Config.ENABLED`),
+before `main` has parsed `-cachedir=`, and `UserOptions.zomboidDir()` only copied the default rule. It now takes the last
+`-cachedir=` from the process's own command line (`ProcessHandle` arguments on Linux / macOS; on Windows kernel32
+`GetCommandLineW` through FFM, split by the C runtime's quoting rules), else the default rule. `main` calls
+`UserOptions.checkCacheDir` right after the console redirect: one `user folder <dir>` line, or a warning when the game's
+folder and pzopt's differ (a launcher whose arguments the process does not show). `ModCompat` and `GcChoice` read the
+mod lists through the same folder. Unit test `CacheDirArgTest`; harness `run-mac.sh --game-arg`.
+
+### zombie.gameStates.MainScreenState (fourth edit, boot repair) and `pzopt.BootRepair`
+
+Workshop comments (2026-10-07, `docs/findings-uninstall-2026-10-07.md`): after the game updated to 42.21 the installed
+42.20 build crashed at start (`NoSuchMethodError` on `ZomboidFileSystem.getModIDs()` in `GameWindow`), so the in-game
+Uninstall was out of reach, and Steam's file verification never removes the loose classes. The first statement of
+`main` after the run-once check is now `pzopt.BootRepair.run(args)`: on a build mismatch it removes the installed files
+(or replaces them with the Steam Workshop copy for the running revision when its stock-class hashes match the jar), or
+finishes an in-game uninstall whose helper left its list, then starts the game again through `Restart` and `main` ends
+with `System.exit(0)`. Developer installs (`scripts/pzopt.sh` manifest) are left alone on a mismatch;
+`-Dpzopt.bootRepair=false` turns it off. Nothing of the game has run at that point; the classes the repair needs from
+the old install load before the first file changes. Unit test `BootRepairTest`.
+
+### Entity shadows (`pzopt.EntityShadow`, 2026-10-07): Model, ModelInstance, ShaderUnit, FBORenderCell, IsoZombie, GodRays
+
+The player, zombies, animals and cars take the static world's sun shadow part by part (`entityShadows`, with `sunShadows`;
+`docs/findings-entity-shadows-2026-10-07.md`).
+- `ShaderUnit.compile`: `EntityShadow.patchShader` innermost in the patch chain (basicEffect, animalEffect, vehicle*,
+  vehiclewheel*; not the car glass copies, wireframe or instanced units): the vertex unit writes the world position (the clip
+  position through one clip-to-world matrix a frame) and normal and the probe brick's cell; the fragment unit becomes `#version
+  430 compatibility` (420 with bindless, 330 + 420pack without GL 4.3) and multiplies the ambient by the shade factor. A
+  fragment unit is patched only beside a patched vertex unit of its program; both are test-compiled. `EntityShadow.devFinal`
+  (dev) records the final sources.
+- `Model.DrawSolid` / `DrawVehicle`: `EntityShadow.bind` after the stock uniforms (the draw's method, probe brick, moving
+  casters' capsules: one uniform array), `EntityShadow.unbind` after the mesh draw (a draw of the same program on another path
+  never inherits a character's shade).
+- `ModelInstance.updateLights`: the CPU sun factor in a character's ambient is skipped while the model draws shade per pixel.
+- `FBORenderCell.pzoptRenderInternal`: `EntityShadow.frameStart` (the frame's light, the probe bricks and their compute, first in
+  the frame); the moving objects' GPU section tagged per dev variant; the chunk-changed hook also when entity shadows want the
+  occupancy; `devStats` around `renderMovingObjects` (dev pipeline statistics).
+- `IsoZombie.renderAtlasTexture`: an atlas zombie's light colour times `EntityShadow.impostorFactor` (the CPU march).
+- `IsoMovingObject`: field `pzoptEsDrawn` (no initializer, the constructors stay stock): the gather frame the object was last
+  drawn as a model; `bind` queues each such object once a frame, the gather (on a worker from `frameStart`, joined by
+  `EntityShadow.beforeMoving` before the moving objects draw) builds bricks for those alone.
+- `CapsuleShadow.receiverTile` / `ShadowAtlas.compareHandle` (pzopt): an entity's sun tile as the atlas holds it while the
+  models draw (last frame's pose) and the atlas's bindless handle, for the self-shadow lookup.
+- `pzopt.GodRays`: the occupancy grid is kept in an occupancy-only frame when god rays are off and entity shadows want it; its
+  uploads happen first in `Gl.frame` whatever the frame does next (a frame without light used to drop them); `Gl.occZ0Now` /
+  `occMaxTop` publish the uploaded grid.
+
+### Cloud shadow grid lines (2026-10-08, maintainer report on the flip, Riverside Spiffo's lot): pzopt.ChunkAo
+
+Light dashed lines along every chunk border where a cloud shadow lay on the ground. The composite reads the direct-sun
+share from level 1 of the kept term (`cloudTermMips`, `cloudTermLod` 1), built by `glGenerateMipmap`. Empty texels past the
+first ring round the drawn ones held share 0, so the level's border texels averaged it in and the cloud darkened a dashed line
+along each chunk's diamond border less (share view `devCloudView=2`: the lines; gone with `cloudTermMips=false`). The kernel's
+last pass (`BLUR_FRAG`) now gives empty texels the share of the nearest ring of drawn texels out to `FILL_R` = 2^(lod+1) - 1
+(3 at lod 1; 7 for the stock 1.20 composite's bias read); their R (AO x sun) stays 1 as before, the first ring is unchanged.
+Left open: on the flip with `spriteFilter=sharp` single seam pixels (every other pixel along a chunk border) take a few
+percent less cloud (gone with `spriteFilter=off`); keeping the DEPTH texture's own nearest filter in the composite did not
+change them.
+
+### Reflective props (2026-10-08, `mirrorsProps`, docs/findings-prop-reflections-2026-10-08.md): FBORenderCell
+
+- `FBORenderCell.pzoptPerFrameTranslucentTile` already draws `Mirrors.perFrame` sprites per frame; that test now also takes
+  the reflective props (`Props.perFrame`: 434 sprites with glass, a screen, steel or ceramic), so they leave the chunk
+  textures while mirrors are on and their quads are captured as they draw.
+- `FBORenderCell.renderTranslucent` (the capture wrapper): an opaque reflective prop (a screen, steel, ceramic, opaque glass:
+  `Props.writesDepth`) is drawn with depth writes on, as its baked self wrote depth in the chunk texture; the translucent
+  pass writes none, and the reflection of a glass table behind a television was composited over the television
+  (`mirrorsPropDepth=false`: off).
+
+### The 300 fps loop (2026-10-09, docs/findings-frame-spikes-2026-10-09.md §6-7): SpriteRenderer (new), TextureDraw, IsoSprite, ShaderUnit, TextureID, ChunkRenderShader, LightingJNI, FBORenderCell, NoLoadingScreen hooks
+
+- `SpriteRenderer` (new override, Vineflower; `StateRun.render`'s profile probe written back as the jar's try-with-resources,
+  a decompiler fix): `RingBuffer.add` writes a draw's tile depth pair (`TextureDraw.pzoptVD`, front and far) into the third
+  texture coordinate slot (vertex attribute 4) when the draw has no third texture, where stock wrote zeros
+  (`tileVertexDepth`); `drawElements` counts its draw calls for the instrumented log.
+- `TextureDraw`: fields `pzoptVD` / `pzoptVDStart` / `pzoptVDFront` / `pzoptVDFar` (copied by `pzoptCopyFrom`); both base
+  `Create`s stamp the draw through `pzopt.TileBatch.stamp`; the `StartShader` setters clear the start flag; the render
+  thread's StartShader case calls `TileBatch.onStart` (the program's `pzoptVD` uniform 1 for a merged start, 0 for any other)
+  and remaps the chunk composite through `PixelLight.remap` before the bind (`pplRemap`: pixelLight's variant for that chunk
+  texture bound in place of the full program, one `glUseProgram` a chunk draw); the mirrors' quad capture never runs on a
+  recording thread (`tileRecordVisuals`).
+- `IsoSprite.startTileDepthShader` / `startTileDepthShader2`: the tile-depth start goes through `TileBatch.start` (the depth
+  pair instead of four uniforms; no new start while the previous draw is a merged draw of the same program); the stock
+  uniform start otherwise (swaying plants, unpatched programs).
+- `ShaderUnit`: `TileBatch.patchShader` innermost (tileWithDepth / opaqueWithDepth: the vertex unit reads the pair while
+  `pzoptVD` is 1, the fragment unit takes its blend depths from a varying).
+- `TextureID.assignFilteringFlags`: the min / mag filters the stock sequence leaves are sent only when they differ from the
+  last ones sent to that GL name (`texParamCache`; the offscreen buffer always sent; a new name resets the cache).
+- `ChunkRenderShader.startRenderThread`: `devCompositeTiming` stamps (dev).
+- `LightingJNI` (pixelLight's visibility branch): `PixelLight.visRebake` gate (`pplVisRebakeFilter`, off: wrong, the bake
+  also takes the squares' fog-of-war fade).
+- `FBORenderCell.renderTranslucent`: the mirrors' capture only off recording threads (`tileRecordVisuals`, off).
+- pzopt only: `CutawayMask` decodes on a worker at the main menu; `ModelShaders.warmup` (model shaders during the world
+  load), `Sway.warmTwin`, `GodRays.Gl.warm`, `BloodWet.Gpu.warm` (`shaderWarmup`); `Sway.patchShader` without its test
+  compile / link; `ChunkAo.packFar` (the far field interleaved on the game thread, one bulk upload);
+  `CapsuleShadow.sunTile` skips a vehicle whose pose and sun step are unchanged since its atlas tile was drawn
+  (`sunShadowStaticVehicles`).

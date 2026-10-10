@@ -315,6 +315,7 @@ public final class Model extends Asset {
             effect.Start();
             effect.startCharacter(slotData, instData);
             effect.setScale(slotData.finalScale);
+            pzopt.EntityShadow.bind(effect, slotData, instData); // pzopt: entity shadows, the draw's shade uniforms
          }
 
          if (!DebugOptions.instance.debugDrawSkipDrawNonSkinnedModel.getValue()) {
@@ -324,6 +325,7 @@ public final class Model extends Asset {
                if (!pzopt.OccludedOutline.drawMesh(this.mesh, effect)) { // pzopt: occluded outlines, a character's stencil codes (its stock draw plus the hidden part)
                   this.mesh.Draw(effect);
                } // pzopt
+               pzopt.EntityShadow.unbind(effect); // pzopt: entity shadows, the program's shade back to none
             } catch (Throwable var9) {
                if (mvp != null) {
                   try {
@@ -640,8 +642,10 @@ public final class Model extends Asset {
                effect.setTint(tintR, tintG, tintB);
                float targetDepth = PerformanceSettings.fboRenderChunk ? instData.modelInstance.targetDepth : 0.5F;
                effect.setTargetDepth(targetDepth);
+               pzopt.EntityShadow.bind(effect, slotData, instData); // pzopt: entity shadows, the draw's shade uniforms
                boolean pzoptGlint = pzopt.HdrGlint.vehicleOn(effect.isVehicleShader()); // pzopt: HDR output, the car's speculars / lamps into the glint target
                this.mesh.Draw(effect);
+               pzopt.EntityShadow.unbind(effect); // pzopt: entity shadows, the program's shade back to none
                if (pzoptGlint) {
                   pzopt.HdrGlint.vehicleOff(); // pzopt: HDR output
                }

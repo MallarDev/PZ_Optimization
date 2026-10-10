@@ -24,7 +24,8 @@ import zombie.vehicles.BaseVehicle;
  *
  * Keys it uses:
  *   mode     bench|parity|drive  drive the legacy route or validate and run a vehicle route; anything else: inactive
- *   route    legs      e.g. "E:600,S:600,W:600,N:600" — direction and length in tiles (drive: total distance; first leg = spawn heading)
+ *   route    legs      e.g. "E:600,S:600,W:600,N:600" — direction and length in tiles (drive: total distance; first leg = spawn heading);
+ *                      NE / NW / SE / SW legs run the diagonal (length along it)
  *   vehicle  script    drive mode: vehicle spawned on the nearest road when the player is on foot (default the race car; "none" = fixture required)
  *   kmh      km/h      drive mode: cruise-control speed (default 60); the route follows the road (roadFollow)
  *   path     x,y/x,y/… drive mode: drive this centreline instead (DrivePath, corners rounded to corner_radius, 10): the
@@ -71,6 +72,7 @@ import zombie.vehicles.BaseVehicle;
  *                      attached and overlay sprites (gas canopy lights, 2026-09-28)
  *   upstairs Z         dev: at route start move the player to the nearest loaded indoor square at level Z (issue #12)
  *   upstairs_at S      dev: with upstairs, make that move S seconds into the route instead (a Stats mark "upstairs")
+ *   pause_at S         dev: pause the game (speed 0, as the player's pause) S seconds into the route; the route stops too
  *   close_curtains true dev: at route start close every open curtain in that range through IsoCurtain.ToggleDoor
  *                      (map curtains always load open; the bench save is a copy, nothing persists)
  *   route_start_epoch  unix seconds: do not start the route before this instant (puts the route on the
@@ -198,6 +200,7 @@ public final class Harness {
    private static float x, y;
    private static int routeZ; // the level the bench route walks on (upstairs=Z moves it)
    private static float upstairsAt; // upstairs_at: seconds into the route of the level change (0 = at route start)
+   private static float pauseAt; // pause_at: seconds into the route at which the game is paused (UIManager speed 0), 0 = never
    private static float startX, startY;
    private static int chunksAtStart;
    private static long runStartNs;
@@ -668,8 +671,29 @@ public final class Harness {
                if (!HarnessFlags.get("place_tile", "").isBlank()) {
                   placeTiles(HarnessFlags.get("place_tile", "")); // dev: tiles added to the bench save copy (glassTilesPerFrame rig)
                }
+               if (!HarnessFlags.get("mirror_corners", "").isBlank()) {
+                  float[] spot = mirrorCorners(HarnessFlags.get("mirror_corners", "")); // dev: a wall mirror in each corner of one room, the player in its middle
+                  if (spot != null) {
+                     x = spot[0];
+                     y = spot[1];
+                     routeZ = (int)spot[2];
+                     if (!"false".equals(HarnessFlags.get("mirror_corners_teleport", "true"))) {
+                        p.teleportTo(x, y, routeZ); // explore=mirror never teleports: the walk starts in the room (false: walks there)
+                     }
+                  }
+               }
                if ("mirror".equals(HarnessFlags.get("find", "")) || "window".equals(HarnessFlags.get("find", ""))) {
                   float[] spot = findMirror(p, "window".equals(HarnessFlags.get("find", ""))); // dev: mirrors (after place_tile: a placed mirror can be the target), the player in front of the nearest wall mirror, facing it
+                  if (spot != null) {
+                     x = spot[0];
+                     y = spot[1];
+                     routeZ = (int)spot[2];
+                     faceSet = true;
+                     turnAngle = spot[3];
+                  }
+               }
+               if ("props".equals(HarnessFlags.get("find", ""))) {
+                  float[] spot = findProps(p); // dev: prop reflections, the route starts beside the densest cluster of reflective props
                   if (spot != null) {
                      x = spot[0];
                      y = spot[1];
@@ -686,6 +710,7 @@ public final class Harness {
                }
                int upstairs = Integer.parseInt(HarnessFlags.get("upstairs", "0").trim());
                upstairsAt = Float.parseFloat(HarnessFlags.get("upstairs_at", "0").trim());
+               pauseAt = Float.parseFloat(HarnessFlags.get("pause_at", "0").trim()); // pause_at=S: the game's own pause (speed 0) S seconds into the route
                if (upstairs > 0 && upstairsAt <= 0f) {
                   goUpstairs(p, upstairs); // dev: upper-floor rig (issue #12, FSR black squares upstairs)
                }
@@ -772,6 +797,12 @@ public final class Harness {
             if (Explore.done() || TreeWalk.done() || LightWalk.done() || RoomLightRig.done()) {
                finish(p, 0); // explore=restaurant: every room visited (or the director said done)
                return;
+            }
+            if (pauseAt > 0f && (nowNs - runStartNs) / 1e9 >= pauseAt) {
+               pauseAt = 0f; // once: the game paused as a player would (pause_at rig, the 2026-10-01 burn-in report was taken paused)
+               Stats.mark("pause");
+               Log.info(String.format(java.util.Locale.ROOT, "harness: paused at t=%.1fs", (nowNs - runStartNs) / 1e9));
+               zombie.ui.UIManager.getSpeedControls().SetCurrentGameSpeed(0);
             }
             if (upstairsAt > 0f && (nowNs - runStartNs) / 1e9 >= upstairsAt) {
                upstairsAt = 0f; // once: the level change mid-route (upstairs_at, issue #12 transition)
@@ -951,6 +982,11 @@ public final class Harness {
             case "W" -> legs.add(new float[]{-1, 0, len});
             case "N" -> legs.add(new float[]{0, -1, len});
             case "S" -> legs.add(new float[]{0, 1, len});
+            // diagonal legs (2026-10-01, the tree-stripes forest run): unit vector, len tiles along the diagonal
+            case "NE" -> legs.add(new float[]{0.70710677f, -0.70710677f, len});
+            case "NW" -> legs.add(new float[]{-0.70710677f, -0.70710677f, len});
+            case "SE" -> legs.add(new float[]{0.70710677f, 0.70710677f, len});
+            case "SW" -> legs.add(new float[]{-0.70710677f, 0.70710677f, len});
             default -> Log.warn("harness: unknown route direction " + kv[0]);
          }
       }
@@ -1933,6 +1969,74 @@ public final class Harness {
     * F squares further along the wall. Every candidate is logged. find=window: the same in front of an intact window
     * (find_side=out, the default: standing outdoors; in: in its room).
     */
+   /**
+    * find=props (2026-10-08, prop reflections): the clusters of reflective props (pzopt.Props: glass counters and doors,
+    * fridges, screens, steel kitchens, toilets) within 80 tiles, densest first (props within 3 squares on the same level;
+    * clusters at least 10 squares apart); the route starts on a free square 2-4 squares south-east of the find_rank-th
+    * (default 1), facing north-west, so the props' south / east faces and tops are seen.
+    */
+   private static float[] findProps(IsoPlayer p) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      int px = p.getXi(), py = p.getYi();
+      java.util.ArrayList<int[]> sq = new java.util.ArrayList<>(); // x, y, z, class bits
+      for (int z = 0; z <= 2; z++) {
+         for (int y = py - 80; y <= py + 80; y++) {
+            for (int x = px - 80; x <= px + 80; x++) {
+               zombie.iso.IsoGridSquare g = cell.getGridSquare(x, y, z);
+               if (g == null) continue;
+               int bits = 0;
+               for (int i = 0; i < g.getObjects().size(); i++) {
+                  float[] info = Props.info(g.getObjects().get(i).getSprite());
+                  if (info != null) bits |= 1 << (int)info[0];
+               }
+               if (bits != 0) sq.add(new int[]{x, y, z, bits});
+            }
+         }
+      }
+      // density: props within 3 squares on the same level
+      int n = sq.size();
+      int[] dens = new int[n];
+      for (int i = 0; i < n; i++) {
+         for (int j = 0; j < n; j++) {
+            int[] a = sq.get(i), b = sq.get(j);
+            if (a[2] == b[2] && Math.abs(a[0] - b[0]) <= 3 && Math.abs(a[1] - b[1]) <= 3) dens[i]++;
+         }
+      }
+      Integer[] order = new Integer[n];
+      for (int i = 0; i < n; i++) order[i] = i;
+      java.util.Arrays.sort(order, (a, b) -> dens[b] - dens[a]);
+      int rank = Integer.parseInt(HarnessFlags.get("find_rank", "1").trim());
+      java.util.ArrayList<int[]> picks = new java.util.ArrayList<>();
+      for (int k = 0; k < n && picks.size() < Math.max(rank, 8); k++) {
+         int[] a = sq.get(order[k]);
+         boolean far = true;
+         for (int[] q : picks) far &= Math.abs(q[0] - a[0]) + Math.abs(q[1] - a[1]) >= 10 || q[2] != a[2];
+         if (!far) continue;
+         int bits = 0;
+         for (int[] b : sq) if (b[2] == a[2] && Math.abs(a[0] - b[0]) <= 3 && Math.abs(a[1] - b[1]) <= 3) bits |= b[3];
+         picks.add(new int[]{a[0], a[1], a[2], dens[order[k]], bits});
+         Log.info("harness: find=props: cluster " + picks.size() + " at " + a[0] + "," + a[1] + "," + a[2] + ": " + dens[order[k]] + " prop squares, classes"
+               + ((bits & 2) != 0 ? " glass" : "") + ((bits & 4) != 0 ? " screen" : "") + ((bits & 8) != 0 ? " mirror" : "") + ((bits & 16) != 0 ? " steel" : "") + ((bits & 32) != 0 ? " ceramic" : ""));
+      }
+      if (picks.size() < rank) {
+         Log.info("harness: find=props: " + picks.size() + " clusters within 80 tiles of " + px + "," + py + " (" + n + " prop squares)");
+         return null;
+      }
+      int[] c = picks.get(rank - 1);
+      for (int r = 2; r <= 5; r++) {
+         for (int dx = r; dx >= -1; dx--) {
+            int dy = r;
+            zombie.iso.IsoGridSquare stand = cell.getGridSquare(c[0] + dx, c[1] + dy, c[2]);
+            if (stand != null && stand.isFree(false)) {
+               Log.info(String.format(java.util.Locale.ROOT, "harness: find=props: standing at %d,%d,%d facing north-west", c[0] + dx, c[1] + dy, c[2]));
+               return new float[]{c[0] + dx + 0.5F, c[1] + dy + 0.5F, c[2], 225F};
+            }
+         }
+      }
+      Log.info("harness: find=props: no free square south-east of cluster " + rank);
+      return null;
+   }
+
    private static float[] findMirror(IsoPlayer p, boolean windows) {
       boolean outSide = !"in".equals(HarnessFlags.get("find_side", "out"));
       zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
@@ -1955,10 +2059,10 @@ public final class Harness {
                      if (!(o instanceof zombie.iso.objects.IsoWindow win) || win.isDestroyed() || win.isSmashed() || win.IsOpen()) continue;
                      info = new float[]{win.getNorth() ? 0F : 1F, 0F, 0F};
                   } else {
-                     info = Mirrors.mirrorInfo(o.getSprite());
+                     info = Mirrors.mirrorTileInfo(o.getSprite());
                      if (info == null) {
-                        zombie.iso.sprite.IsoSpriteInstance att = Mirrors.attachedMirror(o); // a wall mirror the map placed: an overlay of its wall
-                        info = att == null ? null : Mirrors.mirrorInfo(att.getParentSprite());
+                        zombie.iso.sprite.IsoSpriteInstance att = Mirrors.attachedMirrorTile(o); // a wall mirror the map placed: an overlay of its wall
+                        info = att == null ? null : Mirrors.mirrorTileInfo(att.getParentSprite());
                      }
                   }
                   if (info == null) continue;
@@ -2011,6 +2115,145 @@ public final class Harness {
          zombie.iso.sprite.IsoSprite s = o == null ? null : o.getSprite();
          Log.info("harness: place_tile: " + name + " at " + x + "," + y + "," + z + (s == null ? " (no sprite)" : " depthFlags " + s.depthFlags + (GlassTiles.isGlass(s) ? " glass" : "")));
       }
+   }
+
+   /**
+    * mirror_corners=x,y,z (2026-10-08, the maintainer: "test mirrors placed in the four corners of a room"): a wall mirror on
+    * each corner square of the room at x,y,z, in the order NW, NE, SW, SE, sprites from mirror_corner_sprites (default the
+    * Large mirror on the north wall at NW and NE, on the west wall at SW, on the east wall at SE: the camera sees the back of
+    * that one). A wall object of the same facing on the square is removed first. Returns the room's middle (the player's
+    * start) or null.
+    */
+   private static float[] mirrorCorners(String spec) {
+      zombie.iso.IsoCell cell = zombie.iso.IsoWorld.instance.currentCell;
+      zombie.iso.RoomDef room;
+      int rz;
+      if (spec.trim().startsWith("auto") || spec.trim().startsWith("pair")) {
+         room = cornerRoom(cell);
+         if (room == null) {
+            Log.info("harness: mirror_corners: auto found no room");
+            return null;
+         }
+         rz = room.getZ();
+         mirrorCornersRoom = room.getX() + "," + room.getY() + "," + rz;
+      } else {
+         String[] xyz = spec.trim().split(",");
+         int rx = Integer.parseInt(xyz[0].trim()), ry = Integer.parseInt(xyz[1].trim());
+         rz = xyz.length > 2 ? Integer.parseInt(xyz[2].trim()) : 0;
+         room = zombie.iso.IsoWorld.instance.getMetaGrid().getRoomAt(rx, ry, rz);
+         mirrorCornersRoom = rx + "," + ry + "," + rz;
+      }
+      if (room == null) {
+         Log.info("harness: mirror_corners: no room at " + mirrorCornersRoom);
+         return null;
+      }
+      int x0 = room.getX(), y0 = room.getY(), x1 = room.getX2() - 1, y1 = room.getY2() - 1;
+      String[] sprites = HarnessFlags.get("mirror_corner_sprites", "walls_decoration_01_5,walls_decoration_01_5,walls_decoration_01_4,walls_decoration_01_30").split(",");
+      int[][] corners = {{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}};
+      String[] names = {"NW", "NE", "SW", "SE"};
+      Log.info("harness: mirror_corners: room " + room.getName() + " " + x0 + "," + y0 + "-" + x1 + "," + y1 + "," + rz + " (" + room.getRects().size() + " rects)");
+      for (int i = 0; i < 4 && i < sprites.length; i++) {
+         int cx = corners[i][0], cy = corners[i][1];
+         zombie.iso.IsoGridSquare sq = cell.getGridSquare(cx, cy, rz);
+         if (sq == null) {
+            Log.info("harness: mirror_corners: " + names[i] + " no square at " + cx + "," + cy + "," + rz);
+            continue;
+         }
+         zombie.iso.sprite.IsoSprite spr = zombie.iso.sprite.IsoSpriteManager.instance.getSprite(sprites[i].trim());
+         String facing = spr == null || spr.getProperties() == null ? null : spr.getProperties().get("Facing");
+         // the wall the object hangs on (ISMoveableSpriteProps.getWallForFacing): S / E on this square's north / west wall,
+         // N / W on the north / west wall of the square south / east of it
+         zombie.iso.IsoGridSquare wsq = "N".equals(facing) ? cell.getGridSquare(cx, cy + 1, rz) : "W".equals(facing) ? cell.getGridSquare(cx + 1, cy, rz) : sq;
+         zombie.iso.IsoObject wall = wsq == null ? null : wsq.getWall("S".equals(facing) || "N".equals(facing));
+         for (int k = sq.getObjects().size() - 1; k >= 0; k--) {
+            zombie.iso.IsoObject o = sq.getObjects().get(k);
+            zombie.iso.sprite.IsoSprite sp = o.getSprite();
+            if (sp != null && sp.getProperties() != null && "WallObject".equals(sp.getProperties().get("MoveType")) && facing != null && facing.equals(sp.getProperties().get("Facing"))) {
+               Log.info("harness: mirror_corners: removed " + sp.getName() + " at " + cx + "," + cy + "," + rz);
+               sq.transmitRemoveItemFromSquare(o);
+            }
+         }
+         zombie.iso.IsoObject o = sq.addTileObject(sprites[i].trim());
+         Log.info("harness: mirror_corners: " + names[i] + " " + sprites[i].trim() + " facing " + facing + " at " + cx + "," + cy + "," + rz + (o == null ? " (not added)" : "")
+               + ", in room " + (zombie.iso.IsoWorld.instance.getMetaGrid().getRoomAt(cx, cy, rz) == room) + ", wall " + (wall == null ? "none" : wall.getSprite() == null ? "?" : wall.getSprite().getName())
+               + ", square " + spriteNames(sq));
+      }
+      if (mirrorVisit != null) {
+         Log.info(String.format(java.util.Locale.ROOT, "harness: mirror_corners: the walk starts at %.2f,%.2f,%.0f in the room south (%s) and comes back there between passes", mirrorVisit[0], mirrorVisit[1], mirrorVisit[2],
+               zombie.iso.IsoWorld.instance.getMetaGrid().getRoomAt((int)mirrorVisit[0], (int)mirrorVisit[1], (int)mirrorVisit[2]) == null ? "?" : zombie.iso.IsoWorld.instance.getMetaGrid().getRoomAt((int)mirrorVisit[0], (int)mirrorVisit[1], (int)mirrorVisit[2]).getName()));
+         return mirrorVisit.clone();
+      }
+      return new float[] {(x0 + x1 + 1) * 0.5F, (y0 + y1 + 1) * 0.5F, rz};
+   }
+
+   /** The room mirror_corners walks (x,y,z of a square in it), for MirrorWalk; null without the flag. */
+   static String mirrorCornersRoom;
+   /** mirror_corners=pair: the spot in the room south of it (x, y, z) the walk starts at and comes back to; else null. */
+   static float[] mirrorVisit;
+
+   /**
+    * mirror_corners=auto[:minW,minH]: the loaded one-rect room within 80 squares of the player, 4x4 squares or more
+    * (mirror_corners=auto:5,5 asks for larger), with a north wall at both north corners, a west wall at the south-west
+    * one and an east wall at the south-east one, whose floor is most free (furniture blocks the walk), larger rooms first
+    * at equal freedom. Every candidate is logged.
+    */
+   private static zombie.iso.RoomDef cornerRoom(zombie.iso.IsoCell cell) {
+      IsoPlayer p = IsoPlayer.getInstance();
+      String spec = HarnessFlags.get("mirror_corners", "auto");
+      boolean pair = spec.startsWith("pair");
+      int minW = 4, minH = pair ? 3 : 4;
+      if (spec.contains(":")) {
+         String[] wh = spec.substring(spec.indexOf(':') + 1).split(",");
+         minW = Integer.parseInt(wh[0].trim());
+         minH = Integer.parseInt(wh[wh.length > 1 ? 1 : 0].trim());
+      }
+      zombie.iso.RoomDef best = null;
+      float bestScore = -1F;
+      int seen = 0;
+      for (zombie.iso.BuildingDef b : zombie.iso.IsoWorld.instance.getMetaGrid().getBuildings()) {
+         if (Math.hypot((b.getX() + b.getX2()) * 0.5F - p.getX(), (b.getY() + b.getY2()) * 0.5F - p.getY()) > 80F) continue;
+         for (zombie.iso.RoomDef r : b.getRooms()) {
+            if (r.getRects().size() != 1 || r.getW() < minW || r.getH() < minH || r.getW() > 9 || r.getH() > 9) continue;
+            int x0 = r.getX(), y0 = r.getY(), x1 = r.getX2() - 1, y1 = r.getY2() - 1, z = r.getZ();
+            zombie.iso.IsoGridSquare nw = cell.getGridSquare(x0, y0, z), ne = cell.getGridSquare(x1, y0, z), sw = cell.getGridSquare(x0, y1, z), east = cell.getGridSquare(x1 + 1, y1, z);
+            if (nw == null || ne == null || sw == null || east == null) continue;
+            if (nw.getWall(true) == null || ne.getWall(true) == null || sw.getWall(false) == null || east.getWall(false) == null) continue;
+            // the pathfinder's own stand test (a toilet or a sink is "free" to isFree), and a spot in front of each
+            // reflecting corner mirror the walk can stand on
+            if (!Nav.canStandClear(x0 + 0.5F, y0 + 1.03F, z) || !Nav.canStandClear(x1 + 0.5F, y0 + 1.03F, z) || !Nav.canStandClear(x0 + 1.03F, y1 + 0.5F, z)) continue;
+            int free = 0, area = r.getW() * r.getH();
+            for (int y = y0; y <= y1; y++) {
+               for (int x = x0; x <= x1; x++) {
+                  if (Nav.canStand(x + 0.5F, y + 0.5F, z)) free++;
+               }
+            }
+            float score = (float)free / area + Math.min(area, 36) / 360F;
+            float[] visit = null;
+            if (pair) {
+               // pair: another room right behind the south wall, a spot in it in front of the NW or NE mirror and within a
+               // mirror's reach (a person there stands in front of the north-wall mirrors, a wall between)
+               for (int xs : new int[] {x0, x1}) {
+                  float vy = y1 + 1.6F;
+                  zombie.iso.IsoGridSquare q = cell.getGridSquare(xs, y1 + 1, z);
+                  zombie.iso.RoomDef qd = q == null || q.getRoom() == null ? null : q.getRoom().getRoomDef();
+                  if (qd == null || qd == r || qd.getBuilding() != r.getBuilding() || vy - (y0 + 0.03F) > 4.6F || !Nav.canStandClear(xs + 0.5F, vy, z)) continue;
+                  visit = new float[] {xs + 0.5F, vy, z};
+                  break;
+               }
+               if (visit == null) continue;
+            }
+            seen++;
+            Log.info(String.format(java.util.Locale.ROOT, "harness: mirror_corners: candidate %s %d,%d-%d,%d,%d free %d/%d score %.3f%s", r.getName(), x0, y0, x1, y1, z, free, area, score,
+                  visit == null ? "" : String.format(java.util.Locale.ROOT, ", visit %.1f,%.1f in the room south", visit[0], visit[1])));
+            if (score > bestScore) {
+               bestScore = score;
+               best = r;
+               mirrorVisit = visit;
+            }
+         }
+      }
+      Log.info("harness: mirror_corners: auto " + seen + " candidates, picked " + (best == null ? "none" : best.getName() + " " + best.getX() + "," + best.getY() + "," + best.getZ()));
+      return best;
    }
 
    private static String spriteNames(zombie.iso.IsoGridSquare sq) {

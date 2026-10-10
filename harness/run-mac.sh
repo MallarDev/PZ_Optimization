@@ -6,7 +6,7 @@
 #                                              <app>/Contents/Java; what was written goes to pzopt-installed.txt
 #   harness/run-mac.sh uninstall               remove exactly the files install wrote
 #   harness/run-mac.sh status                  installed or not, revision, file count
-#   harness/run-mac.sh --label <name> [--mode drive|bench|verify] [--flag k=v]... [--prop k=v]... [--option k=v]... [--env K=V]...
+#   harness/run-mac.sh --label <name> [--mode drive|bench|verify] [--flag k=v]... [--prop k=v]... [--option k=v]... [--env K=V]... [--template Mode/Save]
 #                      [--quit-after secs] [--timeout secs] [--vmarg ARG]... [--dashboard]
 #
 # What a run does (same contract as run.sh / run-win.ps1):
@@ -97,7 +97,7 @@ case "${1:-}" in
 esac
 
 # --- run ---------------------------------------------------------------------------------------
-label=""; mode="drive"; quit_after=""; timeout=900; extra_flags=(); props=(); game_options=(); vmargs=(); envs=(); dashboard=0
+label=""; mode="drive"; quit_after=""; timeout=900; extra_flags=(); props=(); game_options=(); vmargs=(); envs=(); game_args=(); dashboard=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --label) label="$2"; shift 2 ;;
@@ -109,7 +109,9 @@ while [[ $# -gt 0 ]]; do
     --option) game_options+=("$2"); shift 2 ;; # key=value written into ~/Zomboid/options.ini for the run
     --vmarg) vmargs+=("$2"); shift 2 ;;        # extra JVM option
     --env) envs+=("$2"); shift 2 ;;            # KEY=VALUE in the game's environment (e.g. MTL_HUD_ENABLED=1)
+    --game-arg) game_args+=("$2"); shift 2 ;;  # argument to the game's main (e.g. -cachedir=<dir>: console.txt is read from there)
     --dashboard) dashboard=1; shift ;;         # keep the PZDashboard mod (default: dropped from the bench save)
+    --template) TEMPLATE="$ZOMBOID/Saves/$2"; shift 2 ;;  # rebuild the bench save from this save under Saves/ (e.g. Sandbox/pzopt-template-pond, a copy of a desktop save) instead of the bench template
     *) die "unknown option: $1" ;;
   esac
 done
@@ -192,7 +194,11 @@ out="$RUNS/$label-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$out"
 rm -f "$ZOMBOID"/pzopt-*.out "$ZOMBOID/console.txt" "$ZOMBOID/pzopt-schedule.out" "$ZOMBOID/pzopt-logdone"
 rm -f "$ZOMBOID"/Screenshots/pzopt-*.png
 rm -rf "$ZOMBOID/pzopt-hdr"   # HDR frame dumps (pzopt.Hdr) of the previous run
+rm -rf "$ZOMBOID/pzopt-capture"   # frame sequence (pzopt.FrameCapture, devCapture) of the previous run
 rm -f "$PZ_DIR"/hs_err_pid*.log "$ZOMBOID"/hs_err_pid*.log
+game_cache="$ZOMBOID"   # the game's user folder: ~/Zomboid unless a -cachedir= game argument moves it
+for a in ${game_args[@]+"${game_args[@]}"}; do [[ "$a" == -cachedir=* ]] && game_cache="${a#-cachedir=}"; done
+[[ "$game_cache" != "$ZOMBOID" ]] && rm -f "$game_cache/console.txt"
 jvm_opts=()
 while IFS= read -r a; do
   [[ "$a" == "-Dzomboid.steam=1" ]] && a="-Dzomboid.steam=0"
@@ -203,7 +209,7 @@ echo "launching $mode run ($(basename "$out")); jvm: ${jvm_opts[*]} ${vmargs[*]:
 (
   cd "$PZ_DIR"
   exec env ${envs[@]+"${envs[@]}"} caffeinate -dis "$JAVA" "${jvm_opts[@]}" ${vmargs[@]+"${vmargs[@]}"} -Djava.library.path=. \
-    -cp ".:projectzomboid.jar" zombie.gameStates.MainScreenState </dev/null >"$out/launcher-stdout.txt" 2>&1
+    -cp ".:projectzomboid.jar" zombie.gameStates.MainScreenState ${game_args[@]+"${game_args[@]}"} </dev/null >"$out/launcher-stdout.txt" 2>&1
 ) &
 caff_pid=$!
 sleep 2
@@ -255,7 +261,7 @@ start=$(date +%s)
 while kill -0 "$game_pid" 2>/dev/null; do
   now=$(date +%s)
   if (( now - start > timeout )); then echo "timeout after ${timeout}s: killing pid $game_pid" >&2; kill "$game_pid" 2>/dev/null || true; sleep 5; kill -9 "$game_pid" 2>/dev/null || true; break; fi
-  if (( now - start > 120 )) && [[ ! -f "$ZOMBOID/console.txt" ]]; then echo "no console.txt after 120 s: killing pid $game_pid" >&2; kill "$game_pid" 2>/dev/null || true; break; fi
+  if (( now - start > 120 )) && [[ ! -f "$game_cache/console.txt" ]]; then echo "no console.txt after 120 s: killing pid $game_pid" >&2; kill "$game_pid" 2>/dev/null || true; break; fi
   sleep 2
 done
 wait "$caff_pid" 2>/dev/null || true
@@ -267,10 +273,12 @@ game_pid=""
 # 5. collect
 crashed=0
 for h in "$PZ_DIR"/hs_err_pid*.log "$ZOMBOID"/hs_err_pid*.log; do [[ -f "$h" ]] || continue; cp "$h" "$out/"; crashed=1; done
-[[ -f "$ZOMBOID/console.txt" ]] && cp "$ZOMBOID/console.txt" "$out/console.txt" || echo "no console.txt written" >&2
+[[ -f "$game_cache/console.txt" ]] && cp "$game_cache/console.txt" "$out/console.txt" || echo "no console.txt written" >&2
+[[ "$game_cache" != "$ZOMBOID" ]] && { echo "game user folder $game_cache"; ls -la "$game_cache" "$game_cache/pzopt"; } > "$out/game-cache-dir.txt" 2>&1
 cp "$ZOMBOID"/pzopt-*.out "$out/" 2>/dev/null || true
 cp "$ZOMBOID"/Screenshots/pzopt-*.png "$out/" 2>/dev/null || true   # harness screenshots (options_tab rig)
 [[ -d "$ZOMBOID/pzopt-hdr" ]] && mv "$ZOMBOID/pzopt-hdr" "$out/hdr"   # HDR frame dumps (tools/hdr/hdrframe.py)
+[[ -d "$ZOMBOID/pzopt-capture" ]] && mv "$ZOMBOID/pzopt-capture" "$out/capture"   # frame sequence (harness/ppl/capture.py)
 cp "$PZ_DIR/pzopt.properties" "$out/pzopt.properties"
 cp "$FLAG_FILE" "$out/pzopt-harness.txt"
 { echo "layout=mac"; echo "mode=$mode"; echo "crashed=$crashed"; echo "attempts=1"; echo "jfr=0"; echo "game_profiler=0"; echo "gc=default"

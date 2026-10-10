@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Jev directs the showcase=horde scene (2026-09-24, the HDR horde video).
+"""Jev directs the showcase=horde scene (2026-09-24, the HDR horde video; 2026-10-06 the street shootout of the Workshop
+headline GIF: flags horde_when=pier back_off=N, a second question with the back_off action).
 
 The game (pzopt.Showcase, flag director=jev) writes the scene's facts every 0.3 s to ~/Zomboid/pzopt-showcase-state.json;
 this loop asks TypeSafe's Jev which action the character takes next and writes "<seq> <action>" to
@@ -46,6 +47,35 @@ QUESTION = choice(
     },
 )
 
+# the street shot (flags horde_when=pier back_off=N, 2026-10-06, the Workshop headline GIF): the zombies appear only once the
+# character stands at the spot, and the character may give ground while firing; the state says back_off_allowed
+QUESTION_BACK_OFF = choice(
+    "You direct a short cinematic shootout in Project Zomboid, one decision at a time, from the scene state. The scene "
+    "plays out in this order: the character runs to a spot in the street (the 'pier' in the state) and stops; only then do "
+    "the zombies appear (horde_spawned) and walk at the character; the character turns to face them; the fight starts; the "
+    "character fires the rifle at them, reloading whenever the magazine runs dry, and runs back away from them whenever "
+    "they get close, then turns and fires again, until every zombie is down. Pick the character's next action.",
+    {
+        "run_to_pier": "Run to the spot. Right while the character is not at the spot yet and the fight has not started "
+                       "(fire_line_lit false).",
+        "face_horde": "Turn to face the nearest zombie. Right when the zombies have appeared, the fight has not started and "
+                      "the angle between the facing and the nearest zombie is over 20 degrees.",
+        "light_fire_line": "Start the fight (no fire is lit in this scene; it only marks the fight as started). Right when the "
+                           "zombies have appeared, the character faces them (angle under 20 degrees) and the fight has not "
+                           "started.",
+        "shoot": "Stand and fire the rifle at the nearest zombie. Right when the fight has started, zombies are alive, the "
+                 "magazine has rounds or a round is chambered, and either no zombie is within 4 tiles or no back-off room "
+                 "is left (back_off_room_tiles under 0.5).",
+        "back_off": "Run away from the zombies (the rifle lowered: nobody can run while aiming) to win back distance. Right "
+                    "when the fight has started, the nearest zombie is within 4 tiles, no reload is in progress and "
+                    "back_off_room_tiles is over 0.5.",
+        "reload": "Reload from a spare magazine. Right when the magazine has no rounds and no round is chambered, spare "
+                  "magazines remain and no reload is in progress.",
+        "hold": "Stand still. Right when the character is at the spot and the zombies have not appeared yet, when no zombies "
+                "are left, or while a reload is in progress.",
+    },
+)
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -83,7 +113,8 @@ def main():
         seen, last_t = True, st["t"]
         lat = []
         try:
-            ans = ask(st, {"action": QUESTION}, log=lat)["action"]
+            q = QUESTION_BACK_OFF if st.get("back_off_allowed") else QUESTION
+            ans = ask(st, {"action": q}, log=lat)["action"]
         except Exception as e:  # keep the last command; the next state gets another try
             log.write(f"{st['seconds_since_start']:6.1f}s  jev error: {e}\n")
             time.sleep(0.5)

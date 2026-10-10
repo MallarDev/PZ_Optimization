@@ -38,6 +38,7 @@ public final class SceneCullBatch {
    public static long checks;
    public static long mismatches;
    public static long failures;
+   private static long lastCheckLogNs;
 
    /** Whether this frame is large enough and the experimental key is enabled. */
    public static boolean active(int n) {
@@ -126,6 +127,13 @@ public final class SceneCullBatch {
       Arrays.fill(zombies, 0, count, null);
       world = null;
       count = 0;
+      if (Config.DEV_SCENE_CULL_CHECK) {
+         long now = System.nanoTime();
+         if (lastCheckLogNs == 0L || now - lastCheckLogNs >= 5_000_000_000L) {
+            lastCheckLogNs = now;
+            Log.info("sceneCull check: " + describe());
+         }
+      }
    }
 
    public static String describe() {

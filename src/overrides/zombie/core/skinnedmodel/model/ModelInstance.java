@@ -713,7 +713,7 @@ public class ModelInstance extends ReferencedObject {
                }
 
                float pzoptSun = pzopt.SunShadow.characterFactor(character); // pzopt: sunShadows, a character in the static world's sun shadow gets darker (1 in the sun, indoors, at night)
-               if (pzoptSun < 1.0F) { // pzopt
+               if (pzoptSun < 1.0F && !pzopt.EntityShadow.perPixel()) { // pzopt: entity shadows take the shade per pixel instead
                   this.targetAmbient.set(this.targetAmbient.x * pzoptSun, this.targetAmbient.y * pzoptSun, this.targetAmbient.z * pzoptSun); // pzopt
                } // pzopt
 

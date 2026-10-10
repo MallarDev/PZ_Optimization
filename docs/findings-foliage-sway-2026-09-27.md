@@ -7,7 +7,7 @@ runs `sway-*` on the desktop (RTX 4090, 5120x2160) through the queue.
 
 Keys (Enhancements tab section "Foliage sway"): `foliageSway` (live, off by default), `foliageSwayPct`, `foliageSwayTaps`.
 Launch: `swayPush`, `swayMotionVectors`, `swayMvImage`, `swayMvFold`, `swayMvNoBlend`, `swayTwinRemap` (on);
-`swayIterations` (1), `swayGust` (sines), `swayDepthCheck`, `swayMask` (on), `swayAuxBudgetMb` (160); measured and off:
+`swayIterations` (1), `swayGust` (sines), `swayDepthCheck`, `swayOccluderCheck`, `swayMask` (on), `swayAuxBudgetMb` (160); measured and off:
 `swayBindless`, `swayPrefetch`, `swayAuxEager`, `swayTwinAll`, `swayLightUndisplaced`. Dev: `devSwayAlternate` (+
 `devSwayAlternateAll`), `devSwaySkip` (bisection bits 4, 8, 32, 64), `devSwayView`, `devSwayNoPatch`, `devSwayVariantAll`,
 `devSwayVariantStock`, `devSwayGainPct`, `devSwayWind`, `devSwayFlipY`, `devSwayPushOrbit`, `devSwayDumpDir`. Harness flag
@@ -110,6 +110,19 @@ Keep every plant baked and move its pixels where the chunk textures are composit
   ShaderHelper's cache, which still named the program bound before. Rebinding through ShaderHelper (forget + bind 0, as
   ChunkAo / FogPass do) -> 0 white frames on the same walk (run `flash-fix-sway`, 19 before). Not seen on the desktop
   (NVIDIA).
+- Swaying wall edges (2026-10-07, Workshop report: "sway on the edges of non-foliage tiles that have foliage behind them",
+  building corners, a door frame's right edge, the top of a window with a cabinet above; the house corner at 14325,4948).
+  The inverse lookup s = p - D(p) of a plant pixel never looked at what it fetched: next to a rigid object drawn in front
+  of the plant, s landed on that object's texels (the plant behind it is not in the texture there) and the pixel showed
+  the wall, so the wall's edge was pulled into the grass in jagged strips that moved with the wind. It happens only where a
+  moving part of a plant (its upper half, weight > 0) sits right behind the edge, which is why some spots always show it
+  and others never. `swayOccluderCheck` (default on): the composite reads the depth at s; if it is nearer than the plant
+  texel and not a plant itself (flag bit plus the attribute's depth bits), the pixel keeps its own texel. Rigid texels
+  behind the plant (ground, a wall at the back) are still taken, so plant silhouettes keep moving. One depth fetch more
+  per plant pixel. Runs `swedge-vid-off` / `swedge-vid-on` (player still at 14328,4951, wind 1, 1:1 devCapture of the
+  corner): temporal std along the corner's edge 48 -> 11.5 (the grass beside it), a lamp post in the grass 20.8 -> 0.9,
+  the whole crop 4.23 -> 4.11 (the sway itself unchanged). Videos `docs/media/foliage-sway-wall-edge-{before,after,
+  before-after}.mp4` (`harness/stitch-sway-edge.sh`).
 
 ## Cost
 

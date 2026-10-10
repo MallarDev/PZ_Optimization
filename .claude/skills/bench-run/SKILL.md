@@ -76,7 +76,7 @@ Add `--jfr`
 plus `--jfr-setting jdk.JavaMonitorWait#threshold=0ms --jfr-setting jdk.ThreadPark#threshold=0ms`
 for wait analysis, `--renderer zink` for the Zink A/B, `--env JAVA_TOOL_OPTIONS=-Dzomboid.wayland=1`
 for native Wayland, `--option uiRenderOffscreen=true` for the offscreen UI, `--gc g1` for a GC A/B.
-Stock runs: `scripts/pzopt.sh uninstall` first, reinstall after. `--launcher auto` is fine.
+Stock runs: `scripts/pzopt.sh uninstall` first, reinstall after. Every run uses `--launcher direct` (no Steam) unless it needs Steam; the queue adds it when no `--launcher` is given (2026-10-07).
 Use the DEFAULT bench save for drive runs (no `--source-save`).
 
 Path drive (2026-09-24, no retries needed): the 120 km/h Rosewood route = queue bench `drive-120-south`

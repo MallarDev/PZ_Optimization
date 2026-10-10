@@ -69,7 +69,7 @@ PzoptSettingsLayout = {
                 { title = "Boot", keys = { "aotCache", "fmodAsync", "preloadAnimSets", "bootPump", "bootFileThreads", "earlyModels",
                     "luaPrecompile", "animClipCache", "packIndex", "scriptParserFast", "itemParamSwitch", "earlyTilePacks" } },
                 { title = "Files and textures", keys = { "texCompress", "fileThreads", "fileInflight", "textureBufferMb", "parallelDepthMaps",
-                    "loaderCpuFixes", "shaderCache", "mipmapArrays", "tileDefPreload", "skipIdChecks", "voronoiFast" } },
+                    "loaderCpuFixes", "shaderCache", "shaderWarmup", "mipmapArrays", "tileDefPreload", "skipIdChecks", "voronoiFast" } },
               } },
             { id = "ui", title = "Menus, inventory and map", blurb = "Windows that answer in the frame you click.",
               subs = {
@@ -146,8 +146,8 @@ PzoptSettingsLayout = {
         "resumeShot", "centerFirstLoad", "aotCache", "texCompress", "uiRetained", "mapStreetCache", "luaSkipEmpty", "corePlacement",
         "gpuPstate", "audioLimiter", "modProfile", "updateCheck",
         "upscaler", "upscalerQuality", "dynRes", "dynResFps", "spriteFilter", "hdrAuto", "hdr", "pixelLight", "torchSource",
-        "sunShadows", "sunShadowStrengthPct", "moonShadows", "cloudShadows", "ambientOcclusion", "godRays", "godRaysStrengthPct",
-        "reflections", "reflectionPuddles", "mirrors", "mirrorsWindows", "carGlass", "carOccupant", "bloodWet", "darknessFloorPct",
+        "sunShadows", "sunShadowStrengthPct", "entityShadows", "moonShadows", "cloudShadows", "ambientOcclusion", "godRays", "godRaysStrengthPct",
+        "reflections", "reflectionPuddles", "mirrors", "mirrorsWindows", "mirrorsWallMirrors", "mirrorsProps", "carGlass", "carOccupant", "bloodWet", "darknessFloorPct",
         "memoryTint", "colorGrading", "foliageSway", "foliageSwayPct", "relief", "occludedZombieOutlines",
         "overlaySampling", "overlay", "overlayStats", "overlayGraph", "overlayCorner", "overlayFont", "overlayFpsColor", "consoleLog" },
 

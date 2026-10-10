@@ -20,7 +20,7 @@ import urllib.request
 HERE = pathlib.Path(__file__).resolve().parent
 URL = "http://127.0.0.1:3000/api/ds/query"
 ROUTE = ("946684770000", "946684920000")  # the route-time dashboards' range
-RANGES = {"pzopt-runs": ("now-30d", "now"), "pzopt-live": ("now-10m", "now")}
+RANGES = {"pzopt-runs": ("now-30d", "now"), "pzopt-live": ("now-10m", "now"), "pzopt-workshop": ("now-30d", "now")}
 for k, v in (("PGHOST", "127.0.0.1"), ("PGPORT", "5433"), ("PGUSER", "pzopt"), ("PGPASSWORD", "pzopt"), ("PGDATABASE", "pzopt")):
     os.environ.setdefault(k, v)
 
@@ -53,7 +53,9 @@ def main():
             "${other:sqlstring}": sql_list([other]), "${source:sqlstring}": sql_list([a.source]), "${thread:sqlstring}": sql_list(threads),
             "${machine:sqlstring}": sql_list(db("SELECT DISTINCT machine FROM runs") or ["desktop"]),
             "${mode:sqlstring}": sql_list(db("SELECT DISTINCT coalesce(mode, '') FROM runs") or [""]),
-            "${label:sqlstring}": "'.*'", "${search:sqlstring}": "''", "${hmachine:sqlstring}": "'desktop'"}
+            "${label:sqlstring}": "'.*'", "${search:sqlstring}": "''", "${hmachine:sqlstring}": "'desktop'",
+            "${change}": (db("SELECT to_char(t AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM workshop_page_changes "
+                             "ORDER BY t DESC LIMIT 1") or ["2026-10-06T15:24:20Z"])[0], "${days}": "3", "${trend}": "8"}
     pw = (pathlib.Path.home() / ".config/pzopt/grafana-admin").read_text().strip()
     auth = "Basic " + base64.b64encode(f"admin:{pw}".encode()).decode()
     print(f"run={run} runs={runs} base={base} other={other} source={a.source}")

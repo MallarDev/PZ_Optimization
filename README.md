@@ -54,7 +54,7 @@ machine you play on.
    - [Requirements](#requirements)
    - [Method A: Steam Workshop](#method-a-steam-workshop)
    - [Method B: installer script from the GitHub release](#method-b-installer-script-from-the-github-release)
-   - [Method C: unpack the zip by hand](#method-c-unpack-the-zip-by-hand)
+   - [Method C: copy the files by hand](#method-c-copy-the-files-by-hand)
    - [Method D: build from source (Linux)](#method-d-build-from-source-linux)
    - [Check that it loaded](#check-that-it-loaded)
    - [Uninstall](#uninstall)
@@ -290,32 +290,47 @@ the four cores) and GraalVM 25.3 is 25–40 % behind HotSpot C2. Full pass in `d
 
 ### Against the Workshop's performance mods
 
-The most-subscribed Build 42 performance mods, each run on the same three routes (120 km/h
-drive, the same drive in a thunderstorm, the Rosewood spin), uncapped, one mod at a time on
-the stock game, checked in the console to be loaded and patching (2026-09-21; per-mod detail
-in `docs/archive/2026-09-24/results.md`).
+The most-subscribed Build 42 performance mods, each installed the way its page says and run alone on the stock game, on
+three routes: the 120 km/h highway drive, the same drive in a thunderstorm, and the Louisville horde (~2,000 zombies),
+uncapped (2026-10-06/07, Build 42.21, the desktop: Ryzen 7 9800X3D, RTX 4090, 5120x2160, Linux; runs `mx-*`, rig in
+`harness/mods-table-card.py`). All sides of a route ran back to back; stock is the mean of its runs at both ends of the
+drive and the horde blocks. Stock and the other mods keep the game's own launcher (ZGC, 3 GB heap); PZ_Optimization runs
+on G1, as its install sets it for players.
 
-![Workshop performance mods vs PZ_Optimization on the three routes](docs/media/workshop-mods-comparison.png)
+![Workshop performance mods vs PZ_Optimization](docs/workshop/images/70-vs-other-mods-table.png)
 
-| Mod | Subscribers | What it is | Drive fps / p99 | Storm | Spin |
-|---|---|---|---|---|---|
-| Stock game | | | 167 / 15.5 ms | 75 / 59 | 135 / 27 |
-| [Project Zomboid Optimiser](https://steamcommunity.com/sharedfiles/filedetails/?id=3787481250) | 23 k | Lua toggles, F10 control centre | 159 / 15.6 | 72 / 66 | 128 / 30 |
-| … + its [PZO-Launcher](https://github.com/prop11/PZO-Launcher) engine jar and JVM flags | | agent jar, native lib, launcher JSON | 165 / 15.5 | 72 / 66 | 129 / 29 |
-| [Tempo](https://steamcommunity.com/sharedfiles/filedetails/?id=3736629791) | 42 k | Lua sampler and menu memo | 160 / 15.3 | 71 / 61 | 130 / 28 |
-| … + its optional class shadows | | chunk-finalize budget, 3D-zombie cap | 162 / 15.3 | 76 / 57 | 131 / 30 |
-| [Multi-Cpu Enhance](https://steamcommunity.com/sharedfiles/filedetails/?id=3459875383) | 28 k | launcher JSON: ParallelGC, 8 GB heap | 169 / 15.2, **one 320 ms stall** | 74 / 62, **one 320 ms stall** | 136 / 29, **two 300–350 ms stalls** |
-| [Every Texture Optimized](https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162) | 616 k | 6,142 re-encoded textures | 163 / 15.2 | 72 / 63 | 135 / 29 |
-| [Lugli – Optimizations](https://steamcommunity.com/sharedfiles/filedetails/?id=3790863696) | 3 k | ZombieBuddy patches | 162 / 15.3 | 73 / 60 | 135 / 28 |
-| [Zed's Better FPS](https://steamcommunity.com/sharedfiles/filedetails/?id=3622986450) ([42.20 fix](https://steamcommunity.com/sharedfiles/filedetails/?id=3782613536)) | 47 k | ZombieBuddy patches: GL state cache, sprite batching | 161 / 15.2 | 75 / 59 | 134 / 28 |
-| [Let Me Drive!](https://steamcommunity.com/sharedfiles/filedetails/?id=3805307651) | new (posted 2026-09-20) | Lua event gate: other mods' chunk handlers deferred, GC-call block, optional zoom cap / speed limit | 154 / 15.9 | 69 / 60 | — (drive only; fog 111 / 18.2 vs stock 114 / 17.7, storm + fog 63 / 64 vs 66 / 66) |
-| **PZ_Optimization** | | class overrides | **481 / 8.8** | **246 / 13.8** | **456 / 8.5** |
+| Mod | What it is | Drive fps / p99 ms | Storm | Louisville horde |
+|---|---|---|---|---|
+| Stock game | | 115 / 17.0 | 63 / 61.6 | 24 / 110 |
+| [Project Zomboid Optimiser](https://steamcommunity.com/sharedfiles/filedetails/?id=3787481250) + its [PZO-Launcher](https://github.com/prop11/PZO-Launcher) V0.9.9.4 | Lua toggles; agent jar, native lib, launcher JSON (G1, 8 GB) | 114 / 16.8 | 68 / 64.8 | 29 / 84.8 |
+| [Tempo](https://steamcommunity.com/sharedfiles/filedetails/?id=3736629791) | Lua sampler and menu memo | 116 / 16.6 | 63 / 60.5 | 24 / 112 |
+| [Multi-Cpu Enhance](https://steamcommunity.com/sharedfiles/filedetails/?id=3459875383) | launcher JSON: ParallelGC, 8 GB heap | 118 / 16.6, **291 ms stall** | 67 / 64.4, **332 ms stall** | 29 / 97.9, **390 ms stall** |
+| [Every Texture Optimized](https://steamcommunity.com/sharedfiles/filedetails/?id=3119788162) | re-encoded textures | 117 / 16.6 | 63 / 63.1 | 24 / 104 |
+| [Lugli – Optimizations](https://steamcommunity.com/sharedfiles/filedetails/?id=3790863696) | ZombieBuddy patches | 117 / 16.9 | 62 / 62.6 | 23 / 109 |
+| [Zed's Better FPS](https://steamcommunity.com/sharedfiles/filedetails/?id=3622986450) | ZombieBuddy patches | does not load (below) | | |
+| [Zed's Better FPS KA](https://steamcommunity.com/sharedfiles/filedetails/?id=3793137588) | ZombieBuddy patches, partly ported from this repository (below) | 113 / 17.1 | 73 / 18.5 | 29 / 89.0 |
+| [Let Me Drive!](https://steamcommunity.com/sharedfiles/filedetails/?id=3805307651) | Lua event gate, GC-call block | 116 / 16.7 | 60 / 66.9 | 23 / 108 |
+| **PZ_Optimization** | class overrides | **523 / 5.2** | **447 / 6.3** | **86 / 43.9** |
 
-Every one of them measures within run-to-run noise of the stock game (fps ±4 %, p99 ±3 ms):
-none touches the per-frame chunk, tree and translucent drawing on the render thread or the
-world update on the game thread that set the frame time. Multi-Cpu Enhance's
-`-XX:+UseParallelGC` is worse than stock: a 300–350 ms stop-the-world collection landed inside
-every route (the game's own G1 never paused longer than 21 ms).
+On the drive every mod is within 3 % of stock. In the horde, PZ Optimiser and Multi-Cpu Enhance gain ~20 % by changing
+the launcher's garbage collector and heap: the horde's live data nearly fills the game's 3 GB (stock with PZO's G1 / 8 GB
+switch alone matches PZO on the spin route too: 125 vs 123 fps, runs `mx-*-stockg1`); Multi-Cpu's ParallelGC also puts a
+300–390 ms stop-the-world pause inside every route. Zed's Better FPS KA is the only one with a gain of its own: +15 % in
+the storm with a far shorter tail (p99 18.5 vs 61.6 ms) and +19 % in the horde. Run-to-run noise: two stock runs of the
+drive differ by 2 %, of the horde by under 1 %.
+
+Zed's Better FPS does not load on Build 42.21 today: ZombieBuddy (2.3.4 on the Workshop, the latest release) skips it,
+because it now asks for ZombieBuddy 2.4.0–2.99.99, which is not released (ZombieBuddy's master is 3.0.0-beta1). Pointing
+its mod.info at its other jar loads that one, which then stops the game with a `NoSuchMethodError` (it is built for
+ZombieBuddy 3).
+
+Zed's Better FPS KA ports code from this repository: five of its classes are our `pzopt` classes decompiled and renamed
+(`ScriptText`, `ZombieNoise`, `PngFilters`, `AnimClipCache`, `RainTiles`; measured as identifier-blind token similarity
+against our sources, 0.43–0.81, where unrelated classes of similar size score at most 0.39). Its Workshop page credits
+PZ Optimization for some of its improvements; its code does not.
+
+The Workshop page shows the same table and a stock | Zed's KA | ours clip of the drive in a thunderstorm with heavy fog
+(57.7 / 66.5 / 386.1 fps, one back-to-back block, stock at both ends).
 
 ### Input latency: NVIDIA Reflex-style low latency
 
@@ -453,7 +468,7 @@ adopted: [docs/findings-town-drive-2026-09-24.md](docs/findings-town-drive-2026-
 ## Install
 
 Four ways to get the same files into the game folder. A and B are the ones to use; C is
-for offline or hand installs; D is for changing the code. The game reads the files at start,
+copying them by hand, no command; D is for changing the code. The game reads the files at start,
 so **close the game first** whichever method you pick.
 
 ### Requirements
@@ -467,10 +482,12 @@ so **close the game first** whichever method you pick.
 
 Every installer below does the same thing: locate the game through Steam's library list
 (or `-Dir` / `--dir <folder>` / `PZ_DIR`), read the game revision from the jar, check that
-the launcher classpath loads loose classes and that no file it would write already exists,
-copy the classes next to `projectzomboid.jar` (on macOS that is
-`Project Zomboid.app/Contents/Java`), and record every file in
-`pzopt-installed.txt` so the uninstall is exact. The jar is never touched.
+the launcher classpath loads loose classes, record every file in `pzopt-installed.txt` so the
+uninstall is exact, then copy the classes next to `projectzomboid.jar` (on macOS that is
+`Project Zomboid.app/Contents/Java`). The jar is never touched. The list is written before the
+copy, so an install that stopped half-way (an antivirus blocking a file, a closed window) is
+replaced by the next run or removed by the uninstall; files of ours that an older unfinished
+install left without a list are replaced too.
 
 ### Method A: Steam Workshop
 
@@ -478,12 +495,19 @@ Subscribe to [PZ_Optimization on the Workshop](https://steamcommunity.com/shared
 and let Steam download it. The Workshop cannot write into the game folder, so the item
 carries the files and the installer, and one command finishes the install.
 
-**Easiest:** enable the mod once in the game's Mods list. The main menu then shows the install
-command for your computer, with the item's real folder in it and a **Copy** button: paste it into
-PowerShell or a terminal, then quit the game (the installer waits for that). Start the game again
-and disable the mod: it only carries that window.
+![The script install: subscribe, enable the mod, copy the command, paste it, quit, play (animated)](docs/media/install-script.gif)
 
-**By hand** (Windows, PowerShell; adjust the drive if your Steam library is elsewhere):
+**Easiest**, about two minutes:
+
+1. Subscribe, let Steam download it.
+2. In the game's main menu, **MODS**: tick **PZ_Optimization**, Accept. The main menu now shows the install command
+   for your computer, with the item's real folder in it.
+3. Press **Copy the command**.
+4. Paste it into PowerShell (Windows) or a terminal (Linux, macOS), Enter. It waits while the game runs.
+5. Quit the game (QUIT); the installer then copies the files.
+6. Start the game: Options has a **PZ Optimization** tab. Disable the mod again: it only carries that window.
+
+**The command by hand** (Windows, PowerShell; adjust the drive if your Steam library is elsewhere):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File "C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3805285544\mods\PZ_Optimization\42\install.ps1"
@@ -538,17 +562,34 @@ any `MISSING` / `MODIFIED` file, the contents of `pzopt.properties` if present),
 `-Uninstall` / `--uninstall`, `-Dir` / `--dir <game folder>`, `-Zip` / `--zip <file>` to
 install a zip you already have, `-From` / `--from <folder>` to install an unpacked tree.
 
-### Method C: unpack the zip by hand
+### Method C: copy the files by hand
 
-Download `pzopt-4a0e9546ec-classes.zip` (about 850 KB) from the
+No command at all. The files are the same in the Workshop download and in the release zip.
+
+![The manual install: subscribe, find the mod's files, copy them, paste them into the game folder, play (animated)](docs/media/install-manual.gif)
+
+**From the Workshop download** (subscribed, nothing to download):
+
+1. Find the mod's files. In Steam, right-click Project Zomboid, **Manage > Browse local files**: that opens the game
+   folder (`...\steamapps\common\ProjectZomboid`). Go up to **steamapps**, then
+   `workshop\content\108600\3805285544\mods\PZ_Optimization\42\pzopt-classes`.
+2. Copy everything in `pzopt-classes` (Ctrl+A, Ctrl+C).
+3. Open the game folder again (Browse local files) and paste it there, beside `projectzomboid.jar` (Ctrl+V). Skip any
+   file that already exists.
+4. Start the game: Options has a **PZ Optimization** tab.
+
+**From the release zip:** download `pzopt-4a0e9546ec-classes.zip` (about 64 MB) from the
 [release page](https://github.com/xD3I/PZ_Optimization/releases/latest) and unpack it into
 the folder that holds `projectzomboid.jar`, without overwriting anything (`Expand-Archive`
-without `-Force`, or `unzip -n`). On macOS that folder is inside the app bundle: in
+without `-Force`, or `unzip -n`).
+
+On macOS the game folder is inside the app bundle: in
 `~/Library/Application Support/Steam/steamapps/common/ProjectZomboid`, right-click
-`Project Zomboid.app`, Show Package Contents, `Contents/Java`. The zip carries `pzopt-files.txt`, the list of everything
-it adds. The revision in the file name must match your game (42.21 is `4a0e9546ec`); a
-zip for another revision disables itself at start-up. To remove it, delete the files listed
-in `pzopt-files.txt` and the empty folders they leave, or run either installer's uninstall.
+`Project Zomboid.app`, Show Package Contents, `Contents/Java`. Both carry `pzopt-files.txt`, the list of everything
+they add, and `Uninstall-PZ-Optimization.cmd` / `uninstall-pz-optimization.bash`. The revision in the zip's name must
+match your game (42.21 is `4a0e9546ec`); a build for another revision disables itself at start-up. To remove it, run
+the uninstaller beside `projectzomboid.jar`, or delete the files listed in `pzopt-files.txt` and the empty folders they
+leave, or run either installer's uninstall.
 
 ### Method D: build from source (Linux)
 
@@ -598,25 +639,43 @@ grep -c '\[pzopt\] loaded override' ~/Zomboid/console.txt
 | dozens of lines | the overrides are active. Options has an **Optimizations** tab and Display has the **Uncapped** entry. Done. |
 | `0` | the class files did not load. Check that `<game>\pzopt\Overrides.class` exists and that `ProjectZomboid64.json` lists `"."` before `"projectzomboid.jar"` under `classpath` (it does on the stock depot; the macOS bundle has no JSON, its launcher puts `Contents/Java` first by itself). |
 | a line saying the overrides were built for another revision | your game is not 42.21 / `4a0e9546ec`; the game runs as stock. Switch Steam to that branch or wait for a matching release. |
+| the game stops at start with `NoClassDefFoundError: pzopt/...` | an unfinished install: some override classes are in the game folder without the `pzopt` folder they call. Run the installer again (it replaces what is there), or run it with `-Uninstall` / `--uninstall`. |
+| the game closes at start after a game update, or Uninstall in the menu removed nothing | builds since 2026-10-07 fix both at the next start (`Zomboid/pzopt/boot-repair.log`). Older installs: double-click `Uninstall-PZ-Optimization.cmd` in the game folder if it is there, else the `uninstall.ps1` / `uninstall.sh` line above. |
 
 ### Uninstall
 
-**In the game:** Options > Optimizations > **Uninstall PZ Optimization...** (main menu). The
+**In the game:** Options > PZ Optimization > **Uninstall PZ Optimization...** (main menu). The
 game closes; once it has, a helper removes every file the installer or the updater recorded,
 the DLSS files the Enhancements tab fetched and the AOT cache, and the launcher settings it
-changed are put back (log: `Zomboid/pzopt/uninstall.log`). Do this before unsubscribing from
-the Workshop item: unsubscribing deletes the item, not the installed files.
+changed are put back (log: `Zomboid/pzopt/uninstall.log`). If the files are still there at the
+next start, the game removes them then and restarts stock (`Zomboid/pzopt/boot-repair.log`).
+Unsubscribing from the Workshop item and Steam's "Verify integrity of game files" leave the
+installed files in the game folder.
+
+**Without starting the game:** double-click `Uninstall-PZ-Optimization.cmd` in the game folder
+(Steam: Project Zomboid > Manage > Browse local files; Linux / macOS: `bash
+uninstall-pz-optimization.bash` there). Every install since 2026-10-07 leaves it there, with its
+own copy of the installer under `pzopt/uninstall/`.
+
+**After a game update** the first start removes a build made for the old game revision (or
+installs the matching one from the Steam Workshop copy) and starts the game again, so the game
+never crashes on an outdated install.
 
 **From a terminal** (the game may be running; the script waits for it to close):
 
 ```powershell
-& ([scriptblock]::Create((irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1))) -Uninstall
+irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.ps1 | iex
 ```
 
 ```sh
-curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.sh | bash -s -- --uninstall
+curl -fsSL https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.sh | bash
 scripts/pzopt.sh uninstall      # Linux, from-source install
 ```
+
+Without a list of installed files (an install that stopped early) the uninstallers still find
+PZ Optimization's files: paths with `pzopt` in them, classes that call the `pzopt` package, and
+files identical to the Workshop copy's. Another Java mod's class in the way of an install is
+refused by name; `-Force` / `--force` moves it to `Zomboid/pzopt/replaced-files/` first.
 
 A local copy works the same (`install.ps1 -Uninstall`, `install.sh --uninstall`, the Workshop
 item's `install.bash --uninstall`). The jar was never modified, so no Steam file verification

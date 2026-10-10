@@ -123,6 +123,7 @@ implements Mover {
     // pzopt: postupdateParallel (Louisville 120 plan B). The frame stamp of a movement computed by pzopt.PostupdateBatch, the
     // square its setMovingSquare was latched with, and the fields saved before the task (restored on a hazard).
     public long pzoptMoveFrame; // pzopt: postupdateParallel
+    public volatile long pzoptEsDrawn; // pzopt: entity shadows, the gather frame it was last drawn as a model (EntityShadow.bind); no initializer (0: never)
     public IsoGridSquare pzoptMoveSq; // pzopt: postupdateParallel
     public boolean pzoptMoveSqSet; // pzopt: postupdateParallel
     public pzopt.PostupdateBatch.Snap pzoptMoveSnap; // pzopt: postupdateParallel

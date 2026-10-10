@@ -16,10 +16,15 @@ game is waited for: quit it and the install (or -Uninstall) goes on.
   .\install.ps1 -Dir "D:\SteamLibrary\steamapps\common\ProjectZomboid"
   .\install.ps1 -Status
   .\install.ps1 -Uninstall
+  .\install.ps1 -Force       # replace class files another Java mod put into the game folder (moved aside first)
 
 Without downloading anything first (PowerShell, any folder; the Steam Workshop copy is used when present):
   irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1 | iex
-  & ([scriptblock]::Create((irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/install.ps1))) -Uninstall
+  irm https://github.com/xD3I/PZ_Optimization/releases/latest/download/uninstall.ps1 | iex
+
+Every install also leaves Uninstall-PZ-Optimization.cmd in the game folder (Steam: Manage > Browse local files):
+double-click it to remove PZ Optimization without starting the game; it runs the copy of this script kept in
+pzopt\uninstall\ with -Uninstall -Pause (-Pause: wait for Enter before the window closes).
 
 Files written are recorded in <game dir>\pzopt-installed.txt (same format as the Linux
 tools). projectzomboid.jar is never modified; the runtime guard turns the classes off, with
@@ -34,7 +39,9 @@ param(
   [string]$From,
   [string]$Tag,
   [switch]$Uninstall,
-  [switch]$Status
+  [switch]$Status,
+  [switch]$Force,
+  [switch]$Pause
 )
 if (-not $PSCommandPath) {
   # piped into Invoke-Expression or run as a script block (the one-liners above): no file of its own, and `exit`
@@ -58,7 +65,9 @@ $RepoSlug = 'xD3I/PZ_Optimization'
 $WorkshopId = '3805285544'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-function Fail($msg) { Write-Host "error: $msg" -ForegroundColor Red; exit 1 }
+# -Pause (the double-click uninstaller): the window stays until Enter, so the result can be read
+function Done($code) { if ($Pause) { [void](Read-Host 'Press Enter to close') }; exit $code }
+function Fail($msg) { Write-Host "error: $msg" -ForegroundColor Red; Done 1 }
 
 # --- locate the game -------------------------------------------------------------------
 
@@ -88,6 +97,8 @@ function Find-GameDir {
 
 if (-not $Dir) { $Dir = Find-GameDir }
 if (-not $Dir) { Fail 'game folder not found; pass -Dir <folder containing projectzomboid.jar>' }
+# "...\ProjectZomboid\." (the double-click uninstaller's %~dp0.) and the like: one spelling, so the running-game check matches
+$Dir = [IO.Path]::GetFullPath($Dir).TrimEnd('\', '/')
 $Jar = Join-Path $Dir 'projectzomboid.jar'
 if (-not (Test-Path $Jar)) { Fail "no projectzomboid.jar in $Dir" }
 $Json = Join-Path $Dir 'ProjectZomboid64.json'
@@ -123,7 +134,7 @@ function Wait-GameClosed {
 # The newest copy of the Steam Workshop item for this game revision, or $null: Steam keeps an app's Workshop content
 # in the library of the app itself, <library>\steamapps\workshop\content\108600\<item>\mods\PZ_Optimization\<version>.
 # Complete only when every file its pzopt-files.txt lists is there (Steam replaces an item's files one by one).
-function Find-WorkshopCopy {
+function Find-WorkshopCopy([switch]$AnyRevision) {
   $d = $Dir
   while ($d -and ((Split-Path $d -Leaf) -ne 'steamapps')) {
     $up = Split-Path $d -Parent
@@ -141,7 +152,7 @@ function Find-WorkshopCopy {
     if (-not (Test-Path -LiteralPath $info) -or -not (Test-Path -LiteralPath $list)) { continue }
     $p = @{}
     foreach ($l in Get-Content -LiteralPath $info) { if ($l -match '^([^#=]+)=(.*)$') { $p[$Matches[1].Trim()] = $Matches[2].Trim() } }
-    if ($p['revision'] -ne $Rev) { continue }
+    if (-not $AnyRevision -and $p['revision'] -ne $Rev) { continue }
     $complete = $true
     foreach ($rel in Get-Content -LiteralPath $list) {
       if ($rel -and -not (Test-Path -LiteralPath (Join-Path $c ($rel -replace '/', '\')))) { $complete = $false; break }
@@ -227,6 +238,38 @@ function Reset-Gc {
   }
 }
 $Rev = Get-JarRevision
+$ZomboidPzopt = Join-Path $env:USERPROFILE 'Zomboid\pzopt'
+$ShortcutFiles = @('Uninstall-PZ-Optimization.cmd', 'uninstall-pz-optimization.bash')
+
+# What the game itself left about an earlier install (an unfinished in-game uninstall, the boot repair's note for the
+# Workshop item's install helper) no longer applies once this script has installed or removed one.
+function Clear-GameNotes {
+  foreach ($f in @((Join-Path $ZomboidPzopt 'uninstall-files.txt'), (Join-Path $ZomboidPzopt 'uninstall-dirs.txt'),
+                   (Join-Path $env:USERPROFILE 'Zomboid\Lua\pzopt-boot-repair.txt'))) {
+    Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+  }
+}
+
+# Is a file in the game folder PZ Optimization's? A path with "pzopt" in it (the package, the Lua, the shaders, the
+# lists), a class whose bytes name the pzopt package (every override that calls it), or an inner class of one. Other
+# Java mods' class files (Better Vehicle Dynamics ships zombie/iso/IsoChunkMap.class) are not. pzopt.properties is the
+# player's own settings file and stays.
+function Test-NamesPzopt($p) {
+  try { return [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($p)).Contains('pzopt/') } catch { return $false }
+}
+function Test-OursFile($rel) {
+  if ($rel -eq 'pzopt.properties') { return $false }
+  if ($ShortcutFiles -contains $rel -or $rel -match '(^|/)[^/]*pzopt') { return $true }
+  if ($rel -notlike '*.class') { return $false }
+  $p = Join-Path $Dir ($rel -replace '/', '\')
+  if (Test-NamesPzopt $p) { return $true }
+  $leaf = Split-Path $rel -Leaf
+  if ($leaf.Contains('$')) {
+    $outer = Join-Path (Split-Path $p -Parent) ($leaf.Substring(0, $leaf.IndexOf('$')) + '.class')
+    if (Test-Path -LiteralPath $outer) { return Test-NamesPzopt $outer }
+  }
+  return $false
+}
 
 # --- status / uninstall ----------------------------------------------------------------
 
@@ -248,7 +291,7 @@ if ($Status) {
   } else { Write-Host 'installed:     no' }
   $props = Join-Path $Dir 'pzopt.properties'
   if (Test-Path $props) { Write-Host 'pzopt.properties:'; Get-Content $props | ForEach-Object { "  $_" } }
-  exit 0
+  Done 0
 }
 
 # Removes an install: the files of the manifest (or of a hand-unpacked zip's pzopt-files.txt), the folders they leave,
@@ -260,7 +303,14 @@ function Remove-Install {
   $filesTxt = Join-Path $Dir 'pzopt-files.txt'
   if (Test-Path $Manifest) { $list = Get-Content $Manifest | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { ($_ -split ' ')[0] } }
   elseif (Test-Path $filesTxt) { $list = Get-Content $filesTxt | Where-Object { $_ } }
-  else { return $false }
+  else {
+    $list = @(Find-Leftovers)
+    if ($list.Count -eq 0) { return $false }
+    Write-Host "no list of installed files in $Dir (an install that stopped early, or files copied by hand): removing the $($list.Count) files that are PZ Optimization's"
+  }
+  $list = @($list) + @($ShortcutFiles | Where-Object { Test-Path -LiteralPath (Join-Path $Dir $_) })
+  # the overrides first, the pzopt package they call last: a removal cut short never leaves an override without it
+  $list = @($list | Where-Object { $_ -notlike 'pzopt/*' }) + @($list | Where-Object { $_ -like 'pzopt/*' })
   $n = 0
   foreach ($rel in $list) {
     $p = Join-Path $Dir $rel
@@ -271,15 +321,46 @@ function Remove-Install {
     }
   }
   Remove-Item -LiteralPath $Manifest, $filesTxt -Force -ErrorAction SilentlyContinue
+  Clear-GameNotes
   Write-Host "removed $n files; projectzomboid.jar was never modified"
   return $true
 }
 
+# No manifest and no pzopt-files.txt: the files that are PZ Optimization's by Test-OursFile, among the loose class
+# folders, every path with "pzopt" in it, and the files of the Steam Workshop copy's list that are byte-identical to it
+# (overrides that never name the pzopt package, e.g. zombie/FliesSound.class, only when something of ours is there too). The game's own classes are in the jar.
+function Find-Leftovers {
+  $found = New-Object System.Collections.Generic.List[string]
+  $root = $Dir.TrimEnd('\', '/')
+  foreach ($top in 'zombie', 'org', 'se', 'fmod', 'pzopt', 'media', 'natives') {
+    $t = Join-Path $root $top
+    if (-not (Test-Path -LiteralPath $t)) { continue }
+    foreach ($f in Get-ChildItem -LiteralPath $t -Recurse -File -Force -ErrorAction SilentlyContinue) {
+      $rel = $f.FullName.Substring($root.Length + 1).Replace('\', '/')
+      if ($top -eq 'media' -and $rel -notmatch 'pzopt') { continue }
+      if (Test-OursFile $rel) { $found.Add($rel) }
+    }
+  }
+  if ($found.Count -gt 0) {
+    $copy = Find-WorkshopCopy -AnyRevision
+    if ($copy) {
+      foreach ($rel in Get-Content -LiteralPath (Join-Path $copy 'pzopt-files.txt')) {
+        # only a byte-identical copy: a class of the same name that differs may be another mod's
+        $mine = Join-Path $root ($rel -replace '/', '\')
+        if ($rel -and -not $found.Contains($rel) -and (Test-Path -LiteralPath $mine -PathType Leaf) -and
+            ((Get-Sha256 $mine) -eq (Get-Sha256 (Join-Path $copy ($rel -replace '/', '\'))))) { $found.Add($rel) }
+      }
+    }
+  }
+  return $found
+}
+
 if ($Uninstall) {
   Wait-GameClosed
-  if (-not (Remove-Install)) { Write-Host "not installed (no pzopt-installed.txt or pzopt-files.txt in $Dir)"; exit 0 }
+  if (-not (Remove-Install)) { Clear-GameNotes; Write-Host "PZ Optimization is not installed in $Dir (nothing of it found there)"; Done 0 }
+  Write-Host "PZ Optimization is uninstalled: the next launch is the stock game. You can unsubscribe from the Workshop item now."
   Write-Host "caches under $env:USERPROFILE\Zomboid\pzopt\ (anims, packs, framecap.ini, options.ini) can be deleted by hand"
-  exit 0
+  Done 0
 }
 
 # --- install ---------------------------------------------------------------------------
@@ -361,27 +442,71 @@ if ($From) {
 }
 $zipRev = ([regex]::Match($bi, '(?m)^revision=(\S+)')).Groups[1].Value
 if ($zipRev -ne $Rev) { Fail "$Source was built for game revision $zipRev but this game is $Rev; the classes would disable themselves. Get the build for $Rev" }
-foreach ($rel in $files) {
-  $p = Join-Path $Dir ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)
-  if (Test-Path -LiteralPath $p) { Fail "refusing to overwrite existing file: $p (a previous install? run -Uninstall)" }
+# No manifest is left at this point, so a release file already in the folder is either the remains of an install that
+# stopped before writing one (the game keeps its own classes in the jar), replaced (refusing left no way out: -Uninstall
+# found nothing to remove, and the game crashed on an override whose pzopt classes were missing), or another Java mod's
+# copy of a class we replace too (Better Vehicle Dynamics: zombie/iso/IsoChunkMap.class), refused unless -Force. What is
+# not recognisably ours is moved to Zomboid\pzopt\replaced-files\<time>\ first.
+$left = @($files | Where-Object { Test-Path -LiteralPath (Join-Path $Dir ($_ -replace '/', [IO.Path]::DirectorySeparatorChar)) })
+if ($left.Count -gt 0) {
+  $ours = @($left | Where-Object { Test-OursFile $_ })
+  $foreign = @($left | Where-Object { $ours -notcontains $_ })
+  $backup = Join-Path $ZomboidPzopt ('replaced-files\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+  if ($ours.Count -eq 0 -and -not $Force) {
+    Fail ("$($foreign.Count) game classes this release replaces are already in $Dir and are not PZ Optimization's, e.g. " +
+      (($foreign | Select-Object -First 3) -join ', ') + ".`nAnother Java mod put them there (Better Vehicle Dynamics ships zombie/iso/IsoChunkMap.class, for one); " +
+      "two mods cannot both replace the same class. Remove that mod's files, or run the installer again with -Force: they are moved to $backup first.")
+  }
+  foreach ($rel in $foreign) {
+    $dst = Join-Path $backup ($rel -replace '/', '\')
+    New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
+    Move-Item -LiteralPath (Join-Path $Dir ($rel -replace '/', '\')) -Destination $dst -Force
+  }
+  if ($foreign.Count -gt 0) { Write-Host "moved $($foreign.Count) files that were not PZ Optimization's to $backup" }
+  if ($ours.Count -gt 0) { Write-Host "replacing $($ours.Count) files an unfinished install left behind (e.g. $($ours[0]))" }
+  foreach ($rel in $ours) { Remove-Item -LiteralPath (Join-Path $Dir ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)) -Force }
 }
 
 $jarBefore = Get-Sha256 $Jar
-if ($From) {
-  foreach ($rel in $files) {
-    $dst = Join-Path $Dir ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)
-    New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
-    Copy-Item -LiteralPath (Join-Path $fromRoot ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)) -Destination $dst
+# The manifest goes first, so an install cut short (antivirus, full disk, closed window) is still replaced by the next
+# run or removed by -Uninstall; the pzopt package goes before the overrides that call it.
+$stamp = "# revision=$zipRev installed=$([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+[System.IO.File]::WriteAllLines($Manifest, @('# files written by install.ps1 - do not edit', $stamp,
+  '# unfinished: the install stopped before the end; run the installer again') + @($files | ForEach-Object { "$_ -" }))
+$ordered = @($files | Where-Object { $_ -like 'pzopt/*' }) + @($files | Where-Object { $_ -notlike 'pzopt/*' })
+$done = 0
+$rel = ''
+try {
+  if ($From) {
+    foreach ($rel in $ordered) {
+      $dst = Join-Path $Dir ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)
+      New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
+      Copy-Item -LiteralPath (Join-Path $fromRoot ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)) -Destination $dst
+      $done++
+    }
+  } else {
+    $z = [System.IO.Compression.ZipFile]::OpenRead($Zip)
+    try {
+      foreach ($rel in $ordered) {
+        $dst = Join-Path $Dir ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)
+        New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
+        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($z.GetEntry($rel), $dst)
+        $done++
+      }
+    } finally { $z.Dispose() }
   }
-} else {
-  [System.IO.Compression.ZipFile]::ExtractToDirectory($Zip, $Dir)
+} catch {
+  Fail "the install stopped at $rel ($done of $($files.Count) files written): $($_.Exception.Message)`nAn antivirus may have blocked the file. Run the installer again (it replaces the unfinished install) or run it with -Uninstall."
 }
-$out = @('# files written by install.ps1 - do not edit', "# revision=$zipRev installed=$([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))")
+$out = @('# files written by install.ps1 - do not edit', $stamp)
 foreach ($rel in $files) { $out += "$rel $(Get-Sha256 (Join-Path $Dir ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)))" }
 [System.IO.File]::WriteAllLines($Manifest, $out)
 if ((Get-Sha256 $Jar) -ne $jarBefore) { Fail 'projectzomboid.jar changed during install (this should be impossible)' }
 if ($tmp) { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
 
+Clear-GameNotes
 Write-Host "installed $($files.Count) files into $Dir for game revision $zipRev; projectzomboid.jar untouched"
 Write-Host "launch from Steam; $env:USERPROFILE\Zomboid\console.txt shows one '[pzopt] loaded override ... active' line per class"
-Write-Host "settings: Options > Optimizations in the game, or $Dir\pzopt.properties"
+Write-Host "settings: Options > PZ Optimization in the game, or $Dir\pzopt.properties"
+Write-Host "to remove it: Options > PZ Optimization > Uninstall PZ Optimization, or double-click $Dir\Uninstall-PZ-Optimization.cmd"
+Done 0

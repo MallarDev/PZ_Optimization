@@ -1382,6 +1382,9 @@ public final class IsoSprite {
             shader = SceneShaderStore.opaqueDepthShader;
          }
 
+         if (pzopt.TileBatch.start(shader.getID(), zDepthBlendZ, zDepthBlendToZ)) { // pzopt: tileVertexDepth, the depth pair goes with the tile's vertices; consecutive tiles share one draw
+            return; // pzopt
+         } // pzopt
          ShaderUniformSetter uniforms = ShaderUniformSetter.uniform1f(shader, "zDepth", frontDepthZ);
          uniforms.setNext(ShaderUniformSetter.uniform1i(shader, "drawPixels", drawPixels ? 1 : 0))
             .setNext(ShaderUniformSetter.uniform1f(shader, "zDepthBlendZ", zDepthBlendZ))
@@ -1438,6 +1441,9 @@ public final class IsoSprite {
 
       float zDepthBlendZ = frontDepthZ;
       float zDepthBlendToZ = farDepthZ;
+      if (pzopt.TileBatch.start(SceneShaderStore.tileDepthShader.getID(), zDepthBlendZ, zDepthBlendToZ)) { // pzopt: tileVertexDepth
+         return; // pzopt
+      } // pzopt
       IndieGL.StartShader(SceneShaderStore.tileDepthShader.getID());
       IndieGL.shaderSetValue(SceneShaderStore.tileDepthShader, "zDepth", frontDepthZ);
       IndieGL.shaderSetValue(SceneShaderStore.tileDepthShader, "drawPixels", drawPixels ? 1 : 0);

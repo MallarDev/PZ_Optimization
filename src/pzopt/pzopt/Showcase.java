@@ -29,6 +29,10 @@ import zombie.vehicles.BaseVehicle;
  * {@code <seq> <action>} to {@code Zomboid/pzopt-showcase-cmd.txt} (run_to_pier, face_horde, light_fire_line, shoot,
  * reload, hold), which the rig carries out until the next one. Movement is input like the aim: the Forward / Backward /
  * Left / Right keys toward the pier plus Run, reported held by the zombie.input.GameKeyboard override.
+ *
+ * <p>The street shot (2026-10-06, the Workshop headline GIF): {@code horde_when=pier} spawns the horde only once the player
+ * stands still at the pier spot, {@code back_off=N} adds the director action {@code back_off} (run, rifle lowered,
+ * away from the horde, at most N tiles from the spot), {@code ambulance=none} parks no vehicle.
  */
 public final class Showcase {
    private Showcase() {
@@ -63,8 +67,9 @@ public final class Showcase {
       if (k > 0 && k < heldKeys.length) heldKeys[k] = true;
    }
 
-   private static boolean on, powerOff, burn = true, fireLine = true, noAttack;
+   private static boolean on, powerOff, burn = true, fireLine = true, noAttack, hordeAtPier, hordeSpawned;
    private static int horde, hordeGap, hordeFires, lightbar, fireMs, mags;
+   private static float backOffMax, hordeAfterS, hordeMin;
    private static float pierX, pierY;
    private static String gunType, ambulanceType, hordeDir;
    private static HandWeapon gun;
@@ -104,6 +109,14 @@ public final class Showcase {
       // true: zombies never attack (stock's SystemDisabler switch; GOD_MODE is a cheat and needs Core.debug, so without it the
       // horde bit the player to death at the pier in hs-stock-1): the horde crowds the player, who keeps shooting
       noAttack = "true".equalsIgnoreCase(HarnessFlags.get("no_attack", "false").trim());
+      // pier: the horde spawns once the player stands at the pier spot (the Workshop headline shot), not at the route start
+      hordeAtPier = "pier".equalsIgnoreCase(HarnessFlags.get("horde_when", "start").trim());
+      // N > 0: the director may pick back_off, walking away from the horde while firing, at most N tiles from the pier spot
+      backOffMax = Float.parseFloat(HarnessFlags.get("back_off", "0").trim());
+      // with horde_when=pier: no spawn before this many seconds after the route start (the world comes up black for ~12 s
+      // after the hidden player turns visible; a player already at the spot spawned the horde into the dark, hl-remaster-15)
+      hordeAfterS = Float.parseFloat(HarnessFlags.get("horde_after", "0").trim());
+      hordeMin = Float.parseFloat(HarnessFlags.get("horde_min", "8").trim()); // no horde square nearer the player than this (tiles)
       java.io.File z = new java.io.File(zombie.ZomboidFileSystem.instance.getCacheDir());
       stateFile = new java.io.File(z, "pzopt-showcase-state.json");
       cmdFile = new java.io.File(z, "pzopt-showcase-cmd.txt");
@@ -155,8 +168,9 @@ public final class Showcase {
          p.setPerkLevelDebug(zombie.characters.skills.PerkFactory.Perks.Reloading, 10);
          clearStrangers(p, 30F);
          equip(p);
-         parkAmbulance();
-         spawnHorde(p);
+         replaceVehicle();
+         if (!"none".equalsIgnoreCase(ambulanceType)) parkAmbulance();
+         if (!hordeAtPier) spawnHorde(p);
          RagdollWatch.start(); // pzopt-ragdoll.out: every ragdoll episode of the scene
          if (director) {
             enter(Phase.WAIT); // the director (Jev) decides from the first state on
@@ -251,6 +265,59 @@ public final class Showcase {
       Log.info("harness: showcase: " + ambulanceType + " at " + sq.x + "," + sq.y + " facing " + dir + ", headlights " + v.getHeadlightsOn() + ", lightbar " + v.hasLightbar());
    }
 
+   /**
+    * {@code replace_vehicle=x,y[/x,y...]}: the save's vehicle nearest each that square (within 6 tiles) is swapped for
+    * {@code replace_with} (default Base.SportsCar) on its square and heading, repaired, painted {@code replace_hsv=h,s,v}
+    * (default near-black). The Workshop headline shot: a black sports car instead of the silver sedan at the curb.
+    */
+   private static void replaceVehicle() {
+      for (String at : HarnessFlags.get("replace_vehicle", "").trim().split("/")) { // several: x,y/x,y
+         if (!at.isBlank()) replaceVehicle(at.trim());
+      }
+   }
+
+   private static void replaceVehicle(String at) {
+      String[] xy = at.split(",");
+      float x = Float.parseFloat(xy[0].trim()) + 0.5F, y = Float.parseFloat(xy[1].trim()) + 0.5F;
+      BaseVehicle old = null;
+      float best = 6F * 6F;
+      for (BaseVehicle v : IsoWorld.instance.currentCell.getVehicles()) {
+         float dx = v.getX() - x, dy = v.getY() - y, d = dx * dx + dy * dy;
+         if (d < best) {
+            best = d;
+            old = v;
+         }
+      }
+      if (old == null) {
+         Log.warn("harness: showcase: no vehicle within 6 tiles of " + at + " to replace");
+         return;
+      }
+      org.joml.Vector3f f = old.getForwardVector(new org.joml.Vector3f());
+      IsoGridSquare sq = old.getSquare();
+      String oldName = old.getScriptName();
+      float ox = old.getX(), oy = old.getY();
+      old.permanentlyRemove();
+      float a = (float)Math.atan2(-f.x, -f.z); // as parkAmbulance: facing (f.x, f.z) in world x / y
+      if (a < 0F) a += (float)(Math.PI * 2);
+      zombie.iso.IsoDirections dir = zombie.iso.IsoDirections.values()[Math.round(a / (float)(Math.PI / 4)) % 8];
+      String type = HarnessFlags.get("replace_with", "Base.SportsCar").trim();
+      BaseVehicle v = zombie.Lua.LuaManager.GlobalObject.addVehicleDebug(type, dir, 0, sq);
+      if (v == null) {
+         Log.warn("harness: showcase: could not place " + type + " at " + sq.x + "," + sq.y);
+         return;
+      }
+      float angle = (float)(a + Math.PI);
+      while (angle > Math.PI * 2) angle -= (float)(Math.PI * 2);
+      v.savedRot.setAngleAxis(angle, 0f, 1f, 0f);
+      v.jniTransform.setRotation(v.savedRot);
+      v.repair();
+      String[] hsv = HarnessFlags.get("replace_hsv", "0,0,0.06").split(",");
+      v.setColorHSV(Float.parseFloat(hsv[0].trim()), Float.parseFloat(hsv[1].trim()), Float.parseFloat(hsv[2].trim()));
+      org.joml.Vector3f nf = v.getForwardVector(new org.joml.Vector3f());
+      Log.info(String.format(java.util.Locale.ROOT, "harness: showcase: replaced %s at %.1f,%.1f (forward %.2f,%.2f) with %s facing %s (forward %.2f,%.2f), hsv %s",
+            oldName, ox, oy, f.x, f.z, type, dir, nf.x, nf.z, String.join(",", hsv)));
+   }
+
    private static void lights() {
       if (ambulance == null) return;
       if (!ambulance.getHeadlightsOn()) ambulance.setHeadlightsOn(true);
@@ -259,6 +326,7 @@ public final class Showcase {
 
    /** A burning horde of fast shamblers hordeGap tiles behind the player (the horde side), chasing. */
    private static void spawnHorde(IsoPlayer p) {
+      hordeSpawned = true; // once, even when no ground is found
       IsoCell cell = IsoWorld.instance.currentCell;
       int cx = Math.round(p.getX() + dirX * hordeGap), cy = Math.round(p.getY() + dirY * hordeGap);
       ArrayList<IsoGridSquare> ground = new ArrayList<>();
@@ -266,7 +334,7 @@ public final class Showcase {
          for (int x = cx - 3; x <= cx + 3; x++) {
             IsoGridSquare sq = cell.getGridSquare(x, y, 0);
             float ddx = x + 0.5F - p.getX(), ddy = y + 0.5F - p.getY();
-            if (dry(sq) && ddx * ddx + ddy * ddy > 8F * 8F) ground.add(sq); // never on top of the player (cine-1)
+            if (dry(sq) && ddx * ddx + ddy * ddy > hordeMin * hordeMin) ground.add(sq); // never on top of the player (cine-1)
          }
       }
       if (ground.isEmpty()) {
@@ -376,6 +444,10 @@ public final class Showcase {
             }
          }
       }
+      if (hordeAtPier && !hordeSpawned && Math.hypot(pierX - p.getX(), pierY - p.getY()) <= 0.8F && !p.isPlayerMoving()
+            && (nowNs - startNs) / 1e9 >= hordeAfterS) {
+         spawnHorde(p); // in position and stopped: now the horde comes
+      }
       IsoZombie target = null;
       float bestD = Float.MAX_VALUE;
       for (int i = zombies.size() - 1; i >= 0; i--) {
@@ -414,6 +486,7 @@ public final class Showcase {
             if (toPier > 0.8F) {
                moveKeys(pierX - px, pierY - py);
                holdKey("Run");
+               p.setForceRun(true); // the held Run key alone walked (hl-remaster-11): IsoPlayer.UpdateInputState runs on forceRun
             }
             lastPath = "keys to pier " + String.format(java.util.Locale.ROOT, "%.1f", toPier) + (p.isGodMod() ? " god" : " mortal");
          }
@@ -428,6 +501,14 @@ public final class Showcase {
             if (!firesLit) lightFireLine();
          }
          case "shoot" -> fight(p, nowNs, tx, ty, target != null && bestD < 30F * 30F, reloading);
+         case "back_off" -> { // run away from the horde (the opposite of horde_dir), up to back_off tiles; the game cannot run while aiming
+            aimOff();
+            if (backOffMax > 0F && toPier < backOffMax && !reloading) {
+               moveKeys(-dirX, -dirY);
+               holdKey("Run");
+               p.setForceRun(true);
+            }
+         }
          case "reload" -> {
             aimOff();
             if (!reloading) reload(p);
@@ -502,7 +583,7 @@ public final class Showcase {
          if (seq == commandSeq) return;
          commandSeq = seq;
          String c = parts[1];
-         if (!java.util.Set.of("run_to_pier", "face_horde", "light_fire_line", "shoot", "reload", "hold").contains(c)) return;
+         if (!java.util.Set.of("run_to_pier", "face_horde", "light_fire_line", "shoot", "back_off", "reload", "hold").contains(c)) return;
          if (!c.equals(command)) {
             commands++;
             Log.info("harness: showcase director: " + command + " -> " + c + " (#" + seq + ")");
@@ -525,10 +606,11 @@ public final class Showcase {
             "{\"t\":%d,\"seconds_since_start\":%.1f,\"current_action\":\"%s\",\"player\":{\"distance_to_pier_tiles\":%.1f,\"at_pier\":%b,\"moving\":%b,"
                   + "\"degrees_between_facing_and_nearest_zombie\":%.0f,\"aiming\":%b},\"horde\":{\"zombies_alive\":%d,\"nearest_zombie_tiles\":%.1f,"
                   + "\"zombies_within_6_tiles\":%d,\"zombies_burning\":%d},\"weapon\":{\"rounds_in_magazine\":%d,\"round_chambered\":%b,\"spare_full_magazines\":%d,"
-                  + "\"reloading\":%b,\"rounds_fired\":%d},\"fire_line_lit\":%b}",
+                  + "\"reloading\":%b,\"rounds_fired\":%d},\"fire_line_lit\":%b,\"horde_spawned\":%b,\"back_off_allowed\":%b,\"back_off_room_tiles\":%.1f}",
             System.currentTimeMillis(), (System.nanoTime() - startNs) / 1e9, command, toPier, toPier <= 0.8F, p.isPlayerMoving(), offFacing, p.isAiming(),
             zombies.size(), bestD == Float.MAX_VALUE ? -1F : Math.sqrt(bestD), near6, burning, gun == null ? 0 : gun.getCurrentAmmoCount(),
-            gun != null && gun.isRoundChambered(), spareMags(p), reloading, shots, firesLit);
+            gun != null && gun.isRoundChambered(), spareMags(p), reloading, shots, firesLit, hordeSpawned, backOffMax > 0F,
+            Math.max(0F, backOffMax - toPier));
       try {
          java.io.File tmp = new java.io.File(stateFile.getPath() + ".tmp");
          java.nio.file.Files.writeString(tmp.toPath(), json);

@@ -46,6 +46,12 @@ saturated" is itself a finding. Chunk-latency wins are done; do not spend more o
   connection, keeps a session on the machine it first used, notifies sessions (`watch`, `events`) when a
   machine drops or a job ends, and writes each job's `result.txt` with Jev's verdict; `--wait` blocks on it.
   No pgrep dance, no peer messages, no hand-rolled ssh wrappers for a run.
+- **Runs go without Steam** (maintainer, 2026-09-24, repeated 2026-10-07): every run launches with
+  `--launcher direct` unless it needs Steam (a Proton run, a Steam-overlay / Steam-input check). Since 2026-10-07
+  `queue.sh submit run` adds `--launcher direct` when the args carry no `--launcher`; pass `--launcher steam` to ask for
+  Steam. run.sh's own default is still `auto` (Steam whenever the client is logged on), so a direct `run.sh` call or a
+  `submit cmd` wrapper must pass `--launcher direct` itself. A Steam launch loaded no overrides on 2026-10-06 (0 `[pzopt]`
+  console lines): check `grep -c '\[pzopt\]' console.txt` > 0.
 - **Run etiquette.** The maintainer is usually at the machine. Say a run is about to start before
   launching, one run at a time, never long batches. Never edit `harness/run.sh` while a run is in
   progress (bash reads it incrementally; a mid-edit launch died and its EXIT trap corrupted
@@ -152,8 +158,10 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
 | Skill | Use when |
 |---|---|
 | `run-queue` | scheduling any run (bench / drive / preset / mp / Workshop upload / showcase) on the desktop or a laptop, and every media encode / stitch (never beside a run), through `harness/queue.sh`; reading its result, reacting to machine events |
+| `jev-walk` | Jev walks the player through a building on the collision-free game walk (`pzopt.Nav`, `explore=mirror director=jev`): test rooms (`mirror_corners`), captures, `navjudge.py` |
 | `bench-run` | the run.sh arguments of a measurement run (bench / drive / parity / verify); launch them through `run-queue` |
 | `showcase-drive` | recording the stock-vs-optimized drive videos and the quad stitch |
+| `workshop-comparison` | the Workshop page's stock-vs-enhanced comparison animations (630x630 AVIF template, Features section): runs, stitch, window choice, publishing |
 | `build-install` | compiling the overrides and installing them into the game dir |
 | `release-windows` | building the Windows zip and publishing it as a GitHub release asset |
 | `analyze-run` | reading a finished run: analyze, compare, waits, loadtime, dashboard |
@@ -600,7 +608,7 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   `harness/mirrors/` (cost.py, crops.py, march_sim.py, masks.py). Since 2026-10-04 (`mirrorsGeometry`, `pzopt.MirrorGeometry`)
   a wall mirror's room is rebuilt behind the glass from the game's tiles (furniture as the sprite of its turned facing, flipped;
   the far wall in the mirror wall's paint; depth-map distances), taken where the march saw nothing or a stand-in: the
-  medicine cabinet's guessed glass 0.36 -> 0.005.
+  medicine cabinet's guessed glass 0.36 -> 0.005. Since 2026-10-08 (`docs/findings-mirror-rooms-2026-10-08.md`) a mirror mirrors only people in its own room, a pane the player never saw shows the stock glass, the room geometry is lit from each square's own light (never-seen squares left out), and a pane in a room is re-marched when its room changed instead of every 30 frames (the stand-ins jumped while walking): `harness/mirrors/room-judge.py`, scene `mirror_corners=pair`.
 - Cut-open upper floor (2026-10-05, flip save `Sandbox/2026-09-26_03-37-09`, `docs/override-edits.md` last entry): near the player
   stock stops drawing a building's orphan structures (upper-floor squares with exterior wall / ceiling / roof but no room), so
   the rooms show open. `pplCutEdge`: furniture flush against such a hidden square's edge (a bathtub) took its dark outdoor light
@@ -612,6 +620,20 @@ update) re-run `scripts/decompile.sh` and `scripts/regen-overrides.sh`.
   IsoGridSquare), asynchronously while the game thread draws the rest, spliced in stock order; exact by `devDrawListCheck`
   (0 / 253k entries). Pass 0.80 -> 0.33 ms a frame; the lock's miss frames are logic bursts, so whole-run misses moved
   11.3 -> 11.0 %. Trap: a tile's IsoSpriteInstance is its sprite's shared def (renderprep writes it).
+- Uninstall / boot repair (2026-10-07, `docs/findings-uninstall-2026-10-07.md`, from the Workshop comments: "uninstall" was the top
+  complaint, mostly a 42.20 build bricking the game after the 42.21 update): `pzopt.BootRepair` runs first in `MainScreenState.main`
+  and removes (or replaces from the Workshop copy) an install built for another game revision, or finishes an in-game uninstall the
+  helper left, then restarts the game (skips `scripts/pzopt.sh` installs on a mismatch; `-Dpzopt.bootRepair=false`). Every release
+  leaves `Uninstall-PZ-Optimization.cmd` / `uninstall-pz-optimization.bash` and `pzopt/uninstall/install.{ps1,bash}` in the game
+  folder; release assets `uninstall.ps1` / `uninstall.sh`; installers find our files without a manifest and refuse another mod's class
+  unless `-Force`. Tests: `BootRepairTest`, `tests/install/install-sh-test.sh`, `harness/uninstall-e2e.sh` E-H. Windows test pending.
+- Reflective props (2026-10-08, `docs/findings-prop-reflections-2026-10-08.md`, `mirrorsProps`, on with mirrors): 434 prop
+  sprites that are not windows or mirror tiles (glass doors, store fronts, counters, cases, fridges, the glass table, screens,
+  gym mirrors, steel, ceramic) reflect through pzopt.Mirrors; `harness/props/masks.py` fits each texel's face (top / south /
+  east) and plane from the game's depth maps into `src/media/ui/pzopt/props/`. Flip: +107..129 us GPU in prop-dense scenes,
+  tails unchanged. Lessons for every pass: on Mesa a client-memory `glTexSubImage2D` waits for the driver thread (use a PBO);
+  sampling the depth buffer as a texture makes AMD decompress it (use `gl_FragDepth` / the hardware test); Mesa refuses a
+  declaration before an `#extension` line (MirrorsShaderTest links with Mesa llvmpipe too).
 - Open plans: `docs/plan-drive-game-thread.md` (2026-09-26: late frames while driving through town), `docs/plan-graphics-enhancements.md` (2026-09-25: visual features; items 1, 2, 4 and candidate B shipped by 2026-09-26), `docs/plan-game-load.md`, `docs/plan-vulkan-renderer.md`, `docs/plan-resource-use.md`,
   `docs/plan-zombie-multithread.md` (2026-09-22: the rest of the zombie simulation on all cores, phased).
   The game-thread optimization plans were dropped on 2026-09-21 at the maintainer's request.

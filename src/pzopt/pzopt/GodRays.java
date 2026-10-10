@@ -203,7 +203,7 @@ public final class GodRays {
 
    /** A chunk's geometry changed (a geometry bake of one of its levels: a door, a window, a wall): rebuild its occupancy. */
    public static void chunkChanged(IsoChunk c) {
-      if (c != null && Config.GOD_RAYS) {
+      if (c != null && (Config.GOD_RAYS || EntityShadow.wantsOccupancy())) {
          dirtyChunks.add(key(c.wx, c.wy));
       }
    }
@@ -472,8 +472,8 @@ public final class GodRays {
       for (int k = 0; k < objects.size(); k++) {
          IsoObject o = objects.get(k);
          String n = o != null && o.getSprite() != null ? o.getSprite().getName() : null;
-         if (n != null && n.startsWith("roofs_") && !n.startsWith("roofs_accents")) {
-            return true;
+         if (n != null && n.startsWith("roofs_") && !n.startsWith("roofs_accents") || o != null && ChunkAo.ownSheetRoof(o.getSprite())) {
+            return true; // a tent's roof over the square too
          }
       }
       return false;
@@ -554,8 +554,7 @@ public final class GodRays {
       zombie.util.list.PZArrayList<IsoObject> objects = sq.getObjects();
       for (int k = 0; k < objects.size(); k++) {
          IsoObject o = objects.get(k);
-         IsoSprite sp = o == null ? null : o.getSprite();
-         if (sp != null && (sp.getProperties() != null && sp.getProperties().get("RoofGroup") != null || sp.getName() != null && sp.getName().startsWith("roofs_"))) {
+         if (o != null && ChunkAo.roofSprite(o.getSprite())) { // the tents' roof tiles too (WestRoof-typed, no RoofGroup)
             return true;
          }
       }
@@ -1061,6 +1060,7 @@ public final class GodRays {
    static final class Frame extends TextureDraw.GenericDrawer {
       final Ssr.View view = new Ssr.View();
       boolean on, devOn = true, lightsOnly, froxelLights;
+      boolean occOnly; // entity shadows without the god rays: the occupancy alone
       final ArrayList<Upload> uploads = new ArrayList<>();
       int occZ0;
       int refX, refY; // the camera chunk's corner: the compute works relative to it
@@ -1120,10 +1120,38 @@ public final class GodRays {
       }
    }
 
+   /**
+    * Entity shadows with the god rays off (game thread): the occupancy round the camera kept the same way (same window,
+    * same levels, same budget), uploaded by the render thread; no light, no volume.
+    */
+   private static void occupancyOnly(int playerIndex) {
+      Frame f = FRAMES[frameIndex++ & 3];
+      f.uploads.clear();
+      f.on = false;
+      f.lightsOnly = false;
+      f.occOnly = true;
+      f.player = playerIndex & 3;
+      f.view.capture(playerIndex);
+      int camLevel = (int)Math.floor(IsoCamera.frameState.camCharacterZ);
+      int camWx = Math.floorDiv(f.view.ox, 8), camWy = Math.floorDiv(f.view.oy, 8);
+      f.refX = camWx * 8;
+      f.refY = camWy * 8;
+      long o0 = System.nanoTime();
+      maintainOccupancy(f, camWx, camWy, Math.min(-1, camLevel - 4));
+      occNs += System.nanoTime() - o0;
+      f.occZ0 = occZ0;
+      f.maxTop = Math.min(occZ0 + OCC_L, maxTopLevel + 1);
+      SpriteRenderer.instance.drawGeneric(f);
+   }
+
    private static int heldNx, heldNy;
    private static float heldCu = -1F;
 
    private static void queueInner(int playerIndex) {
+      if (!wanted() && EntityShadow.wantsOccupancy()) {
+         occupancyOnly(playerIndex);
+         return;
+      }
       if (!wanted()) {
          if (Gl.everOn) {
             Frame f = FRAMES[frameIndex++ & 3];
@@ -1136,6 +1164,7 @@ public final class GodRays {
       frames++;
       Frame f = FRAMES[frameIndex++ & 3];
       f.uploads.clear();
+      f.occOnly = false;
       f.player = playerIndex & 3;
       keyLight();
       f.on = strengthNow > 0.003F;
@@ -1457,6 +1486,10 @@ public final class GodRays {
    static final class Gl {
       static boolean everOn;
       static int occTex, vTex, fTex, topTex, mmTex, sTex;
+      /** The occupancy as last uploaded (render thread; pzopt.EntityShadow reads it): its lowest level, the exit height. */
+      static int occZ0Now = -4;
+      static long occOnlyFrames, occUploads;
+      static float occMaxTop = 1F;
       static int vProg, fProg, mmProg, volFbo;
       /** No compute shaders (GL < 4.3, macOS): the volume is written by fragment passes, one draw per slice. */
       static boolean fragVolume;
@@ -1492,6 +1525,22 @@ public final class GodRays {
       }
 
       static void frame(Frame f) {
+         // 1. occupancy uploads, whatever the frame does next (a frame without light still built them; entity shadows read them)
+         if (f.occOnly) {
+            occOnlyFrames++;
+         }
+         if ((!f.uploads.isEmpty() || f.tops != null) && ensureOcc()) {
+            occUploads += f.uploads.size();
+            uploadOcc(f);
+         }
+         if (occTex != 0) {
+            occZ0Now = f.occZ0;
+            occMaxTop = f.maxTop;
+         }
+         if (f.occOnly) {
+            screenOn = false;
+            return;
+         }
          if (!f.devOn && Config.DEV_GOD_RAYS_ALTERNATE > 0 && Config.DEV_GOD_RAYS_ALTERNATE_ALL) {
             screenOn = false; // dev: the off half of an alternation does no god ray work at all (a within-run frame-time A/B)
             apOn = false;
@@ -1542,34 +1591,6 @@ public final class GodRays {
             }
             Timing.begin("update", true);
             int prevFbo = currentFbo(f);
-            // 1. occupancy uploads
-            if (!f.uploads.isEmpty()) {
-               GL11.glBindTexture(GL12.GL_TEXTURE_3D, occTex);
-               IntBuffer sb = uploadBuf();
-               for (Upload u : f.uploads) {
-                  sb.clear();
-                  sb.put(u.data).flip();
-                  GL12.glTexSubImage3D(GL12.GL_TEXTURE_3D, 0, (u.wx & OCC_CHUNKS - 1) * 8, (u.wy & OCC_CHUNKS - 1) * 8, 0, 8, 8, OCC_L, GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_INT, sb);
-               }
-               GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
-            }
-            if (f.tops != null) {
-               if (topTex == 0) {
-                  topTex = GL11.glGenTextures();
-                  GL11.glBindTexture(GL11.GL_TEXTURE_2D, topTex);
-                  GL42.glTexStorage2D(GL11.GL_TEXTURE_2D, 1, GL30.GL_R8UI, OCC_CHUNKS, OCC_CHUNKS);
-                  GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-                  GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
-               }
-               ByteBuffer tb = BufferUtils.createByteBuffer(f.tops.length);
-               tb.put(f.tops).flip();
-               GL11.glBindTexture(GL11.GL_TEXTURE_2D, topTex);
-               GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 1);
-               GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, OCC_CHUNKS, OCC_CHUNKS, GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_BYTE, tb);
-               GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
-               GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
-               f.tops = null;
-            }
             // 2. which columns need their visibility and integration
             boolean gridChanged = f.cu != lastCu || f.cz != lastCz || f.zLo != lastZLo || f.nx != nx || f.ny != ny || f.nz != nz || f.occZ0 != lastOccZ0;
             if (f.nx != nx || f.ny != ny || f.nz != nz) {
@@ -1909,6 +1930,55 @@ public final class GodRays {
          }
       }
 
+      /** The frame's chunk occupancy and chunk tops into their textures (render thread). */
+      private static void uploadOcc(Frame f) {
+         if (!f.uploads.isEmpty()) {
+            GL11.glBindTexture(GL12.GL_TEXTURE_3D, occTex);
+            IntBuffer sb = uploadBuf();
+            for (Upload u : f.uploads) {
+               sb.clear();
+               sb.put(u.data).flip();
+               GL12.glTexSubImage3D(GL12.GL_TEXTURE_3D, 0, (u.wx & OCC_CHUNKS - 1) * 8, (u.wy & OCC_CHUNKS - 1) * 8, 0, 8, 8, OCC_L, GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_INT, sb);
+            }
+            GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
+         }
+         if (f.tops != null) {
+            if (topTex == 0) {
+               topTex = GL11.glGenTextures();
+               GL11.glBindTexture(GL11.GL_TEXTURE_2D, topTex);
+               GL42.glTexStorage2D(GL11.GL_TEXTURE_2D, 1, GL30.GL_R8UI, OCC_CHUNKS, OCC_CHUNKS);
+               GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+               GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+            }
+            ByteBuffer tb = BufferUtils.createByteBuffer(f.tops.length);
+            tb.put(f.tops).flip();
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, topTex);
+            GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 1);
+            GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, OCC_CHUNKS, OCC_CHUNKS, GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_BYTE, tb);
+            GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, 4);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+            f.tops = null;
+         }
+      }
+
+      /** The occupancy texture (render thread); false when it cannot be made. */
+      static boolean ensureOcc() {
+         if (occTex != 0) {
+            return true;
+         }
+         if (failed || CoreGl.legacyMac()) {
+            return false;
+         }
+         occTex = GL11.glGenTextures();
+         GL11.glBindTexture(GL12.GL_TEXTURE_3D, occTex);
+         GL11.glTexParameteri(GL12.GL_TEXTURE_3D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+         GL11.glTexParameteri(GL12.GL_TEXTURE_3D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+         GL42.glTexStorage3D(GL12.GL_TEXTURE_3D, 1, GL30.GL_R32UI, OCC_N, OCC_N, OCC_L);
+         GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
+         Log.info("god rays: occupancy " + OCC_N + "x" + OCC_N + "x" + OCC_L + " R32UI ready");
+         return true;
+      }
+
       private static boolean ensure(Frame f) {
          if (vProg != 0) {
             return true;
@@ -1934,13 +2004,8 @@ public final class GodRays {
             why = "compute shaders did not compile";
             return false;
          }
-         occTex = GL11.glGenTextures();
-         GL11.glBindTexture(GL12.GL_TEXTURE_3D, occTex);
-         GL11.glTexParameteri(GL12.GL_TEXTURE_3D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-         GL11.glTexParameteri(GL12.GL_TEXTURE_3D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
-         GL42.glTexStorage3D(GL12.GL_TEXTURE_3D, 1, GL30.GL_R32UI, OCC_N, OCC_N, OCC_L);
-         GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
-         Log.info("god rays: occupancy " + OCC_N + "x" + OCC_N + "x" + OCC_L + " R32UI ready, " + (fragVolume ? "fragment" : "compute") + " programs " + vProg + "/" + fProg);
+         ensureOcc();
+         Log.info("god rays: " + (fragVolume ? "fragment" : "compute") + " programs " + vProg + "/" + fProg);
          return true;
       }
 
@@ -2507,20 +2572,20 @@ public final class GodRays {
       static int apdProg;
       private static int[] uApd;
 
-      /**
-       * The light volumes straight into the world picture, one draw: each prism's camera-facing faces, the pixel's view
-       * column clipped against its half-spaces, dual-source blending {@code beam (1 - dst) + dst sqrt(1 + gain lit)}: a
-       * screen blend for the dust in the shaft (display space: over black it is the beam, over white nothing), the sunlit
-       * patch as the exact display-space multiplier. Overlapping prisms blend one after the other. No target, no clear, no
-       * composite.
-       */
-      private static void apDirect(Frame f, int fbo) {
+      /** Render thread, at world entry (shaderWarmup): the direct volume program built before its first draw (~40 ms cold). */
+      static void warm() {
+         if (apdProg == 0 && Config.GOD_RAYS_AP_DIRECT && wanted()) {
+            apdInit();
+         }
+      }
+
+      private static boolean apdInit() {
          if (apdProg == 0) {
             apdProg = FogPass.link(AP_VERT, APD_FRAG, new String[] {"aPos"}, null);
             if (apdProg == 0) {
                Log.warn("god rays: direct light volume shader did not compile; the two-pass path");
                Config.GOD_RAYS_AP_DIRECT = false;
-               return;
+               return false;
             }
             uApd = new int[] {GL20.glGetUniformLocation(apdProg, "uMapA"), GL20.glGetUniformLocation(apdProg, "uMapB"), GL20.glGetUniformLocation(apdProg, "uVp"),
                GL20.glGetUniformLocation(apdProg, "uDepth"), GL20.glGetUniformLocation(apdProg, "uLight"), GL20.glGetUniformLocation(apdProg, "uPlanes"),
@@ -2529,6 +2594,20 @@ public final class GodRays {
             if (apVbo == 0) {
                apVbo = GL15.glGenBuffers();
             }
+         }
+         return true;
+      }
+
+      /**
+       * The light volumes straight into the world picture, one draw: each prism's camera-facing faces, the pixel's view
+       * column clipped against its half-spaces, dual-source blending {@code beam (1 - dst) + dst sqrt(1 + gain lit)}: a
+       * screen blend for the dust in the shaft (display space: over black it is the beam, over white nothing), the sunlit
+       * patch as the exact display-space multiplier. Overlapping prisms blend one after the other. No target, no clear, no
+       * composite.
+       */
+      private static void apDirect(Frame f, int fbo) {
+         if (!apdInit()) {
+            return;
          }
          float kA = mapA[0], cA = mapA[1], kB = mapA[2], cB = mapA[3];
          int vpp = PRISM_FLOATS / 4;
