@@ -1,5 +1,7 @@
 # Experiment: parallel scene-cull classification (2026-10-06)
 
+**Result (2026-10-09): rejected for performance.** The exactness rig passed 6,188,217 classifications with zero mismatches and zero failures on a Ryzen 5 5600. In the follow-up 2 s in-run A/B, the worker path made `cull_classify` about 11 us/frame slower on paired phase blocks and `sceneCull` about 15 us/frame slower. The stock/optimized predicate is only about 20 us/frame here, so `FrameBatch` dispatch/join costs more than the work it moves. See `docs/findings-scene-cull-parallel-2026-10-09.md`. Do not merge this key into the main branch.
+
 ## Why this seam
 
 After the Louisville 120 fps pass, the remaining ordinary heavy-view frames still grow with per-zombie work.
