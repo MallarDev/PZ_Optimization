@@ -543,6 +543,7 @@ public final class UpdateBatch {
    }
 
    public static long frames, batched, maxBatch, workNanos, waitNanos;
+   private static long lastDevLogNs;
 
    /** True while a bucket should hand its scheduled entities over instead of walking them itself. */
    public static boolean enabled() {
@@ -1140,6 +1141,19 @@ public final class UpdateBatch {
       flightPomArr = null;
       flightLevelArr = null;
       flightPending = false;
+      maybeDevLog();
+   }
+
+   /** Game thread: periodic live-play telemetry for entityUpdateParallel safety / compatibility evaluation. */
+   private static void maybeDevLog() {
+      if (!Config.DEV_ENTITY_UPDATE_LOG) {
+         return;
+      }
+      long now = System.nanoTime();
+      if (lastDevLogNs == 0L || now - lastDevLogNs >= 5_000_000_000L) {
+         lastDevLogNs = now;
+         Log.info("entity update check: " + describe());
+      }
    }
 
    /** Room reserved past the queued block for inline entities stamped mid-flight (players, vehicles, animals). */
