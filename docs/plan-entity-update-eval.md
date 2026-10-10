@@ -75,6 +75,43 @@ Compare `schedUpdate`, game-thread CPU and frame time.
 Acceptance gate for this machine: >= 0.20 ms reduction in paired `schedUpdate`, no regression in p99 frame time, and
 no safety/compatibility counters out of balance.
 
+## Phase 2 result (2026-10-10, 8 frame workers)
+
+The 2300 ms ABBA run produced 41 usable paired on-windows after a 10 s warm-up and 150 ms switch guards.
+
+- all pairs: `schedUpdate` on-off **-0.375 +/- 0.118 ms/frame** (SE);
+- high-zombie pairs (>=500 updates/frame): `schedUpdate` **-0.500 +/- 0.111 ms/frame**;
+- whole game-thread CPU: no clear win (-0.19 ms/frame in the high-zombie subset, noise ~=0.32 ms);
+- wall/frame time: effectively flat (+0.02 ms/frame in the high-zombie subset);
+- process CPU increased by about 5 ms/frame in the high-zombie subset, as expected when work moves to workers.
+
+The run also had three extreme `renderInternal` stalls above 35 ms (87.7, 75.2 and 57.4 ms), all in the
+entity-update-ON phase. The last one is at shutdown; the first two are gameplay frames. The player reported roughly
+3-4 brief black flashes, so worker pressure / render-thread starvation is now a test target rather than enabling the
+broader zombie filter.
+
+Fire observations are not currently attributed to entityUpdateParallel. The log shows many
+`IsoFireManager.Remove unknown fire, ignoring` messages during chunk unload/reload, including while the A/B phase is
+OFF. Build 42 has independent reported fire persistence / Molotov bugs, so a fixed-phase control is required before
+calling this a batch regression.
+
+### Phase 2b: worker-count control
+
+Keep the same conservative A/B, but set:
+
+```properties
+frameThreads=4
+entityUpdateParallel=true
+entityUpdateSafeStates=true
+entityUpdatePipeline=false
+devGtAlternate=2300
+devGtAlternateKeys=entityUpdateParallel
+```
+
+The Ryzen 5 5600 has six physical cores. Eight FrameBatch workers plus game/render/other engine threads can oversubscribe
+the cores; four workers leave a core budget for the game and render threads. Acceptance: retain >=0.20 ms scheduler gain,
+remove the >35 ms render stalls / black flashes, and avoid a frame-time-tail regression.
+
 ## Phase 3 only if Phase 2 pays
 
 Upstream's September tests found the original broad PR filter safe after `physicsDefer`, `emitterDefer`, Lua replay,
