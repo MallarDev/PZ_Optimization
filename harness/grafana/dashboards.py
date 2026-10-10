@@ -17,6 +17,8 @@ import json
 import re
 from pathlib import Path
 
+import workshop_sql
+
 OUT = Path(__file__).resolve().parent / "dashboards"
 DS = {"type": "grafana-postgresql-datasource", "uid": "pzopt-pg"}
 ROUTE_FROM, ROUTE_TO = "1999-12-31T23:59:30.000Z", "2000-01-01T00:02:00.000Z"
@@ -964,10 +966,115 @@ SELECT coalesce((SELECT avg(total_w) FROM live_sysmon WHERE {last5}), (SELECT av
                      desc="The running game: harness/grafana/ingest.py --follow tails ~/Zomboid/pzopt-*.out and the run's sysmon.csv")
 
 
+WS_URL = "https://steamcommunity.com/sharedfiles/filedetails/?id=3805285544"
+
+
+def workshop_dashboard():
+    """How the Workshop page performs (2026-10-10, the description restyle): Steam counters (workshop_stats, every 30 min),
+    releases, comments, GitHub and Discord (workshop_stats.py history), per UTC day, and a before / after table of a page
+    change picked from workshop_page_changes, against the trend of the days before it."""
+    L = Layout()
+    W = workshop_sql
+    link = [{"title": "Steam Workshop page", "url": WS_URL, "targetBlank": True}]
+
+    def tile(title, sql, desc, color, unit="locale", spark=True):
+        p = stat_panel(title, "", decimals=0, color_mode="value", value_size=36, thr=[(color, None)], desc=desc, text_mode="value")
+        p["targets"] = [q(sql, "time_series" if spark else "table")]
+        p["options"].update(graphMode="area" if spark else "none")
+        p["options"]["reduceOptions"]["fields"] = ""
+        p["fieldConfig"]["defaults"]["unit"] = unit
+        p["links"] = link
+        return p
+    L.row("Now")
+    L.add(tile("Subscribers", "SELECT t AS time, subscribers AS subscribers FROM workshop_stats WHERE $__timeFilter(t) ORDER BY t",
+               "Current subscribers (Steam Web API, every 30 min).", "#66c0f4"), 4, 4)
+    L.add(tile("Unique visitors", "SELECT t AS time, visitors AS visitors FROM workshop_stats WHERE $__timeFilter(t) ORDER BY t",
+               "Unique visitors of the Workshop page since it was published (each Steam account once).", "#66c0f4"), 4, 4)
+    L.add(tile("Ratings", "SELECT t AS time, ratings AS ratings FROM workshop_stats WHERE ratings IS NOT NULL AND $__timeFilter(t) ORDER BY t",
+               "Players who rated the item (item page; NULL while Steam rate-limits it).", "#F2CC0C"), 4, 4)
+    L.add(tile("Comments", "SELECT t AS time, sum(n) OVER (ORDER BY t) AS comments FROM workshop_comments ORDER BY t",
+               "Comments on the item page, from every comment's own timestamp.", "#8AB8FF"), 4, 4)
+    L.add(tile("Discord members", "SELECT t AS time, discord_members AS members FROM workshop_extra WHERE $__timeFilter(t) ORDER BY t",
+               "Approximate members of the project's Discord server (its invite's counts).", "#5865F2"), 4, 4)
+    L.add(tile("GitHub stars", "SELECT t AS time, github_stars AS stars FROM workshop_extra WHERE $__timeFilter(t) ORDER BY t",
+               "Stars of github.com/xD3I/PZ_Optimization.", "#C4C4C4"), 4, 4)
+
+    def lines(p):  # one point a day (or 6 h): a line through visible points, never broken by the gap between them
+        p["fieldConfig"]["defaults"]["custom"].update(insertNulls=False, spanNulls=True, showPoints="always", pointSize=6, lineWidth=2,
+                                                      fillOpacity=0)
+        return p
+
+    def per_day(title, metrics, desc, overrides=()):
+        p = lines(ts_panel(title, [q(W.daily_series(metrics))], unit="none", desc=desc + " Whole UTC days; today is left out.",
+                           overrides=list(overrides), minv=0))
+        p["fieldConfig"]["defaults"]["decimals"] = 1
+        return p
+    L.row("Per day (UTC)")
+    L.add(per_day("Visitors and subscriptions", ["visitors", "new subs", "unsubscribes"],
+                  "New unique visitors, new subscriptions and unsubscriptions per day (Steam's counters, each day's last snapshot minus the day before's).",
+                  [ov("visitors", color="#66c0f4"), ov("new subs", color="#73BF69"), ov("unsubscribes", color="#F2495C")]), 12, 8)
+    L.add(per_day("Conversion", ["subs per 100 visitors", "unsubs per 100 subs", "favourites per 100 visitors"],
+                  "New subscriptions per 100 new visitors (a subscribe needs no page visit: collections, the in-game browser, so it can pass 100), "
+                  "unsubscribes per 100 new subscriptions, new favourites per 100 new visitors.",
+                  [ov("subs per 100 visitors", color="#73BF69"), ov("unsubs per 100 subs", color="#F2495C"),
+                   ov("favourites per 100 visitors", color="#F2CC0C")]), 12, 8)
+    L.add(per_day("Comments and ratings", ["comments", "ratings"], "Comments posted and new ratings per day.",
+                  [ov("comments", color="#8AB8FF"), ov("ratings", color="#F2CC0C")]), 8, 8)
+    L.add(per_day("GitHub downloads", ["one-liner downloads", "zip downloads", "releases"],
+                  "Each release's downloads spread over the hours it was the latest. Installs themselves are invisible: the page's main path "
+                  "(the helper window) and the by-hand copy install from the Workshop item's own files, so the one-liner counts only the "
+                  "page's \"No window?\" fallback; zips are mostly the in-game updater. Releases: published that day (right axis).",
+                  [ov("one-liner downloads", color="#FF9830"), ov("zip downloads", color="#B877D9"), ov("releases", axis="right", color="#C4C4C4")]), 8, 8)
+    L.add(per_day("GitHub repository visits", ["github views", "github visitors"],
+                  "Views and unique visitors of the GitHub repository pages (GitHub's traffic API, owner-only: kept in the local database only).",
+                  [ov("github views", color="#C4C4C4"), ov("github visitors", color="#8AB8FF")]), 8, 8)
+    L.add(lines(ts_panel("Conversion, 6-hour windows", [q("""
+WITH b AS (SELECT to_timestamp(floor(extract(epoch FROM t) / 21600) * 21600) AS w, max(visitors) AS v, max(lifetime_subscribers) AS ls,
+  max(subscribers) AS s FROM workshop_stats GROUP BY 1),
+d AS (SELECT w, v - lag(v) OVER o AS dv, ls - lag(ls) OVER o AS dls, s - lag(s) OVER o AS ds FROM b WINDOW o AS (ORDER BY w))
+SELECT w + interval '3 hours' AS time, 100.0 * dls / nullif(dv, 0) AS "subs per 100 visitors",
+  100.0 * (dls - ds) / nullif(dls, 0) AS "unsubs per 100 subs" FROM d WHERE dv > 0 AND $__timeFilter(w) ORDER BY 1""")],
+                   unit="none", desc="The same ratios over 6-hour windows of the 30-min snapshots, to see a step at a page change "
+                   "(annotations) inside a day. Noisy: a window holds ~600 visitors.",
+                   overrides=[ov("subs per 100 visitors", color="#73BF69"), ov("unsubs per 100 subs", color="#F2495C")], minv=0)), 24, 8)
+
+    L.row("Before / after a page change")
+    ba = table_panel("Before / after the selected page change", W.before_after("'${change}'::timestamptz", "${days}", "${trend}"),
+                     desc="Mean of the chosen number of whole UTC days before the change day and after it (the change day left out), the "
+                          "range of the days before (an after mean outside it is more than the day-to-day noise), and the after days "
+                          "against the log-linear trend fitted to the trend days before: the counts were still settling after the "
+                          "2026-09-20 launch, so a plain before / after reads a falling series as a loss. Releases, weekdays and other "
+                          "page changes in the window confound both.",
+                     overrides=[*[ov(n, decimals=1) for n in ("before", "before low", "before high", "after", "trend expected")],
+                                *[ov(n, unit="percent", decimals=0) for n in ("after vs before %", "after vs trend %")],
+                                ov("trend before %/day", unit="percent", decimals=0), ov("metric", width=200), ov("what it counts", wrap=True)])
+    L.add(ba, 24, 14)
+    L.add(table_panel("Page changes", """SELECT t AS "time", kind, label FROM workshop_page_changes ORDER BY t DESC""",
+                      desc="Restyles and marks (workshop_stats.py --mark, after an upload) and description changes found by the 30-min "
+                           "snapshot (release build lines ignored).", overrides=[ov("time", unit="dateTimeAsIso", width=170), ov("kind", width=100)]), 12, 8)
+    L.add(table_panel("Releases (each is a Workshop update)", """SELECT t AS "time", tag, installer AS "one-liner downloads", zip AS "zip downloads",
+  uninstaller AS "uninstaller downloads" FROM workshop_releases ORDER BY t DESC""",
+                      desc="Every GitHub release with its downloads so far.", overrides=[ov("time", unit="dateTimeAsIso", width=170)]), 12, 8)
+
+    change = var_query("change", "page change", """SELECT label || ' · ' || to_char(t AT TIME ZONE 'UTC', 'MM-DD HH24:MI') || ' UTC' AS __text,
+  to_char(t AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS __value FROM workshop_page_changes ORDER BY (kind = 'restyle') DESC, t DESC""")
+    days = custom_var("days", "days each side", ["3", "5", "7"], "3")
+    trend = custom_var("trend", "trend days", ["8", "14"], "8")
+    releases = annotation("releases", "SELECT t AS time, tag AS text FROM workshop_releases WHERE $__timeFilter(t)", "rgba(196, 196, 196, 0.5)")
+    releases["enable"] = False
+    changes = annotation("page changes", """SELECT t AS time, kind || ': ' || label AS text FROM workshop_page_changes
+WHERE kind IN ('restyle', 'mark') AND $__timeFilter(t)""", "#FF9830")
+    descs = annotation("description changes", "SELECT t AS time, label AS text FROM workshop_page_changes WHERE kind = 'description' AND $__timeFilter(t)",
+                       "#F2CC0C")
+    return dashboard("pzopt-workshop", "PZ Workshop page", L, variables=(change, days, trend), time=("now-30d", "now"),
+                     annotations=(changes, descs, releases), links=link,
+                     desc="How the Steam Workshop page converts: visitors, subscriptions, engagement, GitHub, Discord; before / after a page change")
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     from machines import machine_dashboards  # one per test machine, built from this file's panels
-    for d in (runs_dashboard(), run_dashboard(), compare_dashboard(), live_dashboard(), *machine_dashboards()):
+    for d in (runs_dashboard(), run_dashboard(), compare_dashboard(), live_dashboard(), workshop_dashboard(), *machine_dashboards()):
         (OUT / f"{d['uid']}.json").write_text(json.dumps(d, indent=1) + "\n")
     print(f"dashboards: {', '.join(sorted(p.name for p in OUT.glob('*.json')))}")
 

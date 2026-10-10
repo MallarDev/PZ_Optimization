@@ -138,6 +138,17 @@ CREATE INDEX IF NOT EXISTS live_inputs_t ON live_inputs (t);
 CREATE TABLE IF NOT EXISTS workshop_stats (t timestamptz PRIMARY KEY, item bigint, subscribers integer,
   lifetime_subscribers integer, favorites integer, lifetime_favorites integer, visitors integer, stars smallint,
   ratings integer, comments integer, awards integer);
+-- what else the PZ Workshop page dashboard reads (workshop_stats.py, same 30 min, 2026-10-10): every GitHub release's
+-- downloads (re-read each time, the counts keep growing), every comment's time, GitHub's daily views (the API keeps 14 days,
+-- the table keeps them all), small counters, each description version, and the page changes (restyles, marks, detected
+-- description changes) the before / after table picks from
+CREATE TABLE IF NOT EXISTS workshop_releases (tag text PRIMARY KEY, t timestamptz, installer integer, zip integer, uninstaller integer);
+CREATE TABLE IF NOT EXISTS workshop_comments (t timestamptz PRIMARY KEY, n integer);
+CREATE TABLE IF NOT EXISTS workshop_github_views (day date PRIMARY KEY, views integer, uniques integer);
+CREATE TABLE IF NOT EXISTS workshop_extra (t timestamptz PRIMARY KEY, github_stars integer, discord_members integer,
+  discord_online integer, steam_referrals integer, steam_referral_uniques integer);
+CREATE TABLE IF NOT EXISTS workshop_descriptions (hash text PRIMARY KEY, first_seen timestamptz, chars integer, body text);
+CREATE TABLE IF NOT EXISTS workshop_page_changes (t timestamptz PRIMARY KEY, kind text, label text);
 
 
 DO $$

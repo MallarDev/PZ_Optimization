@@ -722,7 +722,17 @@ with the variables filled in: the test after editing `dashboards.py` (0 errors e
   schedmon CPU / run-queue per OS thread, PSI, memory, pacing, the inputs (keys / buttons timeline, analog axes, every
   event, the harness configuration), the console as a searchable log, counters), *PZ compare* (runs on one route-time
   axis, % change vs a base run, percentile bars, phase matrix, a diff flame graph base vs another run), *PZ live* (the game
-  running now, 1 s refresh, with the last 10 s as a flame graph and the live inputs), *PZ machine: <m>* (one per machine,
+  running now, 1 s refresh, with the last 10 s as a flame graph and the live inputs), *PZ Workshop page* (`pzopt-workshop`,
+  2026-10-10, the description restyle: how the page converts; `workshop_stats.py` also stores every GitHub release's downloads,
+  every comment's time, GitHub's daily views (local DB only: owner-only data, and the public DB answers anonymous SQL),
+  stars / Discord members, each description version and the page changes; SQL in `workshop_sql.py`): tiles, per UTC day
+  visitors / subscriptions / unsubscribes, conversion (subs per 100 visitors, unsubs per 100 subs, favourites per 100
+  visitors), comments, GitHub downloads, the same ratios over 6-hour windows, and a before / after table of a page change
+  (variables `change`, `days`, `trend`: whole days each side, the change day left out, after vs the log-linear trend of the
+  days before). Record a restyle right after its upload: `workshop_stats.py --mark "<what>" --kind restyle`
+  (`--at <ISO>` for an earlier one); `workshop_stats.py --report [--at ...]` prints the table. Installs are invisible: the
+  helper window and the by-hand copy install from the Workshop item's own files, so the GitHub installer downloads count only
+  the page's one-line fallback. *PZ machine: <m>* (one per machine,
   `machines.py`, uids `pzopt-machine-desktop|flip|dell|mac`, written by `dashboards.py`: the hardware, the setups its runs
   reported, the hero / daily chart / scene table / runs part of *PZ runs* pinned to that machine by a hidden constant
   `machine` / `hmachine`, and per-run hardware use: game thread, process cores, GPU temperature / power, VRAM, chunks/s).
