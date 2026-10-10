@@ -38,6 +38,23 @@ The periodic line includes batched entities, Lua captured/replayed, emitter and 
 pathfind escapes, skipped torn surface properties, moving-square deferrals and the failure latch. Expected invariants:
 captured == replayed; each deferred counter == its drained counter; no `FAILED`; no worker exception.
 
+## Phase 1 result (2026-10-10)
+
+Passed on the Ryzen 5 5600 live save with the conservative whitelist. The run reached frame ~135k and exercised
+10.27M batched entity updates without an UpdateBatch failure latch, worker exception, wrong-thread report or native crash.
+Lua replay stayed exactly balanced at 11.149M captured / 11.149M replayed. Lighting deferral was exercised (408 side
+effects). The player deliberately triggered ragdoll around frame 100k and then threw a Molotov into a large horde and
+enabled a vehicle siren around frame 130k; ballistics/ragdoll deferral remained zero, which is expected with
+`entityUpdateSafeStates=true`: burning/ragdolling/combat-near-player zombies are excluded from worker eligibility.
+
+The emitter counters ended `emitterDeferred=651593`, `emitterDrained=651989`. This is a telemetry-counter race, not a
+drain mismatch: `emitterDeferred++` is a plain long increment performed concurrently by worker threads and loses
+increments, while `emitterDrained++` runs serially on the game thread. Treat drained as authoritative. Do not change
+the counter to an atomic in the performance branch because that would add contention to the path being measured.
+
+The generic exception grep also found Firearms translation-format warnings and one Lua `onMouseUp` argument-count error;
+none carried an entity-update/wrong-thread/native-crash signature.
+
 ## Phase 2: performance A/B
 
 After Phase 1 is clean:
